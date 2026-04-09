@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
-import { checkUserLimits, checkGlobalBudget, incrementUsage, getRemainingDaily, DAILY_LIMIT } from '@/lib/usage'
+import { checkUserLimits, checkGlobalBudget, incrementUsage, getRemainingDaily, getRemainingMonthly, DAILY_LIMIT, MONTHLY_LIMIT } from '@/lib/usage'
 import { hasRequiredConsents } from '@/lib/consent'
 import { uploadCreative } from '@/lib/storage'
 import { dispatchInferenceJob, ATTRIBUTION } from '@/lib/inference'
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     .single()
 
   const dailyRemaining = getRemainingDaily(profile?.daily_count ?? 0)
-  const monthlyRemaining = Math.max(0, 50 - (profile?.monthly_count ?? 0))
+  const monthlyRemaining = getRemainingMonthly(profile?.monthly_count ?? 0)
   const canRun = Math.min(dailyRemaining, monthlyRemaining, requestedCount)
 
   if (canRun === 0) {

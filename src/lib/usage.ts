@@ -1,7 +1,7 @@
 import { supabaseServer } from '@/lib/supabase-server'
 
-export const DAILY_LIMIT = 10
-export const MONTHLY_LIMIT = 50
+export const DAILY_LIMIT = 10000
+export const MONTHLY_LIMIT = 10000
 export const COST_PER_ANALYSIS = parseFloat(process.env.COST_PER_ANALYSIS_USD ?? '0.01')
 export const MONTHLY_BUDGET_CAP = parseFloat(process.env.MONTHLY_BUDGET_CAP_USD ?? '300.00')
 
@@ -125,6 +125,10 @@ export async function incrementUsage(userId: string, count = 1): Promise<void> {
     p_cost: COST_PER_ANALYSIS * count,
     p_count: count,
   })
+}
+
+export function getRemainingMonthly(monthlyCount: number): number {
+  return Math.max(0, MONTHLY_LIMIT - monthlyCount)
 }
 
 export function getRemainingDaily(dailyCount: number): number {
