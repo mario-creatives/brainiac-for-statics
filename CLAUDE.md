@@ -6,11 +6,15 @@
 
 ## What This Is
 
-A free, non-commercial brain activation analyzer for content creators and advertisers.
-Users upload thumbnail images or connect their Meta Ads account to pull creatives. The
-Meta FAIR TRIBE v2 model (CC-BY-NC-4.0) runs GPU inference and shows which brain regions
-activate in response to the creative. Usage is capped to contain GPU costs. Anonymized
-performance signals are collected to build a future commercial dataset.
+A free, non-commercial YouTube thumbnail brain activation analyzer.
+Users enter a YouTube channel handle. The app pulls the 25 most recent videos via the
+YouTube Data API, runs each thumbnail through the Meta FAIR TRIBE v2 model (CC-BY-NC-4.0)
+on Modal GPU workers, then correlates each brain region's activation score against the
+video's actual view count — showing which visual signals statistically track with
+performance on that specific channel.
+
+**Current inference mode: MOCK_MODE = True** — the Modal worker uses image-statistics-based
+proxy scores until real TRIBE v2 weights/package are integrated. See `TRIBE_V2_PLAN.md`.
 
 **No revenue is generated. No performance claims are made. CC-BY-NC-4.0 until a commercial
 license is obtained from Meta FAIR.**
@@ -58,7 +62,7 @@ META_APP_ID=
 META_APP_SECRET=
 META_REDIRECT_URI=
 
-YOUTUBE_DATA_API_KEY=               # Optional — view count enrichment only
+YOUTUBE_DATA_API_KEY=               # Required — channel resolution + video list + view counts
 
 NEXT_PUBLIC_APP_URL=
 MONTHLY_BUDGET_CAP_USD=300.0
@@ -146,21 +150,31 @@ POST /api/oauth/meta/disconnect      Revoke + deactivate account
 ## Inference Architecture
 
 ```
-User uploads image
+User enters @channelhandle
+  → YouTube Data API: resolves handle → channel ID (forHandle, preferred)
+  → YouTube Data API: uploads playlist → 25 most recent video IDs
+  → YouTube Data API: batch statistics → view counts for all 25
+  → For each video: fetch thumbnail bytes (maxresdefault → hqdefault → mqdefault)
   → Next.js API validates auth + consent + usage caps
-  → Image stored in Supabase Storage (bucket: creatives)
-  → analyses row created (status: queued → processing)
-  → POST to Modal web endpoint (fire and forget)
+  → For each thumbnail:
+      → Supabase: insert analyses row (status: queued)
+      → Supabase Storage: upload thumbnail to `creatives` bucket
+      → POST to Modal web endpoint (fire and forget)
+      → analyses row updated (status: processing)
+  → API returns { analysis_ids[], video_map{} } to client
 
-Modal worker (T4 GPU):
+Modal worker (currently MOCK_MODE, T4 GPU when real):
   → Downloads image from Supabase Storage
-  → Converts to 6-second MP4
-  → Runs TRIBE v2 inference (~15-30s)
+  → MOCK: derives ROI scores from image statistics (contrast, color, etc.)
+  → REAL (future): runs TRIBE v2 inference → vertex activation map → ROI scores
   → Generates viridis heatmap overlay
   → Uploads heatmap to Supabase Storage (bucket: heatmaps)
   → Updates analyses row (status: complete, roi_data, heatmap_url)
 
-Client polls /api/analyze/[id] every 3s until complete
+Client polls all 25 analysis IDs every 3s (parallel)
+  → Tracks N/25 progress
+  → When all settle: computes Pearson r per ROI vs log(view_count)
+  → Renders ranked correlation table + scatter chart for top region
 ```
 
 ---
@@ -168,12 +182,14 @@ Client polls /api/analyze/[id] every 3s until complete
 ## Usage Cap Logic
 
 Hard limits enforced **before** any job is queued:
-- 10 analyses/day per user (resets midnight UTC)
-- 50 analyses/month per user (resets 1st of month)
+- **Currently: 10,000/day and 10,000/month** (caps raised for development/testing)
 - $300/month global GPU budget (~30,000 analyses at $0.01 each)
 - Batch channel analyses count as N against both caps
+- Reset manually: `UPDATE profiles SET daily_count = 0, monthly_count = 0 WHERE email = '...';`
 
 429 responses include `{ reason, limit_type, resets_at }`.
+
+> Restore production caps by setting `DAILY_LIMIT = 10` and `MONTHLY_LIMIT = 50` in `src/lib/usage.ts` before launch.
 
 ---
 
@@ -244,12 +260,14 @@ Create both buckets in the Supabase dashboard before first use.
 | `src/lib/inference.ts` | Modal web endpoint caller |
 | `src/lib/encryption.ts` | AES-256-GCM for OAuth tokens |
 | `src/lib/meta-ads.ts` | Meta Graph API + OAuth state tokens |
-| `src/lib/youtube.ts` | YouTube RSS thumbnail fetcher |
+| `src/lib/youtube.ts` | YouTube Data API + RSS fallback (channel resolution, video list, view counts, thumbnail bytes) |
 | `src/lib/aggregate.ts` | Anonymized signal writer |
 | `src/lib/storage.ts` | Supabase Storage wrapper |
 | `src/proxy.ts` | Auth middleware |
 | `src/components/ConsentGate.tsx` | Blocking consent UI (first login) |
 | `src/components/AttributionFooter.tsx` | Required CC-BY-NC-4.0 attribution |
+| `src/components/CorrelationResults.tsx` | Ranked ROI correlation table + scatter chart |
+| `src/components/ChannelInput.tsx` | YouTube channel handle input |
 | `modal/inference.py` | Python GPU worker (TRIBE v2) |
 | `COMMERCIAL_USE_BLOCKED.md` | License enforcement notice |
 | `supabase/migrations/001_initial.sql` | profiles, RLS, handle_new_user trigger |
@@ -272,31 +290,39 @@ Apply in Supabase dashboard → SQL editor in order.
 
 ## What's Been Built
 
-### Core
-- [x] Project initialized
-- [x] Supabase connected (auth + profiles + brainiac schema)
+### Core Infrastructure
+- [x] Project initialized, deployed to Vercel via GitHub integration
+- [x] Supabase connected (auth + profiles + brainiac schema + RLS)
+- [x] All 3 migrations applied in Supabase SQL editor
+- [x] Supabase Storage buckets created (`creatives` private, `heatmaps` public)
 - [x] Auth pages (login, signup, reset, update-password)
 - [x] Consent gate (3 explicit checkboxes, versioned, IP-logged)
-- [x] Dashboard with upload zone + YouTube channel input
-- [x] Usage meter (daily/monthly caps displayed in header)
-- [x] Analysis result display (heatmap + ROI bar chart + attribution)
-- [x] Account/settings page (data export, account deletion, connected accounts)
-- [x] Meta Ads OAuth (connect, callback, disconnect)
-- [x] All API routes wired to Supabase
-- [x] Modal GPU worker (inference.py)
-- [x] Legal pages (terms, privacy — content briefs, need lawyer review)
+- [x] Modal GPU worker deployed (`modal deploy modal/inference.py`)
+- [x] Modal secret `brainiac-supabase` configured with SUPABASE_SERVICE_ROLE_KEY
+- [x] All env vars set in Vercel (Supabase, Modal, YouTube, Encryption)
+- [x] Legal pages (terms, privacy — need lawyer review before public launch)
 - [x] COMMERCIAL_USE_BLOCKED.md
 
-### Pending Before Launch
-- [ ] Apply all 3 migrations in Supabase SQL editor
-- [ ] Create Supabase Storage buckets: `creatives` (private), `heatmaps` (public)
-- [ ] Generate ENCRYPTION_KEY: `openssl rand -hex 32` → add to .env.local + Vercel
-- [ ] Set up Modal: `pip install modal && modal token new`
-- [ ] Create Modal secret `brainiac-supabase` with SUPABASE_SERVICE_ROLE_KEY
-- [ ] Deploy Modal worker: `modal deploy modal/inference.py`
-- [ ] Add MODAL_INFERENCE_URL to .env.local + Vercel
-- [ ] Register Meta App → get META_APP_ID + META_APP_SECRET
-- [ ] Add META_REDIRECT_URI to Meta app allowed redirects
-- [ ] Have a lawyer review and finalize Terms + Privacy pages
-- [ ] Run `npm install` to pull in recharts
-- [ ] Link GitHub repo to Vercel, set all env vars
+### YouTube Correlation Analyzer (current focus)
+- [x] YouTube Data API integration — channel resolution (forHandle preferred), video list via uploads playlist, batch view count fetch
+- [x] RSS fallback for channels without API key (15-video limit)
+- [x] Channel analysis API route — fetches 25 thumbnails, dispatches to Modal, returns video_map
+- [x] Batch polling — client polls all 25 analysis IDs in parallel with progress bar
+- [x] Pearson correlation engine — computes r per ROI vs log(view_count) across completed analyses
+- [x] CorrelationResults component — ranked table with directional bars + scatter chart for top region
+- [x] Quota warning surfaced when batch is capped by usage limits
+- [x] Hydration mismatch fixed (mounted guard, server renders null for auth-gated page)
+- [x] Channel resolution bug fixed (API forHandle before RSS to avoid legacy username shadowing)
+
+### Modal Worker Status
+- [x] Deployed and reachable at MODAL_INFERENCE_URL
+- [x] Supabase Storage download + heatmap upload working
+- [x] Mock inference producing ROI scores from image statistics
+- [ ] **Real TRIBE v2 inference — see `TRIBE_V2_PLAN.md`**
+
+### Pending Before Public Launch
+- [ ] Integrate real TRIBE v2 model (see `TRIBE_V2_PLAN.md`)
+- [ ] Restore production usage caps: `DAILY_LIMIT = 10`, `MONTHLY_LIMIT = 50` in `src/lib/usage.ts`
+- [ ] Lawyer review of Terms + Privacy pages
+- [ ] Remove debug fields from channel API response (`can_run`, `daily_count`, `loop_error`, etc.)
+- [ ] Set live domain in CLAUDE.md and Vercel
