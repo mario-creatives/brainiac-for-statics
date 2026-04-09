@@ -158,6 +158,11 @@ export async function POST(req: NextRequest) {
     analysis_ids: analysisIds,
     video_map: videoMap,
     queued: analysisIds.length,
+    thumbnails_fetched: thumbnails.length,
+    can_run: actualCount,
+    daily_count: profile?.daily_count ?? 0,
+    monthly_count: profile?.monthly_count ?? 0,
+    loop_error: firstError,
     attribution: ATTRIBUTION,
   })
 }
