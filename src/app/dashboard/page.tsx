@@ -8,9 +8,13 @@ import { UsageMeter } from '@/components/UsageMeter'
 import { ChannelInput } from '@/components/ChannelInput'
 import { CorrelationResults } from '@/components/CorrelationResults'
 import { AttributionFooter } from '@/components/AttributionFooter'
+import { VideoUploader } from '@/components/VideoUploader'
+import { VideoReport } from '@/components/VideoReport'
 import { LogOut, Square } from 'lucide-react'
 import type { AnalysisResult, UsageInfo, ConsentType, LimitError, CorrelationEntry } from '@/types'
 import { ROI_REGISTRY } from '@/lib/roi'
+
+type Tab = 'channel' | 'video'
 
 // ── Pearson correlation ───────────────────────────────────────────────────────
 
@@ -70,14 +74,17 @@ function computeCorrelations(cards: VideoCard[]): CorrelationEntry[] | null {
 export default function DashboardPage() {
   const router = useRouter()
   const [token, setToken] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [consentDone, setConsentDone] = useState<boolean | null>(null)
   const [usage, setUsage] = useState<UsageInfo | null>(null)
+  const [activeTab, setActiveTab] = useState<Tab>('channel')
   const [analyzing, setAnalyzing] = useState(false)
   const [channelHandle, setChannelHandle] = useState<string | null>(null)
   const [cards, setCards] = useState<VideoCard[]>([])
   const [correlations, setCorrelations] = useState<CorrelationEntry[] | null>(null)
   const [limitError, setLimitError] = useState<LimitError | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [videoAnalysisId, setVideoAnalysisId] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
 
   const stoppedRef = useRef(false)
@@ -91,6 +98,7 @@ export default function DashboardPage() {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/auth/login'); return }
       setToken(session.access_token)
+      setUserId(session.user.id)
 
       const [consentRes, usageRes] = await Promise.all([
         fetch('/api/users/me/consent', { headers: { Authorization: `Bearer ${session.access_token}` } }),
@@ -288,13 +296,63 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-8">
-        {/* Channel input */}
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-          <ChannelInput onSubmit={handleChannel} disabled={analyzing} />
+        {/* Tab switcher */}
+        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
+          {(['channel', 'video'] as Tab[]).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={[
+                'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                activeTab === tab
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-gray-400 hover:text-gray-200',
+              ].join(' ')}
+            >
+              {tab === 'channel' ? 'YouTube Channel' : 'Video Upload'}
+            </button>
+          ))}
         </div>
 
-        {/* Errors */}
-        {limitError && (
+        {/* ── Channel tab ───────────────────────────────────────────────────── */}
+        {activeTab === 'channel' && (
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+            <ChannelInput onSubmit={handleChannel} disabled={analyzing} />
+          </div>
+        )}
+
+        {/* ── Video tab ─────────────────────────────────────────────────────── */}
+        {activeTab === 'video' && (
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+            {!videoAnalysisId ? (
+              <div className="space-y-4">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Video Brain Activation Analysis</h2>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Upload a video (≤60s) to run TRIBE v2 and see how brain activation evolves over time.
+                    Takes 3–5 minutes. Counts as 1 analysis toward your usage.
+                  </p>
+                </div>
+                {token && userId && (
+                  <VideoUploader
+                    token={token}
+                    userId={userId}
+                    onAnalysisStarted={(id) => setVideoAnalysisId(id)}
+                  />
+                )}
+              </div>
+            ) : (
+              <VideoReport
+                analysisId={videoAnalysisId}
+                token={token!}
+                onReset={() => setVideoAnalysisId(null)}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Errors (channel tab only) */}
+        {activeTab === 'channel' && limitError && (
           <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl px-5 py-4 text-sm">
             <p className="text-amber-400 font-medium mb-1">Limit reached</p>
             <p className="text-amber-200/70">{limitError.reason}</p>
@@ -303,14 +361,14 @@ export default function DashboardPage() {
             )}
           </div>
         )}
-        {error && (
+        {activeTab === 'channel' && error && (
           <div className="bg-red-950/30 border border-red-800/50 rounded-xl px-5 py-4">
             <p className="text-red-400 text-sm">{error}</p>
           </div>
         )}
 
         {/* Progress bar + stop button */}
-        {cards.length > 0 && (
+        {activeTab === 'channel' && cards.length > 0 && (
           <div className="flex items-center gap-4">
             <div className="flex-1">
               <div className="flex items-center justify-between mb-1.5">
@@ -343,7 +401,7 @@ export default function DashboardPage() {
         )}
 
         {/* Video card grid */}
-        {cards.length > 0 && (
+        {activeTab === 'channel' && cards.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {cards.map(card => (
               <VideoResultCard key={card.video_id} card={card} />
@@ -352,7 +410,7 @@ export default function DashboardPage() {
         )}
 
         {/* Correlation report */}
-        {correlations && channelHandle && (
+        {activeTab === 'channel' && correlations && channelHandle && (
           <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
             <CorrelationResults
               correlations={correlations}
@@ -363,7 +421,7 @@ export default function DashboardPage() {
         )}
 
         {/* Not enough data yet */}
-        {!correlations && !analyzing && cards.length > 0 && doneCount > 0 && (
+        {activeTab === 'channel' && !correlations && !analyzing && cards.length > 0 && doneCount > 0 && (
           <div className="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 text-sm text-gray-400">
             {doneCount} {doneCount === 1 ? 'video' : 'videos'} analyzed — need at least 5 with view counts to compute correlations.
           </div>

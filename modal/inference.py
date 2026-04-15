@@ -210,6 +210,48 @@ def extract_roi_scores(
     return results, round(mean_top, 4)
 
 
+def extract_temporal_roi_scores(
+    preds_array,  # np.ndarray shape (n_timesteps, n_vertices)
+    roi_vertex_map: dict[str, list[int]],
+) -> tuple[list[dict], float]:
+    """
+    Extract per-timestep ROI activation scores from a video inference result.
+    Normalizes globally across all timesteps, then averages vertices per ROI
+    per timestep. Adds temporal_activations list to each ROI entry.
+    Returns (roi_data list with temporal_activations, mean_top_3 score).
+    """
+    import numpy as np
+
+    v_min = float(np.nanmin(preds_array))
+    v_max = float(np.nanmax(preds_array))
+    normalized = (preds_array - v_min) / (v_max - v_min + 1e-8)  # (n_timesteps, n_vertices)
+
+    n_timesteps, n_vertices = normalized.shape
+
+    results = []
+    for roi_key, vertices in roi_vertex_map.items():
+        valid = np.array([v for v in vertices if v < n_vertices])
+        if len(valid) == 0:
+            temporal = [0.0] * n_timesteps
+            avg = 0.0
+        else:
+            temporal_raw = np.nanmean(normalized[:, valid], axis=1)  # (n_timesteps,)
+            temporal = [round(float(x), 4) for x in temporal_raw]
+            avg = round(float(np.nanmean(temporal_raw)), 4)
+
+        results.append({
+            "region_key": roi_key,
+            "label": ROI_REGISTRY[roi_key]["label"],
+            "activation": avg,
+            "temporal_activations": temporal,
+            "description": ROI_REGISTRY[roi_key]["description"],
+        })
+
+    results.sort(key=lambda x: x["activation"], reverse=True)
+    mean_top = round(float(np.mean([r["activation"] for r in results[:3]])), 4)
+    return results, mean_top
+
+
 def mock_roi_scores(image_array) -> tuple[list[dict], float]:
     """
     Fallback: derive plausible ROI scores from image statistics.
@@ -365,6 +407,7 @@ class BrainiacInference:
         analysis_id: str = body["analysis_id"]
         thumbnail_url: str | None = body.get("thumbnail_url")
         storage_key: str | None = body.get("storage_key")
+        content_type: str = body.get("content_type", "image")  # "image" or "video"
         supabase_url: str = body["supabase_url"]
         service_role_key: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
@@ -377,7 +420,117 @@ class BrainiacInference:
             }).eq("id", analysis_id).execute()
             return {"status": "failed", "error": msg}
 
-        # ── Download image (from YouTube URL or Supabase Storage) ─────────────
+        # ── VIDEO PATH ────────────────────────────────────────────────────────
+        if content_type == "video":
+            if not storage_key:
+                return fail("storage_key required for video content_type")
+
+            # Download video from Supabase Storage
+            try:
+                video_bytes = bytes(db.storage.from_("videos").download(storage_key))
+            except Exception as e:
+                return fail(f"Video download failed: {e}")
+
+            # Write to temp file
+            tmp_dir = tempfile.mkdtemp()
+            vid_path = os.path.join(tmp_dir, "upload.mp4")
+            with open(vid_path, "wb") as f:
+                f.write(video_bytes)
+
+            # Trim to 60s if longer (safety check)
+            try:
+                probe = subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", vid_path],
+                    capture_output=True, text=True
+                )
+                duration = float(probe.stdout.strip() or "0")
+                if duration > 60:
+                    trimmed_path = os.path.join(tmp_dir, "trimmed.mp4")
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-i", vid_path, "-t", "60",
+                         "-c", "copy", trimmed_path],
+                        check=True, capture_output=True
+                    )
+                    vid_path = trimmed_path
+                    print(f"Trimmed video from {duration:.1f}s to 60s")
+            except Exception as e:
+                print(f"ffprobe/trim warning (non-fatal): {e}")
+
+            # Run TRIBE v2 on the real video
+            if self.mock_mode:
+                # For mock mode on video, generate a fake image to derive scores from
+                fake_img = np.zeros((360, 640, 3), dtype=np.uint8)
+                roi_data, mean_top_roi_score = mock_roi_scores(fake_img)
+            else:
+                try:
+                    df = self.model.get_events_dataframe(video_path=vid_path)
+                    preds, _segments = self.model.predict(events=df)
+                    preds_array = np.array(preds, dtype=np.float32)
+                    print(f"Video preds shape: {preds_array.shape}, NaN: {np.isnan(preds_array).mean():.2%}")
+
+                    if np.isnan(preds_array).all():
+                        return fail("All predictions are NaN — inference failed on this video")
+
+                    # Fill NaN with global mean before extraction
+                    global_mean = float(np.nanmean(preds_array))
+                    preds_array = np.where(np.isnan(preds_array), global_mean, preds_array)
+
+                    # Extract per-timestep ROI scores (includes temporal_activations)
+                    roi_data, mean_top_roi_score = extract_temporal_roi_scores(
+                        preds_array, self.roi_vertex_map
+                    )
+                    print(f"Top ROI: {roi_data[0]['region_key']} ({roi_data[0]['activation']:.4f}), {len(roi_data[0]['temporal_activations'])} timesteps")
+
+                except Exception as e:
+                    return fail(f"TRIBE v2 video inference failed: {e}")
+
+            # Generate heatmap from the average activation (use first frame as base image)
+            try:
+                first_frame_path = os.path.join(tmp_dir, "frame.jpg")
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", vid_path, "-frames:v", "1",
+                     "-vf", "scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2",
+                     first_frame_path],
+                    check=True, capture_output=True
+                )
+                with open(first_frame_path, "rb") as f:
+                    frame_bytes = f.read()
+                heatmap_bytes = generate_heatmap(frame_bytes, roi_data)
+            except Exception as e:
+                return fail(f"Video heatmap generation failed: {e}")
+
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            # Upload heatmap
+            heatmap_key = f"{analysis_id}.png"
+            try:
+                db.storage.from_("heatmaps").upload(
+                    heatmap_key, heatmap_bytes,
+                    {"content-type": "image/png", "upsert": "true"},
+                )
+                heatmap_url = db.storage.from_("heatmaps").get_public_url(heatmap_key)
+            except Exception as e:
+                return fail(f"Heatmap upload failed: {e}")
+
+            db.table("analyses").update({
+                "status": "complete",
+                "heatmap_storage_key": heatmap_key,
+                "heatmap_url": heatmap_url,
+                "roi_data": roi_data,
+                "mean_top_roi_score": mean_top_roi_score,
+                "completed_at": datetime.datetime.utcnow().isoformat(),
+            }).eq("id", analysis_id).execute()
+
+            return {
+                "status": "complete",
+                "analysis_id": analysis_id,
+                "mean_top_roi_score": mean_top_roi_score,
+                "mock": self.mock_mode,
+            }
+
+        # ── IMAGE PATH (thumbnails) ───────────────────────────────────────────
         if thumbnail_url:
             try:
                 req = urllib.request.Request(

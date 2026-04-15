@@ -5,9 +5,10 @@
 export interface InferenceJobPayload {
   analysis_id: string
   supabase_url: string
+  content_type?: 'image' | 'video'  // defaults to 'image' in Modal worker
   // Provide one of:
   thumbnail_url?: string     // public YouTube thumbnail URL — Modal downloads directly
-  storage_key?: string       // key in 'creatives' bucket — for user-uploaded images
+  storage_key?: string       // key in 'creatives' or 'videos' bucket
 }
 
 export async function dispatchInferenceJob(payload: InferenceJobPayload): Promise<void> {
