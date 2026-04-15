@@ -89,57 +89,63 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No thumbnails found for that channel.' }, { status: 404 })
   }
 
-  const analysisIds: string[] = []
-  const videoMap: Record<string, { video_id: string; title: string; view_count: number | null; thumbnail_url: string }> = {}
-  let firstError: string | null = null
+  // Process all thumbnails in parallel — sequential DB inserts + storage uploads
+  // were taking 25-50s and triggering Vercel's function timeout.
+  const settled = await Promise.allSettled(
+    thumbnails.map(async thumb => {
+      const { data: analysis, error: insertError } = await supabaseServer
+        .from('analyses')
+        .insert({
+          user_id: user.id,
+          type: 'channel_batch',
+          status: 'queued',
+          source: 'youtube_channel',
+        })
+        .select('id')
+        .single()
 
-  for (const thumb of thumbnails) {
-    const { data: analysis, error: insertError } = await supabaseServer
-      .from('analyses')
-      .insert({
-        user_id: user.id,
-        type: 'channel_batch',
-        status: 'queued',
-        source: 'youtube_channel',
-      })
-      .select('id')
-      .single()
+      if (!analysis) throw new Error(`Database insert failed: ${insertError?.message ?? 'unknown'}`)
 
-    if (!analysis) {
-      firstError ??= `Database insert failed: ${insertError?.message ?? 'unknown'}`
-      continue
-    }
+      let storageKey: string
+      try {
+        storageKey = await uploadCreative(thumb.thumbnail_bytes, analysis.id, 'image/jpeg')
+      } catch (err) {
+        await supabaseServer.from('analyses').update({ status: 'failed' }).eq('id', analysis.id)
+        throw new Error(`Storage upload failed: ${String(err)}`)
+      }
 
-    let storageKey: string
-    try {
-      storageKey = await uploadCreative(thumb.thumbnail_bytes, analysis.id, 'image/jpeg')
-    } catch (err) {
-      firstError ??= `Storage upload failed: ${String(err)}`
-      await supabaseServer.from('analyses').update({ status: 'failed' }).eq('id', analysis.id)
-      continue
-    }
+      await supabaseServer
+        .from('analyses')
+        .update({ input_storage_key: storageKey, status: 'processing' })
+        .eq('id', analysis.id)
 
-    await supabaseServer
-      .from('analyses')
-      .update({ input_storage_key: storageKey, status: 'processing' })
-      .eq('id', analysis.id)
-
-    try {
       await dispatchInferenceJob({
         analysis_id: analysis.id,
         storage_key: storageKey,
         supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
       })
-      analysisIds.push(analysis.id)
-      videoMap[analysis.id] = {
+
+      return {
+        analysis_id: analysis.id,
         video_id: thumb.video_id,
         title: thumb.title,
         view_count: thumb.view_count,
         thumbnail_url: thumb.thumbnail_url,
       }
-    } catch (err) {
-      firstError ??= `Inference dispatch failed: ${String(err)}`
-      await supabaseServer.from('analyses').update({ status: 'failed' }).eq('id', analysis.id)
+    })
+  )
+
+  const analysisIds: string[] = []
+  const videoMap: Record<string, { video_id: string; title: string; view_count: number | null; thumbnail_url: string }> = {}
+  let firstError: string | null = null
+
+  for (const result of settled) {
+    if (result.status === 'fulfilled') {
+      const { analysis_id, ...meta } = result.value
+      analysisIds.push(analysis_id)
+      videoMap[analysis_id] = meta
+    } else {
+      firstError ??= result.reason?.message ?? String(result.reason)
     }
   }
 
