@@ -21,18 +21,18 @@ export async function fetchChannelThumbnails(
     ? await fetchVideosViaAPI(channelId, count, apiKey)
     : await fetchVideosViaRSS(channelId, count)
 
-  const results: Array<YTVideoMeta & { thumbnail_bytes: Buffer }> = []
-
-  for (const video of videos) {
-    try {
+  // Download all thumbnails in parallel — sequential downloads of 25 images
+  // would take 25-75s and risk hitting the Vercel route timeout.
+  const settled = await Promise.allSettled(
+    videos.map(async video => {
       const thumbnail_bytes = await fetchThumbnailBytes(video.video_id)
-      results.push({ ...video, thumbnail_bytes })
-    } catch {
-      continue
-    }
-  }
+      return { ...video, thumbnail_bytes }
+    })
+  )
 
-  return results
+  return settled
+    .filter((r): r is PromiseFulfilledResult<YTVideoMeta & { thumbnail_bytes: Buffer }> => r.status === 'fulfilled')
+    .map(r => r.value)
 }
 
 // ── YouTube Data API path (preferred) ────────────────────────────────────────
