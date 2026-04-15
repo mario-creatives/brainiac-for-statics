@@ -360,8 +360,10 @@ class BrainiacInference:
         import cv2
         from supabase import create_client
 
+        import urllib.request
+
         analysis_id: str = body["analysis_id"]
-        storage_key: str = body["storage_key"]
+        thumbnail_url: str = body["thumbnail_url"]
         supabase_url: str = body["supabase_url"]
         service_role_key: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
@@ -374,12 +376,16 @@ class BrainiacInference:
             }).eq("id", analysis_id).execute()
             return {"status": "failed", "error": msg}
 
-        # ── Download image from Supabase Storage ──────────────────────────────
+        # ── Download thumbnail directly from YouTube ───────────────────────────
         try:
-            response = db.storage.from_("creatives").download(storage_key)
-            image_bytes = bytes(response)
+            req = urllib.request.Request(
+                thumbnail_url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; Brainiac/1.0)"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                image_bytes = resp.read()
         except Exception as e:
-            return fail(f"Storage download failed: {e}")
+            return fail(f"Thumbnail download failed: {e}")
 
         # ── Decode image ──────────────────────────────────────────────────────
         try:
@@ -456,6 +462,7 @@ class BrainiacInference:
         # ── Update analyses row ───────────────────────────────────────────────
         db.table("analyses").update({
             "status": "complete",
+            "input_storage_key": thumbnail_url,
             "heatmap_storage_key": heatmap_key,
             "heatmap_url": heatmap_url,
             "roi_data": roi_data,

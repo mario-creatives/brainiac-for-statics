@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { checkUserLimits, checkGlobalBudget, incrementUsage, getRemainingDaily, getRemainingMonthly, DAILY_LIMIT, MONTHLY_LIMIT } from '@/lib/usage'
 import { hasRequiredConsents } from '@/lib/consent'
-import { uploadCreative } from '@/lib/storage'
 import { dispatchInferenceJob, ATTRIBUTION } from '@/lib/inference'
 import { fetchChannelThumbnails } from '@/lib/youtube'
 
@@ -89,8 +88,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No thumbnails found for that channel.' }, { status: 404 })
   }
 
-  // Process all thumbnails in parallel — sequential DB inserts + storage uploads
-  // were taking 25-50s and triggering Vercel's function timeout.
+  // Process all thumbnails in parallel.
+  // Modal downloads the thumbnail directly from YouTube — no Supabase storage
+  // upload needed in this route, keeping it well under the Vercel timeout.
   const settled = await Promise.allSettled(
     thumbnails.map(async thumb => {
       const { data: analysis, error: insertError } = await supabaseServer
@@ -106,22 +106,14 @@ export async function POST(req: NextRequest) {
 
       if (!analysis) throw new Error(`Database insert failed: ${insertError?.message ?? 'unknown'}`)
 
-      let storageKey: string
-      try {
-        storageKey = await uploadCreative(thumb.thumbnail_bytes, analysis.id, 'image/jpeg')
-      } catch (err) {
-        await supabaseServer.from('analyses').update({ status: 'failed' }).eq('id', analysis.id)
-        throw new Error(`Storage upload failed: ${String(err)}`)
-      }
-
       await supabaseServer
         .from('analyses')
-        .update({ input_storage_key: storageKey, status: 'processing' })
+        .update({ status: 'processing' })
         .eq('id', analysis.id)
 
       await dispatchInferenceJob({
         analysis_id: analysis.id,
-        storage_key: storageKey,
+        thumbnail_url: thumb.thumbnail_url,
         supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
       })
 

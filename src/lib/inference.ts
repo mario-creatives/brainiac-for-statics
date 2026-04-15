@@ -4,7 +4,7 @@
 
 export interface InferenceJobPayload {
   analysis_id: string
-  storage_key: string        // key in the 'creatives' Supabase Storage bucket
+  thumbnail_url: string      // public YouTube thumbnail URL — Modal downloads directly
   supabase_url: string
 }
 

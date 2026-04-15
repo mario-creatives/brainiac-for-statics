@@ -13,26 +13,13 @@ export interface YTVideoMeta {
 export async function fetchChannelThumbnails(
   channelHandle: string,
   count: number
-): Promise<Array<YTVideoMeta & { thumbnail_bytes: Buffer }>> {
+): Promise<YTVideoMeta[]> {
   const channelId = await resolveChannelId(channelHandle)
   const apiKey = process.env.YOUTUBE_DATA_API_KEY
 
-  const videos = apiKey
+  return apiKey
     ? await fetchVideosViaAPI(channelId, count, apiKey)
     : await fetchVideosViaRSS(channelId, count)
-
-  // Download all thumbnails in parallel — sequential downloads of 25 images
-  // would take 25-75s and risk hitting the Vercel route timeout.
-  const settled = await Promise.allSettled(
-    videos.map(async video => {
-      const thumbnail_bytes = await fetchThumbnailBytes(video.video_id)
-      return { ...video, thumbnail_bytes }
-    })
-  )
-
-  return settled
-    .filter((r): r is PromiseFulfilledResult<YTVideoMeta & { thumbnail_bytes: Buffer }> => r.status === 'fulfilled')
-    .map(r => r.value)
 }
 
 // ── YouTube Data API path (preferred) ────────────────────────────────────────
