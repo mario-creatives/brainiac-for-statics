@@ -48,7 +48,13 @@ const ROI_EDIT_TIPS: Record<string, { what: string; fix: string }> = {
 interface DipResult { start: number; end: number; minVal: number }
 interface DipZone   { start: number; end: number; roiKey: string; color: string }
 
-function findDips(temporal: number[], threshold = 0.35, minLen = 2): DipResult[] {
+// Relative dip: flags stretches where the value drops >dropFraction below
+// the ROI's own mean. This catches drops that matter (e.g. 0.65→0.47) even
+// when the absolute value never falls below a fixed floor like 0.35.
+function findRelativeDips(temporal: number[], dropFraction = 0.15, minLen = 2): DipResult[] {
+  if (!temporal.length) return []
+  const mean = temporal.reduce((a, b) => a + b, 0) / temporal.length
+  const threshold = mean * (1 - dropFraction)
   const dips: DipResult[] = []
   let inDip = false, dipStart = 0, dipMin = 1
   for (let i = 0; i <= temporal.length; i++) {
@@ -64,13 +70,13 @@ function findDips(temporal: number[], threshold = 0.35, minLen = 2): DipResult[]
   return dips
 }
 
+// Scan all top-5 ROIs (the ones shown in the chart) for dip zones to shade.
 function computeDipZones(roiData: ROIRegionWithTemporal[]): DipZone[] {
   const zones: DipZone[] = []
-  for (const key of ['FFA', 'DAN', 'VWFA']) {
-    const roi = roiData.find(r => r.region_key === key)
-    if (!roi?.temporal_activations?.length) continue
-    for (const dip of findDips(roi.temporal_activations)) {
-      zones.push({ start: dip.start, end: dip.end, roiKey: key, color: ROI_COLORS[key] ?? '#6b7280' })
+  const topRois = roiData.filter(r => (r.temporal_activations?.length ?? 0) > 0).slice(0, 5)
+  for (const roi of topRois) {
+    for (const dip of findRelativeDips(roi.temporal_activations!)) {
+      zones.push({ start: dip.start, end: dip.end, roiKey: roi.region_key, color: ROI_COLORS[roi.region_key] ?? '#6b7280' })
     }
   }
   return zones
@@ -184,17 +190,22 @@ interface Finding {
   dips?: DipResult[]
 }
 
+function avg(arr: number[]): number {
+  return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
+}
+
 function buildFindings(roiData: ROIRegionWithTemporal[]): Finding[] {
   const byKey = Object.fromEntries(roiData.map(r => [r.region_key, r]))
   const findings: Finding[] = []
-  const n = roiData[0]?.temporal_activations?.length ?? 0
+  const topRois = roiData.filter(r => (r.temporal_activations?.length ?? 0) > 0).slice(0, 5)
+  const n = topRois[0]?.temporal_activations?.length ?? 0
 
-  // Opening hook
+  // 1. Opening hook (first 20%)
   const hookEnd = Math.max(2, Math.round(n * 0.2))
   const ffaOpen = byKey['FFA']?.temporal_activations?.slice(0, hookEnd) ?? []
   const v4Open  = byKey['V4']?.temporal_activations?.slice(0, hookEnd) ?? []
-  const ffaAvg  = ffaOpen.length ? ffaOpen.reduce((a, b) => a + b, 0) / ffaOpen.length : null
-  const v4Avg   = v4Open.length  ? v4Open.reduce((a, b) => a + b, 0)  / v4Open.length  : null
+  const ffaAvg  = ffaOpen.length ? avg(ffaOpen) : null
+  const v4Avg   = v4Open.length  ? avg(v4Open)  : null
   if (ffaAvg !== null && v4Avg !== null) {
     const weak = ffaAvg < 0.4 || v4Avg < 0.4
     findings.push({
@@ -208,26 +219,54 @@ function buildFindings(roiData: ROIRegionWithTemporal[]): Finding[] {
     })
   }
 
-  // Dip scan
-  for (const key of ['FFA', 'DAN', 'VWFA'] as const) {
-    const roi = byKey[key]
-    if (!roi?.temporal_activations?.length) continue
-    const dips = findDips(roi.temporal_activations)
-    const tip = ROI_EDIT_TIPS[key]
-    if (dips.length === 0) {
-      findings.push({ roiKey: key, status: 'ok', headline: `${tip.what} held steady`, detail: 'No significant engagement drops detected for this region', dips: [] })
-    } else {
-      findings.push({
-        roiKey: key,
+  // 2. Closing segment check (last 25%) — catches text-only endings, fade-outs, etc.
+  const tailStart = Math.max(0, Math.round(n * 0.75))
+  const droppingAtEnd: string[] = []
+  for (const roi of topRois) {
+    const t = roi.temporal_activations!
+    const overallMean = avg(t)
+    const tailMean = avg(t.slice(tailStart))
+    if (overallMean > 0 && tailMean < overallMean * 0.85) {
+      droppingAtEnd.push(roi.label)
+    }
+  }
+  if (droppingAtEnd.length > 0) {
+    findings.push({
+      status: 'warn',
+      headline: `Engagement drops in the closing segment (t=${tailStart}–${n - 1})`,
+      detail: `${droppingAtEnd.join(', ')} all fall below average in the last 25% — cut the dead ending or add a strong CTA with a face on-camera`,
+    })
+  } else if (n > 4) {
+    findings.push({
+      status: 'ok',
+      headline: 'Closing segment holds engagement',
+      detail: 'Brain activation stays consistent through the end — no drop-off detected',
+    })
+  }
+
+  // 3. Relative dip scan across all top-5 ROIs
+  const dipFindings: Finding[] = []
+  for (const roi of topRois) {
+    const dips = findRelativeDips(roi.temporal_activations!)
+    const tip = ROI_EDIT_TIPS[roi.region_key]
+    if (dips.length > 0) {
+      dipFindings.push({
+        roiKey: roi.region_key,
         status: 'warn',
-        headline: `${tip.what} drops at ${dips.map(d => `t=${d.start}–${d.end}`).join(', ')}`,
-        detail: `Scrub to those moments and ${tip.fix}`,
+        headline: `${roi.label} dips at ${dips.map(d => `t=${d.start}–${d.end}`).join(', ')}`,
+        detail: tip ? `Scrub to those moments and ${tip.fix}` : 'Visual engagement drops — consider a cut or new visual element here',
         dips,
       })
     }
   }
+  // Only show "held steady" summary if no dips found at all (avoids noise)
+  if (dipFindings.length === 0 && topRois.length > 0) {
+    findings.push({ status: 'ok', headline: 'All tracked regions held steady', detail: 'No significant mid-video engagement drops detected' })
+  } else {
+    findings.push(...dipFindings)
+  }
 
-  // Top overall insight
+  // 4. Top overall insight
   const sorted = [...roiData].sort((a, b) => b.activation - a.activation)
   const top = sorted[0]
   if (top) {
