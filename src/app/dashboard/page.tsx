@@ -11,7 +11,7 @@ import { AttributionFooter } from '@/components/AttributionFooter'
 import { VideoUploader } from '@/components/VideoUploader'
 import { VideoReport } from '@/components/VideoReport'
 import { VideoHistory } from '@/components/VideoHistory'
-import { LogOut, Square } from 'lucide-react'
+import { LogOut, Square, X } from 'lucide-react'
 import type { AnalysisResult, UsageInfo, ConsentType, LimitError, CorrelationEntry } from '@/types'
 import { ROI_REGISTRY } from '@/lib/roi'
 
@@ -86,6 +86,7 @@ export default function DashboardPage() {
   const [limitError, setLimitError] = useState<LimitError | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [videoAnalysisId, setVideoAnalysisId] = useState<string | null>(null)
+  const [selectedCard, setSelectedCard] = useState<VideoCard | null>(null)
   const [mounted, setMounted] = useState(false)
 
   const stoppedRef = useRef(false)
@@ -411,7 +412,11 @@ export default function DashboardPage() {
         {activeTab === 'channel' && cards.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {cards.map(card => (
-              <VideoResultCard key={card.video_id} card={card} />
+              <VideoResultCard
+                key={card.video_id}
+                card={card}
+                onClick={card.status === 'complete' ? () => setSelectedCard(card) : undefined}
+              />
             ))}
           </div>
         )}
@@ -433,6 +438,70 @@ export default function DashboardPage() {
             {doneCount} {doneCount === 1 ? 'video' : 'videos'} analyzed — need at least 5 with view counts to compute correlations.
           </div>
         )}
+      {/* Video detail modal */}
+      {selectedCard && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          onClick={() => setSelectedCard(null)}
+        >
+          <div
+            className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Thumbnail + heatmap */}
+            <div className="relative aspect-video bg-gray-800">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={selectedCard.thumbnail_url} alt={selectedCard.title} className="w-full h-full object-cover" />
+              {selectedCard.result?.heatmap_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={selectedCard.result.heatmap_url}
+                  alt="Brain activation heatmap"
+                  className="absolute inset-0 w-full h-full object-cover opacity-70"
+                />
+              )}
+              <button
+                onClick={() => setSelectedCard(null)}
+                className="absolute top-2 right-2 p-1 rounded-full bg-black/60 hover:bg-black/80 text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 space-y-4">
+              <div>
+                <p className="text-sm font-medium text-white leading-snug">{selectedCard.title}</p>
+                {selectedCard.view_count != null && (
+                  <p className="text-xs text-gray-500 mt-0.5">{selectedCard.view_count.toLocaleString()} views</p>
+                )}
+              </div>
+
+              {/* All ROI scores */}
+              {selectedCard.result?.roi_data && (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Brain Activation Scores</p>
+                  {selectedCard.result.roi_data.map(roi => (
+                    <div key={roi.region_key} className="space-y-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-300">{roi.label}</span>
+                        <span className="text-xs font-mono text-gray-400">{roi.activation.toFixed(3)}</span>
+                      </div>
+                      <div className="w-full bg-gray-800 rounded-full h-1.5">
+                        <div
+                          className="bg-indigo-500 h-1.5 rounded-full transition-all"
+                          style={{ width: `${roi.activation * 100}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-gray-600">{roi.description}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       </main>
     </div>
   )
@@ -440,11 +509,17 @@ export default function DashboardPage() {
 
 // ── Video result card ─────────────────────────────────────────────────────────
 
-function VideoResultCard({ card }: { card: VideoCard }) {
+function VideoResultCard({ card, onClick }: { card: VideoCard; onClick?: () => void }) {
   const topRoi = card.result?.roi_data?.slice(0, 3) ?? []
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden flex flex-col">
+    <div
+      className={[
+        'bg-gray-900 border border-gray-800 rounded-xl overflow-hidden flex flex-col',
+        onClick ? 'cursor-pointer hover:border-indigo-700 transition-colors' : '',
+      ].join(' ')}
+      onClick={onClick}
+    >
       {/* Thumbnail */}
       <div className="relative aspect-video bg-gray-800">
         {/* eslint-disable-next-line @next/next/no-img-element */}
