@@ -74,8 +74,9 @@ async function fetchVideosViaAPI(
         title: string
         publishedAt: string
         thumbnails?: {
-          maxres?: { width: number; height: number; url: string }
-          high?:   { width: number; height: number; url: string }
+          maxres?:   { width: number; height: number; url: string }
+          high?:     { width: number; height: number; url: string }
+          standard?: { width: number; height: number; url: string }
         }
       }
       statistics: { viewCount?: string }
@@ -98,19 +99,22 @@ async function fetchVideosViaAPI(
 }
 
 // ── Shorts filters ───────────────────────────────────────────────────────────
-// Primary: thumbnail aspect ratio. YouTube Shorts have vertical thumbnails
-// (maxres: 720×1280). Regular videos are horizontal (maxres: 1280×720).
-// This catches Shorts of any duration, including the newer ≤3-minute Shorts.
+// Primary: thumbnail aspect ratio across all available sizes (maxres → high →
+// standard). Shorts thumbnails are always portrait; regular videos are 16:9.
+// Checks multiple sizes because Shorts often lack a maxres thumbnail.
 //
-// Secondary: duration ≤ 60s catches very short Shorts that lack a vertical
-// maxres thumbnail (older uploads, auto-generated thumbnails, etc.).
+// Secondary: duration ≤ 180s catches anything that slips through with no
+// dimensional info (YouTube Shorts can now be up to 3 minutes).
 
 function isVerticalVideo(
-  thumbnails?: { maxres?: { width: number; height: number } }
+  thumbnails?: {
+    maxres?:   { width: number; height: number }
+    high?:     { width: number; height: number }
+    standard?: { width: number; height: number }
+  }
 ): boolean {
-  const maxres = thumbnails?.maxres
-  if (maxres?.width && maxres?.height) {
-    return maxres.height > maxres.width
+  for (const size of [thumbnails?.maxres, thumbnails?.high, thumbnails?.standard]) {
+    if (size?.width && size?.height) return size.height > size.width
   }
   return false
 }
@@ -122,7 +126,7 @@ function isShort(isoDuration: string): boolean {
   const minutes = parseInt(match[2] ?? '0', 10)
   const seconds = parseInt(match[3] ?? '0', 10)
   const totalSeconds = hours * 3600 + minutes * 60 + seconds
-  return totalSeconds <= 60
+  return totalSeconds <= 180
 }
 
 // ── RSS fallback (no API key) ─────────────────────────────────────────────────
