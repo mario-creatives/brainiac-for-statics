@@ -11,11 +11,12 @@ import { AttributionFooter } from '@/components/AttributionFooter'
 import { VideoUploader } from '@/components/VideoUploader'
 import { VideoReport } from '@/components/VideoReport'
 import { VideoHistory } from '@/components/VideoHistory'
+import { ImageBatchTab } from '@/components/ImageBatchTab'
 import { LogOut, Square, X } from 'lucide-react'
 import type { AnalysisResult, UsageInfo, ConsentType, LimitError, CorrelationEntry } from '@/types'
 import { ROI_REGISTRY } from '@/lib/roi'
 
-type Tab = 'channel' | 'video'
+type Tab = 'channel' | 'images' | 'video'
 
 // ── Pearson correlation ───────────────────────────────────────────────────────
 
@@ -300,7 +301,11 @@ export default function DashboardPage() {
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-8">
         {/* Tab switcher */}
         <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
-          {(['channel', 'video'] as Tab[]).map(tab => (
+          {([
+            ['channel', 'YouTube Channel'],
+            ['images', 'Image Upload'],
+            ['video', 'Video Upload'],
+          ] as [Tab, string][]).map(([tab, label]) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -311,7 +316,7 @@ export default function DashboardPage() {
                   : 'text-gray-400 hover:text-gray-200',
               ].join(' ')}
             >
-              {tab === 'channel' ? 'YouTube Channel' : 'Video Upload'}
+              {label}
             </button>
           ))}
         </div>
@@ -320,6 +325,20 @@ export default function DashboardPage() {
         {activeTab === 'channel' && (
           <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
             <ChannelInput onSubmit={handleChannel} disabled={analyzing} />
+          </div>
+        )}
+
+        {/* ── Image upload tab ──────────────────────────────────────────────── */}
+        {activeTab === 'images' && token && (
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+            <div className="mb-5">
+              <h2 className="text-sm font-semibold text-white">Image Batch Analyzer</h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Upload up to 25 thumbnail images. Each is analyzed with BERG — no metadata or labels required.
+                Results include per-image brain activation scores, summary statistics, and AI design suggestions.
+              </p>
+            </div>
+            <ImageBatchTab token={token} />
           </div>
         )}
 
