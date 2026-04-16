@@ -61,9 +61,9 @@ async function fetchVideosViaAPI(
 
   const videoIds = items.map(i => i.contentDetails.videoId).join(',')
 
-  // Step 3: batch-fetch statistics + snippet + contentDetails (for duration + aspect ratio filtering)
+  // Step 3: batch-fetch statistics + snippet (thumbnail dimensions for aspect ratio filtering)
   const statsRes = await fetch(
-    `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet,contentDetails&id=${videoIds}&key=${apiKey}`,
+    `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${apiKey}`,
     { headers: { 'User-Agent': UA } }
   )
   if (!statsRes.ok) throw new Error(`YouTube videos API failed: ${statsRes.status}`)
@@ -80,12 +80,11 @@ async function fetchVideosViaAPI(
         }
       }
       statistics: { viewCount?: string }
-      contentDetails: { duration: string }
     }[]
   }
 
   return (statsData.items ?? [])
-    .filter(item => !isVerticalVideo(item.snippet.thumbnails) && !isShort(item.contentDetails.duration))
+    .filter(item => !isVerticalVideo(item.snippet.thumbnails))
     .slice(0, count)
     .map(item => ({
       video_id: item.id,
@@ -98,13 +97,10 @@ async function fetchVideosViaAPI(
     }))
 }
 
-// ── Shorts filters ───────────────────────────────────────────────────────────
-// Primary: thumbnail aspect ratio across all available sizes (maxres → high →
-// standard). Shorts thumbnails are always portrait; regular videos are 16:9.
-// Checks multiple sizes because Shorts often lack a maxres thumbnail.
-//
-// Secondary: duration ≤ 180s catches anything that slips through with no
-// dimensional info (YouTube Shorts can now be up to 3 minutes).
+// ── Shorts filter ────────────────────────────────────────────────────────────
+// Shorts thumbnails are portrait; regular video thumbnails are landscape (16:9).
+// Checks maxres → high → standard in order — Shorts often lack maxres.
+// Duration is intentionally NOT used: short regular videos exist.
 
 function isVerticalVideo(
   thumbnails?: {
@@ -117,16 +113,6 @@ function isVerticalVideo(
     if (size?.width && size?.height) return size.height > size.width
   }
   return false
-}
-
-function isShort(isoDuration: string): boolean {
-  const match = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
-  if (!match) return false
-  const hours   = parseInt(match[1] ?? '0', 10)
-  const minutes = parseInt(match[2] ?? '0', 10)
-  const seconds = parseInt(match[3] ?? '0', 10)
-  const totalSeconds = hours * 3600 + minutes * 60 + seconds
-  return totalSeconds <= 180
 }
 
 // ── RSS fallback (no API key) ─────────────────────────────────────────────────
