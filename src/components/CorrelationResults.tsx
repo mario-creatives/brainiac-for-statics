@@ -94,15 +94,18 @@ export function CorrelationResults({ correlations, channelHandle, videoCount }: 
       {/* Rank-based scatter for strongest correlation */}
       {top && top.data_points.length >= 3 && (() => {
         const n = top.data_points.length
-        // Rank by views descending (rank 1 = most views)
+        // Convert rank to percentile: rank 1 (best) → 100, rank N (worst) → 0
         const byViews = [...top.data_points].sort((a, b) => b.log_views - a.log_views)
         const viewRankMap = new Map(byViews.map((d, i) => [d, i + 1]))
-        // Rank by activation descending (rank 1 = highest activation)
         const byAct = [...top.data_points].sort((a, b) => b.activation - a.activation)
         const actRankMap = new Map(byAct.map((d, i) => [d, i + 1]))
 
+        const toPercent = (rank: number) => Math.round(((n - rank) / Math.max(n - 1, 1)) * 100)
+
         const ranked = top.data_points.map(d => ({
           ...d,
+          view_pct: toPercent(viewRankMap.get(d)!),
+          act_pct: toPercent(actRankMap.get(d)!),
           view_rank: viewRankMap.get(d)!,
           act_rank: actRankMap.get(d)!,
         }))
@@ -112,39 +115,42 @@ export function CorrelationResults({ correlations, channelHandle, videoCount }: 
             <div>
               <p className="text-sm font-medium text-white">{top.label} — rank correlation</p>
               <p className="text-xs text-gray-500">
-                r = {top.r >= 0 ? '+' : ''}{top.r.toFixed(3)} · rank 1 = highest · each point is one video
+                r = {top.r >= 0 ? '+' : ''}{top.r.toFixed(3)} · positive r = bottom-left to top-right · each point is one video
               </p>
             </div>
             <ResponsiveContainer width="100%" height={220}>
               <ScatterChart margin={{ top: 4, right: 16, bottom: 20, left: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                 <XAxis
-                  dataKey="view_rank"
+                  dataKey="view_pct"
                   type="number"
-                  domain={[1, n]}
-                  name="View rank"
+                  domain={[0, 100]}
+                  ticks={[0, 25, 50, 75, 100]}
+                  name="Views percentile"
                   tick={{ fill: '#6b7280', fontSize: 11 }}
-                  label={{ value: 'View rank (1 = most views)', position: 'insideBottom', offset: -12, fill: '#4b5563', fontSize: 11 }}
+                  tickFormatter={v => `${v}%`}
+                  label={{ value: 'Views percentile (100% = most views)', position: 'insideBottom', offset: -12, fill: '#4b5563', fontSize: 11 }}
                 />
                 <YAxis
-                  dataKey="act_rank"
+                  dataKey="act_pct"
                   type="number"
-                  domain={[1, n]}
-                  reversed
-                  name="Activation rank"
+                  domain={[0, 100]}
+                  ticks={[0, 25, 50, 75, 100]}
+                  name="Activation percentile"
                   tick={{ fill: '#6b7280', fontSize: 11 }}
-                  label={{ value: 'Activation rank', angle: -90, position: 'insideLeft', fill: '#4b5563', fontSize: 11 }}
+                  tickFormatter={v => `${v}%`}
+                  label={{ value: 'Activation %', angle: -90, position: 'insideLeft', fill: '#4b5563', fontSize: 11 }}
                 />
                 <Tooltip
                   cursor={{ strokeDasharray: '3 3' }}
                   content={({ payload }) => {
-                    const d = payload?.[0]?.payload as { title: string; activation: number; log_views: number; view_rank: number; act_rank: number } | undefined
+                    const d = payload?.[0]?.payload as { title: string; activation: number; log_views: number; view_rank: number; act_rank: number; view_pct: number; act_pct: number } | undefined
                     if (!d) return null
                     return (
                       <div className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs max-w-[200px]">
                         <p className="text-white truncate">{d.title}</p>
-                        <p className="text-gray-400">view rank: #{d.view_rank} · {Math.round(Math.exp(d.log_views) - 1).toLocaleString()} views</p>
-                        <p className="text-gray-400">activation rank: #{d.act_rank}</p>
+                        <p className="text-gray-400">views: {Math.round(Math.exp(d.log_views) - 1).toLocaleString()} (#{d.view_rank})</p>
+                        <p className="text-gray-400">activation: {d.activation.toFixed(3)} (#{d.act_rank})</p>
                       </div>
                     )
                   }}
