@@ -21,25 +21,9 @@ export const ROI_REGISTRY: Record<string, { label: string; description: string }
     label: 'Scene Recognition',
     description: 'The background or setting is being processed as contextual information.',
   },
-  STS: {
-    label: 'Social and Motion Cues',
-    description: 'Biological motion, expressions, or implied action is present.',
-  },
-  DAN: {
-    label: 'Spatial Attention',
-    description: 'The composition is directing spatial focus toward specific elements.',
-  },
   VWFA: {
     label: 'Text Processing',
     description: 'Text in this image is legible and occupying visual attention.',
-  },
-  DMN: {
-    label: 'Default Mode Network',
-    description: 'Self-referential or mind-wandering processes are relatively active.',
-  },
-  AV_ASSOC: {
-    label: 'Audio-Visual Association',
-    description: 'Cross-modal binding regions are active.',
   },
 }
 
