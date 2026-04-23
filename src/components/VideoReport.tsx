@@ -115,21 +115,21 @@ function TemporalChart({ roiData, dipZones }: { roiData: ROIRegionWithTemporal[]
     <div>
       <div className="flex items-baseline justify-between mb-3">
         <div>
-          <h3 className="text-sm font-medium text-gray-300">Brain Activation Over Time</h3>
-          <p className="text-xs text-gray-600 mt-0.5">Top 5 regions · shaded zones = engagement dips</p>
+          <h3 className="text-sm font-medium text-white">Brain Activation Over Time</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Top 5 regions · shaded zones = engagement dips</p>
         </div>
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
           <XAxis
             dataKey="t"
-            tick={{ fill: '#6b7280', fontSize: 10 }}
+            tick={{ fill: 'var(--graphite-4)', fontSize: 10 }}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
             domain={[0, 1]}
-            tick={{ fill: '#6b7280', fontSize: 10 }}
+            tick={{ fill: 'var(--graphite-4)', fontSize: 10 }}
             tickLine={false}
             axisLine={false}
             width={28}
@@ -166,7 +166,7 @@ function TemporalChart({ roiData, dipZones }: { roiData: ROIRegionWithTemporal[]
         {topRois.map(roi => (
           <div key={roi.region_key} className="flex items-center gap-1.5">
             <div className="w-2.5 h-0.5 rounded-full" style={{ backgroundColor: ROI_COLORS[roi.region_key] ?? '#6366f1' }} />
-            <span className="text-xs text-gray-500">{roi.label}</span>
+            <span className="text-xs text-gray-400">{roi.label}</span>
           </div>
         ))}
       </div>
@@ -178,13 +178,13 @@ function TemporalTooltip({ active, payload, label, rois }: TooltipProps<number, 
   if (!active || !payload?.length) return null
   return (
     <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg text-xs shadow-lg space-y-1">
-      <p className="text-gray-500 mb-1.5">t = {label}</p>
+      <p className="text-gray-400 mb-1.5">t = {label}</p>
       {payload.map(p => {
         const roi = rois.find(r => r.region_key === p.dataKey)
         return (
           <div key={p.dataKey} className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
-            <span className="text-gray-300">{roi?.label ?? p.dataKey}</span>
+            <span className="text-white">{roi?.label ?? p.dataKey}</span>
             <span className="text-white font-mono ml-auto pl-3">{(p.value as number)?.toFixed(3)}</span>
           </div>
         )
@@ -303,8 +303,8 @@ function FindingsPanel({ roiData }: { roiData: ROIRegionWithTemporal[] }) {
   return (
     <div className="space-y-3">
       <div className="flex items-baseline gap-2">
-        <h3 className="text-sm font-medium text-gray-300">Editing Findings</h3>
-        <span className="text-xs text-gray-600">Shaded zones on chart above match the dip warnings below</span>
+        <h3 className="text-sm font-medium text-white">Editing Findings</h3>
+        <span className="text-xs text-gray-400">Shaded zones on chart above match the dip warnings below</span>
       </div>
       {findings.map((f, i) => {
         const color = f.roiKey ? (ROI_COLORS[f.roiKey] ?? '#6b7280') : undefined
@@ -334,7 +334,7 @@ function FindingsPanel({ roiData }: { roiData: ROIRegionWithTemporal[] }) {
                 f.status === 'warn' ? 'text-amber-300'   :
                                       'text-indigo-300',
               ].join(' ')}>{f.headline}</p>
-              <p className="text-gray-400 leading-snug">{f.detail}</p>
+              <p className="text-gray-300 leading-snug">{f.detail}</p>
             </div>
             {/* Status icon */}
             <span className={[
@@ -360,10 +360,10 @@ function RegionReference() {
     <div className="border border-gray-800 rounded-lg overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-gray-300 hover:text-white transition-colors"
       >
         <span>What each brain region measures</span>
-        <span className="text-gray-700">{open ? '▲' : '▼'}</span>
+        <span className="text-gray-400">{open ? '▲' : '▼'}</span>
       </button>
       {open && (
         <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-gray-800 pt-3">
@@ -371,9 +371,9 @@ function RegionReference() {
             <div key={key} className="flex gap-2.5 text-xs">
               <div className="w-2 h-2 rounded-full mt-0.5 shrink-0" style={{ backgroundColor: ROI_COLORS[key] ?? '#6b7280' }} />
               <div>
-                <span className="text-gray-300 font-medium">{what}</span>
-                <span className="text-gray-600"> — low? </span>
-                <span className="text-gray-500">{fix}</span>
+                <span className="text-white font-medium">{what}</span>
+                <span className="text-gray-400"> — low? </span>
+                <span className="text-gray-300">{fix}</span>
               </div>
             </div>
           ))}
@@ -427,8 +427,8 @@ export function VideoReport({ analysisId, token, onReset }: Props) {
           <div className="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
         </div>
         <div>
-          <p className="text-sm text-gray-300">Analyzing your video…</p>
-          <p className="text-xs text-gray-600 mt-1">TRIBE v2 inference takes 3–5 minutes. This page will update automatically.</p>
+          <p className="text-sm text-white">Analyzing your video…</p>
+          <p className="text-xs text-gray-400 mt-1">TRIBE v2 inference takes 3–5 minutes. This page will update automatically.</p>
         </div>
       </div>
     )
@@ -438,7 +438,7 @@ export function VideoReport({ analysisId, token, onReset }: Props) {
     return (
       <div className="space-y-3">
         <p className="text-sm text-red-400">Analysis failed.</p>
-        {result?.error_message && <p className="text-xs text-gray-500 font-mono">{result.error_message}</p>}
+        {result?.error_message && <p className="text-xs text-gray-300 font-mono">{result.error_message}</p>}
         <button onClick={onReset} className="text-xs text-indigo-400 hover:text-indigo-300 underline">Try another video</button>
       </div>
     )
@@ -452,7 +452,7 @@ export function VideoReport({ analysisId, token, onReset }: Props) {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold text-white">Video Brain Activation Report</h2>
-        <button onClick={onReset} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+        <button onClick={onReset} className="text-xs text-gray-400 hover:text-white transition-colors">
           Analyze another video
         </button>
       </div>
