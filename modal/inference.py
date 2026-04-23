@@ -629,10 +629,18 @@ class BrainiacThumbnailInference:
         mn, mx = importance.min(), importance.max()
         importance = (importance - mn) / (mx - mn + 1e-8)
 
+        # Upsample importance map to original image dimensions before blending
+        h_orig, w_orig = img_rgb.shape[:2]
+        importance_up = np.array(
+            PILImage.fromarray((importance * 255).astype(np.uint8)).resize(
+                (w_orig, h_orig), PILImage.BILINEAR
+            ),
+            dtype=np.float32,
+        ) / 255.0
+
         colormap = cm.get_cmap("viridis")
-        heatmap_rgb = (colormap(importance)[:, :, :3] * 255).astype(np.float32)
-        img_float = np.array(pil_224, dtype=np.float32)
-        blended = (img_float * 0.50 + heatmap_rgb * 0.50).clip(0, 255).astype(np.uint8)
+        heatmap_rgb = (colormap(importance_up)[:, :, :3] * 255).astype(np.float32)
+        blended = (img_rgb.astype(np.float32) * 0.50 + heatmap_rgb * 0.50).clip(0, 255).astype(np.uint8)
 
         out = io.BytesIO()
         PILImage.fromarray(blended).save(out, format="PNG", optimize=True)
@@ -755,7 +763,7 @@ class BrainiacThumbnailInference:
         if not body.get("analysis_id"):
             return {"status": "error", "error": "analysis_id required"}
 
-        thread = threading.Thread(target=self._process, args=(body,), daemon=True)
+        thread = threading.Thread(target=self._process, args=(body,), daemon=False)
         thread.start()
         return {"status": "queued", "analysis_id": analysis_id}
 
