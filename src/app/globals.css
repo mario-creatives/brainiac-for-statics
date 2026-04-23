@@ -1,35 +1,7 @@
 @import "tailwindcss";
 
-/* ── Openberg design tokens — dark (default) ───────────────────────────── */
+/* ── Openberg design tokens — light (default) ──────────────────────────── */
 :root {
-  --ink:          #000000;
-  --ink-soft:     #0a0a0a;
-  --paper:        #f4f1ea;
-  --paper-pure:   #ffffff;
-
-  --graphite-9:   #141414;
-  --graphite-8:   #1a1a1a;
-  --graphite-7:   #242424;
-  --graphite-6:   #333333;
-  --graphite-5:   #4d4d4d;
-  --graphite-4:   #6e6e6e;
-  --graphite-3:   #8f8f8f;
-  --graphite-2:   #b3b3b3;
-  --graphite-1:   #d0d0d0;
-
-  --accent:       #ff5900;
-  --accent-dim:   #b33e00;
-  --ok:           #4cc27a;
-  --alarm:        #e0392f;
-  --rule:         #2a2a2a;
-  --rule-bright:  #444444;
-
-  --font-sans: var(--font-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
-}
-
-/* ── Light mode ────────────────────────────────────────────────────────── */
-[data-theme="light"] {
   --ink:          #f4f1ea;
   --ink-soft:     #ece9e2;
   --paper:        #0a0a0a;
@@ -45,8 +17,40 @@
   --graphite-2:   #333030;
   --graphite-1:   #1a1818;
 
+  --accent:       #2563eb;
+  --accent-dim:   #1d4ed8;
+  --ok:           #16a34a;
+  --alarm:        #dc2626;
   --rule:         #ccc9c0;
   --rule-bright:  #aaa8a0;
+
+  --font-sans: var(--font-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
+}
+
+/* ── Dark mode ─────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --ink:          #000000;
+  --ink-soft:     #0a0a0a;
+  --paper:        #f4f1ea;
+  --paper-pure:   #ffffff;
+
+  --graphite-9:   #141414;
+  --graphite-8:   #1a1a1a;
+  --graphite-7:   #242424;
+  --graphite-6:   #333333;
+  --graphite-5:   #4d4d4d;
+  --graphite-4:   #6e6e6e;
+  --graphite-3:   #8f8f8f;
+  --graphite-2:   #b3b3b3;
+  --graphite-1:   #d0d0d0;
+
+  --accent:       #60a5fa;
+  --accent-dim:   #3b82f6;
+  --ok:           #4ade80;
+  --alarm:        #f87171;
+  --rule:         #2a2a2a;
+  --rule-bright:  #444444;
 }
 
 /* ── Tailwind theme overrides ──────────────────────────────────────────── */
@@ -70,12 +74,12 @@
   --color-gray-200: var(--graphite-2);
   --color-gray-100: var(--graphite-1);
 
-  /* Remap indigo → accent orange */
-  --color-indigo-300: #ff9966;
-  --color-indigo-400: #ff7733;
-  --color-indigo-500: #ff6600;
-  --color-indigo-600: #ff5900;
-  --color-indigo-700: #cc4700;
+  /* Remap indigo → accent (blue in light, lighter blue in dark) */
+  --color-indigo-300: color-mix(in srgb, var(--accent) 60%, white);
+  --color-indigo-400: color-mix(in srgb, var(--accent) 80%, white);
+  --color-indigo-500: var(--accent);
+  --color-indigo-600: var(--accent);
+  --color-indigo-700: var(--accent-dim);
 }
 
 /* ── Global resets ─────────────────────────────────────────────────────── */

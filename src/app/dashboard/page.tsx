@@ -88,18 +88,18 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [videoAnalysisId, setVideoAnalysisId] = useState<string | null>(null)
   const [selectedCard, setSelectedCard] = useState<VideoCard | null>(null)
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [theme, setTheme] = useState<'dark' | 'light'>('light')
 
   useEffect(() => {
-    const saved = localStorage.getItem('theme') as 'dark' | 'light' | null
-    if (saved) setTheme(saved)
+    const saved = (localStorage.getItem('theme') ?? 'light') as 'dark' | 'light'
+    setTheme(saved)
   }, [])
 
   function toggleTheme() {
     const next = theme === 'dark' ? 'light' : 'dark'
     setTheme(next)
     localStorage.setItem('theme', next)
-    if (next === 'light') document.documentElement.setAttribute('data-theme', 'light')
+    if (next === 'dark') document.documentElement.setAttribute('data-theme', 'dark')
     else document.documentElement.removeAttribute('data-theme')
   }
   const [mounted, setMounted] = useState(false)
