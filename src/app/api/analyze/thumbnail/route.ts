@@ -86,6 +86,7 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (insertError || !analysis) {
+    console.error('[thumbnail] analyses insert failed:', insertError?.message)
     return NextResponse.json({ error: 'Failed to create analysis record' }, { status: 500 })
   }
 
@@ -95,6 +96,7 @@ export async function POST(req: NextRequest) {
     storageKey = await uploadCreative(imageBuffer, analysis.id, mimeType)
   } catch (err) {
     const msg = String(err)
+    console.error('[thumbnail] storage upload failed:', msg)
     await supabaseServer.from('analyses').update({ status: 'failed', error_message: msg }).eq('id', analysis.id)
     return NextResponse.json({ error: `Image storage failed: ${msg}` }, { status: 500 })
   }
@@ -113,6 +115,7 @@ export async function POST(req: NextRequest) {
       supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
     })
   } catch (err) {
+    console.error('[thumbnail] Modal dispatch failed:', String(err))
     await supabaseServer
       .from('analyses')
       .update({ status: 'failed', error_message: String(err) })
