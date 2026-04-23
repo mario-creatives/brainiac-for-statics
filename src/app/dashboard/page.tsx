@@ -88,6 +88,20 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [videoAnalysisId, setVideoAnalysisId] = useState<string | null>(null)
   const [selectedCard, setSelectedCard] = useState<VideoCard | null>(null)
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('theme') as 'dark' | 'light' | null
+    if (saved) setTheme(saved)
+  }, [])
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    localStorage.setItem('theme', next)
+    if (next === 'light') document.documentElement.setAttribute('data-theme', 'light')
+    else document.documentElement.removeAttribute('data-theme')
+  }
   const [mounted, setMounted] = useState(false)
 
   const stoppedRef = useRef(false)
@@ -291,6 +305,9 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-6">
           {usage && <UsageMeter usage={usage} />}
+          <button onClick={toggleTheme} className="theme-toggle">
+            {theme === 'dark' ? '◑ LIGHT' : '◐ DARK'}
+          </button>
           <a href="/account" className="text-xs text-gray-500 hover:text-white transition-colors">Settings</a>
           <button onClick={handleSignOut} className="text-gray-500 hover:text-white transition-colors">
             <LogOut className="w-4 h-4" />

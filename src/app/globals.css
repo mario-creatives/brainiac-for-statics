@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* ── Openberg design tokens ────────────────────────────────────────────── */
+/* ── Openberg design tokens — dark (default) ───────────────────────────── */
 :root {
   --ink:          #000000;
   --ink-soft:     #0a0a0a;
@@ -28,19 +28,37 @@
   --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
 }
 
+/* ── Light mode ────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --ink:          #f4f1ea;
+  --ink-soft:     #ece9e2;
+  --paper:        #0a0a0a;
+  --paper-pure:   #000000;
+
+  --graphite-9:   #e8e5de;
+  --graphite-8:   #dedad2;
+  --graphite-7:   #ccc9c2;
+  --graphite-6:   #b0ada6;
+  --graphite-5:   #888078;
+  --graphite-4:   #666060;
+  --graphite-3:   #555050;
+  --graphite-2:   #333030;
+  --graphite-1:   #1a1818;
+
+  --rule:         #ccc9c0;
+  --rule-bright:  #aaa8a0;
+}
+
 /* ── Tailwind theme overrides ──────────────────────────────────────────── */
 @theme inline {
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 
-  /* Remap indigo → accent orange so all existing indigo-* classes go orange */
-  --color-indigo-300: #ff9966;
-  --color-indigo-400: #ff7733;
-  --color-indigo-500: #ff6600;
-  --color-indigo-600: #ff5900;
-  --color-indigo-700: #cc4700;
+  /* Body colors tied to CSS vars — flip automatically with theme */
+  --color-white:    var(--paper);
+  --color-black:    var(--ink);
 
-  /* Remap gray to openberg graphite */
+  /* Gray scale → openberg graphite */
   --color-gray-950: var(--ink);
   --color-gray-900: var(--graphite-9);
   --color-gray-800: var(--graphite-8);
@@ -51,6 +69,13 @@
   --color-gray-300: var(--graphite-3);
   --color-gray-200: var(--graphite-2);
   --color-gray-100: var(--graphite-1);
+
+  /* Remap indigo → accent orange */
+  --color-indigo-300: #ff9966;
+  --color-indigo-400: #ff7733;
+  --color-indigo-500: #ff6600;
+  --color-indigo-600: #ff5900;
+  --color-indigo-700: #cc4700;
 }
 
 /* ── Global resets ─────────────────────────────────────────────────────── */
@@ -72,6 +97,7 @@
     color: var(--paper);
     font-family: var(--font-sans);
     line-height: 1.5;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   ::selection {
@@ -89,11 +115,19 @@
     background: var(--ink);
     color: var(--paper);
     border: 1px solid var(--rule);
+    transition: border-color 0.1s;
   }
 
   input:focus, textarea:focus, select:focus {
     outline: none;
     border-color: var(--accent);
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: var(--graphite-5);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-size: 10px;
   }
 }
 
@@ -117,7 +151,7 @@
   }
 
   .panel {
-    background: var(--ink);
+    background: var(--ink-soft);
     border: 1px solid var(--rule);
   }
 
@@ -125,12 +159,14 @@
     display: flex;
     align-items: stretch;
     border-bottom: 1px solid var(--rule);
+    background: var(--ink);
   }
 
   .panel-label {
     padding: 6px 10px;
     font-family: var(--font-mono);
     font-size: 10px;
+    font-weight: 700;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--paper);
@@ -145,5 +181,27 @@
     text-transform: uppercase;
     color: var(--graphite-3);
     margin-left: auto;
+  }
+
+  /* Theme toggle button */
+  .theme-toggle {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--graphite-3);
+    border: 1px solid var(--rule);
+    padding: 4px 10px;
+    background: transparent;
+    cursor: pointer;
+    transition: color 0.1s, border-color 0.1s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .theme-toggle:hover {
+    color: var(--paper);
+    border-color: var(--accent);
   }
 }

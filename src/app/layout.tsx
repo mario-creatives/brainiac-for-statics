@@ -19,12 +19,20 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: 'Brainiac — Brain Activation Analysis for Creatives',
   description:
-    'Upload a thumbnail or connect your Meta Ads account. Brainiac runs Meta FAIR\'s TRIBE v2 brain encoding model and shows which neural regions activate in response to your creative.',
+    "Upload a thumbnail or connect your Meta Ads account. Brainiac runs Meta FAIR's TRIBE v2 brain encoding model and shows which neural regions activate in response to your creative.",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`} suppressHydrationWarning>
+      {/* Inline script: set theme before first paint to avoid flash */}
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className="bg-gray-950 text-white antialiased" suppressHydrationWarning>
         {children}
       </body>
