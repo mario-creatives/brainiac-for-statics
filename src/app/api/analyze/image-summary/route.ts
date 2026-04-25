@@ -64,6 +64,28 @@ Give 3–4 specific, actionable suggestions to improve this video's visual impac
 Format as a markdown bulleted list. Each bullet is one to two sentences.`
   }
 
+  // ── Landing page / webpage ───────────────────────────────────────────────
+  if (context === 'webpage') {
+    const page_url = body.page_url as string
+    const roi_data = body.roi_data as ROIAverage[]
+    const lines = roi_data
+      .map(r => `- ${r.label}: ${r.activation.toFixed(3)} — ${r.description}`)
+      .join('\n')
+
+    return `You are interpreting BERG fMRI brain activation predictions for a landing page screenshot.
+
+BERG predicts which visual cortex regions activate when a person views the page above the fold (1280×720 viewport). Scores are normalized 0–1.
+
+Page analyzed: ${page_url}
+
+Brain activation scores:
+${lines}
+
+Give 4–5 specific, actionable suggestions to improve this landing page's visual effectiveness. Ground each suggestion in the specific brain region scores (e.g. "Your FFA score of 0.12 is low — adding a human face near the headline will drive face-processing engagement"). Do not guarantee business outcomes.
+
+Format as a markdown bulleted list. Each bullet is one to two sentences.`
+  }
+
   // ── Image batch (default) ────────────────────────────────────────────────
   const roi_averages = body.roi_averages as ROIAverage[]
   const image_count = body.image_count as number

@@ -12,11 +12,12 @@ import { VideoUploader } from '@/components/VideoUploader'
 import { VideoReport } from '@/components/VideoReport'
 import { VideoHistory } from '@/components/VideoHistory'
 import { ImageBatchTab } from '@/components/ImageBatchTab'
+import { WebPageTab } from '@/components/WebPageTab'
 import { LogOut, Square, X } from 'lucide-react'
 import type { AnalysisResult, UsageInfo, ConsentType, LimitError, CorrelationEntry } from '@/types'
 import { ROI_REGISTRY } from '@/lib/roi'
 
-type Tab = 'channel' | 'images' | 'video'
+type Tab = 'channel' | 'images' | 'video' | 'webpage'
 
 // ── Pearson correlation ───────────────────────────────────────────────────────
 
@@ -322,6 +323,7 @@ export default function DashboardPage() {
             ['channel', 'YouTube Channel'],
             ['images', 'Image Upload'],
             ['video', 'Video Upload'],
+            ['webpage', 'Landing Page'],
           ] as [Tab, string][]).map(([tab, label]) => (
             <button
               key={tab}
@@ -392,6 +394,13 @@ export default function DashboardPage() {
                 onReset={() => setVideoAnalysisId(null)}
               />
             )}
+          </div>
+        )}
+
+        {/* ── Landing page tab ──────────────────────────────────────────────── */}
+        {activeTab === 'webpage' && token && (
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+            <WebPageTab token={token} />
           </div>
         )}
 
