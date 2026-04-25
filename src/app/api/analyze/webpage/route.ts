@@ -101,15 +101,17 @@ async function captureViewport(
   if (mobile) await page.setUserAgent(MOBILE_UA)
 
   try {
-    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 20000 })
+    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 25000 })
   } catch {
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 8000 })
+    // Page timed out waiting for network idle — it has still (partially) loaded.
+    // Give it a moment to render what's there rather than re-navigating.
+    await new Promise(r => setTimeout(r, 2000))
   }
 
   // Hide any consent UI that loaded after network settled
   await page.addStyleTag({ content: POPUP_HIDE_CSS }).catch(() => {})
 
-  // Brief settle for JS-rendered content / animations
+  // Settle for JS-rendered content / animations
   await new Promise(r => setTimeout(r, 800))
 
   const raw = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width, height } })
