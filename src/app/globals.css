@@ -3,26 +3,26 @@
 /* ── Openberg design tokens — light (default) ──────────────────────────── */
 :root {
   --ink:          #f4f1ea;
-  --ink-soft:     #ece9e2;
+  --ink-soft:     #f8f6f2;
   --paper:        #0a0a0a;
   --paper-pure:   #000000;
 
-  --graphite-9:   #e8e5de;
-  --graphite-8:   #dedad2;
-  --graphite-7:   #ccc9c2;
-  --graphite-6:   #b0ada6;
-  --graphite-5:   #888078;
-  --graphite-4:   #666060;
-  --graphite-3:   #555050;
-  --graphite-2:   #333030;
-  --graphite-1:   #1a1818;
+  --graphite-9:   #ffffff;
+  --graphite-8:   #c8c5be;
+  --graphite-7:   #a8a5a0;
+  --graphite-6:   #5c5a57;
+  --graphite-5:   #6e6c69;
+  --graphite-4:   #3d3b39;
+  --graphite-3:   #2b2928;
+  --graphite-2:   #1c1a19;
+  --graphite-1:   #0f0e0d;
 
   --accent:       #2563eb;
   --accent-dim:   #1d4ed8;
   --ok:           #16a34a;
   --alarm:        #dc2626;
-  --rule:         #ccc9c0;
-  --rule-bright:  #aaa8a0;
+  --rule:         #c8c5be;
+  --rule-bright:  #a8a5a0;
 
   --font-sans: var(--font-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;

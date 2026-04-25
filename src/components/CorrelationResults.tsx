@@ -34,8 +34,8 @@ function RichLine({ text }: { text: string }) {
 }
 
 function rColor(r: number): string {
-  if (Math.abs(r) >= 0.5) return r > 0 ? 'text-emerald-400' : 'text-rose-400'
-  if (Math.abs(r) >= 0.25) return r > 0 ? 'text-emerald-600' : 'text-rose-600'
+  if (Math.abs(r) >= 0.5) return r > 0 ? 'text-emerald-600' : 'text-rose-600'
+  if (Math.abs(r) >= 0.25) return r > 0 ? 'text-emerald-700' : 'text-rose-700'
   return 'text-gray-500'
 }
 
