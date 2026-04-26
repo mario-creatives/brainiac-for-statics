@@ -56,7 +56,8 @@ export async function POST(req: NextRequest) {
   await incrementUsage(user.id, 2)
 
   // Fire-and-forget to the capture route — runs as its own independent Vercel function
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://brainiac-ivory.vercel.app'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (!appUrl) return NextResponse.json({ error: 'NEXT_PUBLIC_APP_URL is not configured' }, { status: 500 })
   fetch(`${appUrl}/api/analyze/webpage/capture`, {
     method: 'POST',
     headers: {
