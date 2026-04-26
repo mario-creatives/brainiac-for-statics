@@ -78,6 +78,7 @@ Scores are normalized 0–1. Higher means stronger predicted neural response in 
 - [Supabase](https://supabase.com) project (free tier works)
 - [Modal](https://modal.com) account (CPU usage for BERG is cheap; GPU L4 billed per-second for video)
 - [Anthropic API key](https://console.anthropic.com) for AI recommendations
+- [HuggingFace account](https://huggingface.co) with a read token — required for the TRIBE v2 video worker. You must also request access to [meta-llama/Llama-3.2-3B](https://huggingface.co/meta-llama/Llama-3.2-3B) from Meta on HuggingFace (approval is typically automatic but required). The BERG thumbnail worker does **not** need HuggingFace.
 - YouTube Data API v3 key (optional — enables view count correlation; without it, channel analysis uses RSS with a 15-video cap)
 
 ### 1. Clone and install
@@ -106,9 +107,15 @@ pip install modal
 # Authenticate with Modal
 modal token new
 
-# Create secrets in the Modal dashboard (https://modal.com/secrets):
-#   "your-app-supabase"  →  SUPABASE_SERVICE_ROLE_KEY
-#   "your-app-hf"        →  HF_TOKEN, MOCK_MODE
+# Create two secrets in the Modal dashboard (https://modal.com/secrets):
+#
+#   "your-app-supabase"  →  SUPABASE_SERVICE_ROLE_KEY   (used by both workers)
+#
+#   "your-app-hf"        →  HF_TOKEN    your HuggingFace read token
+#                            MOCK_MODE   set to "false" for real TRIBE v2 inference,
+#                                        or "true" to use an image-statistics fallback
+#                                        if you don't have LLaMA 3.2-3B access yet
+#                            (video worker only — BERG does not need HuggingFace)
 
 # One-time: download BERG weights (~2 GB) into a Modal volume
 modal run modal/inference.py::download_berg_weights
