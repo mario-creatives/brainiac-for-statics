@@ -147,6 +147,14 @@ cp .env.example .env.local
 | `YOUTUBE_DATA_API_KEY` | Optional — enables view count enrichment and 25-video batches |
 | `MONTHLY_BUDGET_CAP_USD` | Global GPU spend cap (default: `300.0`) |
 
+**Modal secrets** (set in the [Modal dashboard](https://modal.com/secrets), not in `.env.local`):
+
+| Secret name | Key | Value |
+|-------------|-----|-------|
+| `your-app-supabase` | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
+| `your-app-hf` | `HF_TOKEN` | HuggingFace read token (requires LLaMA 3.2-3B access) |
+| `your-app-hf` | `MOCK_MODE` | `"false"` for real TRIBE v2, `"true"` to use stats fallback |
+
 ### 5. Run locally
 
 ```bash
