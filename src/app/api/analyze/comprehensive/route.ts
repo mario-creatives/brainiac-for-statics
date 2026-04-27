@@ -205,6 +205,14 @@ const ROI_AD_CONTEXT = `ROI interpretation for paid media:
 - PPA (Scene Recognition): High = environment/context is readable — good for lifestyle positioning. Low = no scene context.
 - VWFA (Text Processing): High = text is legible and competing for visual attention. Low = text too small or contrast insufficient.`
 
+const ROI_AD_CONTEXT_HISTORICAL = `ROI signals (descriptive only):
+- FFA (Face Detection): High = face/face-like element anchoring attention. Low = no human anchor; the ad relies on non-human visual elements.
+- V1_V2 (Low-Level Visual): High = strong edges/contrast driving feed disruption. Low = flat visual; this ad relies on text or color rather than edge density.
+- V4 (Color/Form): High = vivid distinctive palette aiding brand recall. Low = muted palette; differentiation comes from another dimension.
+- LO (Object Recognition): High = product/objects clearly identifiable as units. Low = visual is abstract or close-cropped; the product reads as texture rather than object.
+- PPA (Scene Recognition): High = environment/context readable; lifestyle positioning. Low = no scene context; isolated subject framing.
+- VWFA (Text Processing): High = text is legible and competing for visual attention. Low = text is minimal or de-prioritized; visual carries the message.`
+
 const FRAMEWORK_CONTEXT = `Copywriting framework (minimum-viable-copy principle — apply strictly):
 - Start with the minimum. Add an element ONLY when the previous one leaves something unresolved.
 - Headline: Should communicate the core feeling with the visual in 5 words or fewer. Does it?
@@ -240,13 +248,21 @@ function buildBergPrompt(roiAverages: ROIAverage[], patternContext: string, visu
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)} — ${r.description}`)
     .join('\n')
 
+  const roiContext = mode === 'historical' ? ROI_AD_CONTEXT_HISTORICAL : ROI_AD_CONTEXT
+
   const ending = mode === 'historical'
-    ? `For each ROI, explain what its activation level reveals about why this ad's visual choices worked. Name the ROI, quote the score, one to two sentences — observations only, no suggestions.\n\nFormat as a markdown bulleted list.`
+    ? `For each ROI: name it, quote the score, write 2 sentences explaining what its activation level reveals about this ad's effectiveness for this audience and category. Pure observation — no third sentence with recommendations, no "consider", no "test", no "darken", no "push closer to threshold".
+
+GOOD: "VWFA — 1.000: Text is fully commanding visual attention; this is the single strongest signal in this creative. At high spend in a problem-aware audience, the audience reads this ad more than they recognize the product, and that trade-off worked for this conversion mechanic."
+
+BAD: "VWFA — 1.000: Text is fully commanding attention. Audit the text hierarchy to ensure the offer line occupies the dominant position."
+
+Format as a markdown bulleted list.`
     : `Give 5–6 specific, actionable recommendations. For each: name the ROI, quote its score, state the ad-performance implication and the exact change to make. Two sentences max — no filler. Reference winning patterns above where relevant.\n\nFormat as a markdown bulleted list.`
 
   return `You are interpreting BERG fMRI brain activation predictions for a static ad image.
 
-${ROI_AD_CONTEXT}
+${roiContext}
 
 BERG brain activation scores:
 ${scoreLines}
@@ -390,6 +406,117 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
   }
 }`
 
+const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
+  "copy": {
+    "headline": { "text": "<exact text or null>", "clarity": <1-10>, "urgency": <1-10>, "relevance": <1-10>, "feedback": "<two sentences: what this headline reveals about the audience and structural choice>" },
+    "subheadline": { "text": "<exact text or null>", "supports_headline": <true/false>, "clarity": <1-10>, "feedback": "<one sentence: what the subheadline's presence or absence reveals>" },
+    "benefits_features": { "identified": ["<benefit 1>"], "clarity": <1-10>, "prominence": <1-10>, "feedback": "<two sentences: what the benefit structure reveals about audience justification needs>" },
+    "trust_signals": { "identified": ["<signal>"], "strength": <1-10>, "feedback": "<two sentences: what the trust signal level reveals about category trust requirements>" },
+    "safety_signals": { "identified": ["<signal>"], "strength": <1-10>, "feedback": "<two sentences: what safety signal handling reveals about category compliance posture>" },
+    "cta": { "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>, "feedback": "<two sentences: what the CTA presence/absence reveals about audience readiness>" }
+  },
+  "behavioral_economics": {
+    "scarcity":      { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "urgency":       { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "social_proof":  { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "anchoring":     { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "loss_aversion": { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "authority":     { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "reciprocity":   { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "overall_feedback": "<two sentences: which BE levers carry the conversion load and what that reveals>"
+  },
+  "neuroscience": {
+    "attention_prediction": "<one-two sentences: what captures attention first and why>",
+    "emotional_encoding":   "<one-two sentences: emotional response likely triggered>",
+    "memory_encoding":      "<one-two sentences: how memorable and what aids or hinders recall>",
+    "feedback":             "<two sentences: top neural processing insight about why this ad works>"
+  },
+  "visual_dimensions": {
+    "cta_strength":     { "score": <1-10>, "feedback": "<two sentences: observation about this dimension's role in this ad's effectiveness>" },
+    "emotional_appeal": { "score": <1-10>, "feedback": "<two sentences: observation about this dimension's role in this ad's effectiveness>" },
+    "brand_clarity":    { "score": <1-10>, "feedback": "<two sentences: observation about this dimension's role in this ad's effectiveness>" },
+    "visual_hierarchy": { "score": <1-10>, "feedback": "<two sentences: observation about this dimension's role in this ad's effectiveness>" }
+  },
+  "pattern_matches": ["<winning rule this ad satisfies or violates, verbatim from the patterns>"],
+  "overall": {
+    "verdict":           "<three-four sentences: overall assessment of why this ad worked>",
+    "top_strength":      "<one sentence: strongest element with specific reason>",
+    "critical_weakness": "<one sentence: single notable structural absence and what it reveals about audience tolerance>",
+    "priority_fix":      "<one sentence: single most transferable creative insight from this ad's structure>"
+  },
+  "market_context": {
+    "awareness_level": "<one of: unaware | problem_aware | solution_aware | product_aware | most_aware>",
+    "awareness_reasoning": "<one sentence: why this awareness level>",
+    "sophistication_level": <1-5>,
+    "sophistication_reasoning": "<one sentence: why this sophistication level>"
+  },
+  "ad_format": {
+    "type": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | testimonial | hybrid>",
+    "composition": {
+      "has_headline": <true/false>,
+      "has_subheadline": <true/false>,
+      "has_body_copy": <true/false>,
+      "has_benefits_list": <true/false>,
+      "has_trust_signals": <true/false>,
+      "has_cta": <true/false>,
+      "has_price_or_offer": <true/false>,
+      "is_visual_dominant": <true/false>,
+      "is_text_heavy": <true/false>
+    },
+    "format_assessment": "<one sentence: what this format reveals about audience match and conversion intent>"
+  },
+  "hook_analysis": {
+    "scroll_stop_score": <1-10>,
+    "pattern_interrupt": "<what specific element(s) stopped the scroll>",
+    "first_half_second": "<what the eye hits first and why it works for this audience>",
+    "hook_feedback": "<one sentence: what this hook's effectiveness reveals about audience attention in this vertical>"
+  },
+  "offer_architecture": {
+    "offer_present": <true/false>,
+    "offer_text": "<exact offer text or null>",
+    "has_price_anchor": <true/false>,
+    "has_guarantee": <true/false>,
+    "has_urgency_mechanism": <true/false>,
+    "has_trial_or_free": <true/false>,
+    "perceived_value_score": <1-10>,
+    "offer_clarity_score": <1-10>,
+    "offer_feedback": "<two sentences: what the offer architecture reveals about decision pathway here>"
+  },
+  "cognitive_load": {
+    "score": <1-10, where 1=effortless and 10=overwhelming>,
+    "density": "<one of: minimal | moderate | heavy>",
+    "overload_risk": "<what specific element(s) are contributing to overload, or 'none'>",
+    "simplification": "<one sentence: what this load level reveals about minimum-viable copy in this category>"
+  },
+  "platform_fit": {
+    "optimised_for": ["<platform 1>"],
+    "weak_for": ["<platform 1>"],
+    "reasoning": "<two sentences: why this format fits or doesn't fit each platform>",
+    "adaptation_notes": "<one-two sentences: what platform fit reveals about audience-format match and category native placement>"
+  },
+  "framework_score": {
+    "minimum_viable_test": "<pass or fail: does visual + 5 words communicate the core feeling?>",
+    "headline_leaves_gap": <true/false>,
+    "subheadline_justified": <true/false>,
+    "benefits_justified": <true/false>,
+    "trust_signal_justified": <true/false>,
+    "cta_justified": <true/false>,
+    "overall_framework_grade": "<A | B | C | D>",
+    "framework_feedback": "<two sentences: what this grade reveals about minimum-viable-copy norms in this vertical>"
+  },
+  "congruence": {
+    "overall_score": <1-10, where 10=fully congruent>,
+    "headline_to_visual":       { "aligned": <true/false>, "note": "<one sentence>" },
+    "headline_to_subheadline":  { "aligned": <true/false>, "note": "<one sentence>" },
+    "body_to_headline":         { "aligned": <true/false>, "note": "<one sentence>" },
+    "benefits_to_headline":     { "aligned": <true/false>, "note": "<one sentence>" },
+    "cta_to_offer":             { "aligned": <true/false>, "note": "<one sentence>" },
+    "trust_signals_to_claim":   { "aligned": <true/false>, "note": "<one sentence>" },
+    "incoherence_summary": "<one sentence: primary mismatch, or 'No incoherence detected'>",
+    "fix": "<one sentence: what the congruence pattern reveals about effective creative architecture here>"
+  }
+}`
+
 
 function buildRedditBlock(topic: string, posts: RedditPost[]): string {
   const postLines = posts.map((p, i) =>
@@ -438,26 +565,30 @@ function buildComprehensiveVisionPrompt(
     ? `\n${buildRedditBlock(conceptTopic, redditPosts)}\n`
     : ''
 
+  const baseSchema = mode === 'historical' ? COMPREHENSIVE_JSON_SCHEMA_HISTORICAL : COMPREHENSIVE_JSON_SCHEMA
+
   const schema = (redditPosts && redditPosts.length > 0 && conceptTopic)
-    ? COMPREHENSIVE_JSON_SCHEMA.replace(/\n\}$/, `${buildRedditSchema(redditPosts)}\n}`)
-    : COMPREHENSIVE_JSON_SCHEMA
+    ? baseSchema.replace(/\n\}$/, `${buildRedditSchema(redditPosts)}\n}`)
+    : baseSchema
 
   const preamble = mode === 'historical'
-    ? `You are a senior advertising strategist analyzing a confirmed winning ad. Your task is to understand WHY it worked — not to critique or suggest improvements. Write observations throughout: what is present, why it worked, what it reveals about the audience and creative architecture. For fields that normally ask for fixes or priority actions, write the key insight this structural choice reveals instead. Never write directives — no 'add', 'consider', 'should', or 'remove'.`
+    ? `You are a senior advertising strategist analyzing a confirmed winning ad. Your task is to understand WHY it worked — not to critique or suggest improvements. Write observations throughout: what is present, why it works for this audience, what structural choices reveal about effective creative architecture in this category.
+
+FORBIDDEN — do not use these words or any directive grammar:
+add, consider, should, remove, test, introduce, improve, increase, audit, expand, replace, darken, sharpen, push, bridge, would dramatically, would materially, would meaningfully, could be made, this could, try, ensure, must.
+
+GOOD (observation — write like this):
+"The headline is short and declarative; at high spend in a problem-aware vertical, this reveals the audience did not need a mechanism explained — the problem recognition alone was sufficient to hold attention."
+
+BAD (directive — never write this):
+"The headline is short. Consider adding a mechanism or benefit statement to increase specificity and improve conversion rate."
+
+Every field that normally asks 'what to fix' now asks 'what does this reveal'. If you find yourself wanting to write 'add X', rewrite it as 'the absence of X reveals…'.`
     : `You are a senior advertising strategist, media buyer, and neuroscience analyst reviewing a static ad image.`
 
   const analysisInstruction = mode === 'historical'
     ? `Analyze this winning ad. Quote actual text, describe actual colors and layout, reference actual visual elements. Observations only — no improvement suggestions. Do not skip any section.`
     : `Analyze this ad image comprehensively. Quote actual text you see, describe actual colors and layout, reference actual visual elements. No generic feedback. Do not skip any section.`
-
-  const historicalFieldGuide = mode === 'historical'
-    ? `\nField guidance for historical analysis:
-- "priority_fix": the single most transferable creative insight from this ad's structural choices.
-- "critical_weakness": what this structural gap reveals about what this audience tolerates or does not need.
-- "hook_feedback": what this hook's success reveals about audience attention patterns in this vertical.
-- "simplification": what the cognitive load score reveals about minimum-viable copy for this category.
-- congruence "fix": what the congruence pattern reveals about effective creative architecture here.\n`
-    : ''
 
   return `${preamble}
 ${confirmedElements ? `\n${buildConfirmedElementsBlock(confirmedElements)}\n` : ''}
@@ -467,7 +598,7 @@ ${FRAMEWORK_CONTEXT}
 ${patternContext ? `\n${patternContext}\n` : ''}
 ${redditSection}BERG brain activation scores:
 ${scoreLines}
-${historicalFieldGuide}
+
 ${analysisInstruction}
 
 Return a JSON object with EXACTLY this structure — no markdown fences, no extra keys:
