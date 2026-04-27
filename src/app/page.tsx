@@ -31,7 +31,6 @@ export default function LandingPage() {
 
         {/* ── Hero ────────────────────────────────────────────────────── */}
         <section className="relative overflow-hidden">
-          {/* Subtle radial glow behind hero text */}
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 flex items-center justify-center"
@@ -46,16 +45,16 @@ export default function LandingPage() {
             </div>
 
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.08] mb-6">
-              See your creative{' '}
+              See your ad{' '}
               <span className="bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">
                 through the brain
               </span>
             </h1>
 
             <p className="text-gray-400 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed mb-10">
-              Upload a thumbnail or connect your Meta Ads account. Brainiac runs Meta&nbsp;FAIR&rsquo;s
-              TRIBE&nbsp;v2 brain encoding model and maps which neural regions activate in response
-              to your creative.
+              Upload a static ad image. Brainiac runs BERG fMRI brain activation analysis
+              and Claude&nbsp;Sonnet to tell you exactly how the brain processes your creative
+              — and how to make it work harder.
             </p>
 
             <div className="flex flex-wrap gap-3 justify-center">
@@ -63,7 +62,7 @@ export default function LandingPage() {
                 href="/auth/signup"
                 className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl transition-colors shadow-lg shadow-indigo-900/40"
               >
-                Analyze a creative →
+                Analyze an ad →
               </a>
               <a
                 href="/auth/login"
@@ -76,9 +75,9 @@ export default function LandingPage() {
             {/* Quick stats */}
             <div className="mt-16 flex flex-wrap justify-center gap-x-10 gap-y-4 text-sm text-gray-500">
               {[
-                { value: '10', label: 'brain regions mapped' },
+                { value: '6', label: 'neural ROIs analyzed' },
+                { value: '4', label: 'ad dimensions scored' },
                 { value: 'Free', label: 'no credit card' },
-                { value: 'CC-BY-NC-4.0', label: 'open license' },
               ].map(s => (
                 <div key={s.label} className="flex items-center gap-2">
                   <span className="text-white font-semibold">{s.value}</span>
@@ -98,18 +97,18 @@ export default function LandingPage() {
             {[
               {
                 icon: '🧠',
-                title: 'Brain encoding model',
-                body: 'Powered by Meta FAIR TRIBE v2 — a foundation model trained on fMRI data that predicts neural responses to visual stimuli.',
+                title: 'BERG brain activation',
+                body: 'Powered by BERG fmri-nsd-fwrf — trained on the Natural Scenes Dataset fMRI data to predict which visual cortex regions activate when someone sees your ad.',
               },
               {
                 icon: '📊',
-                title: 'ROI activation breakdown',
-                body: 'See which regions activate: face detection (FFA), text processing (VWFA), spatial attention (DAN), scene recognition (PPA), and more.',
+                title: 'Ad dimension scoring',
+                body: 'Claude Sonnet analyzes the image directly and scores CTA strength, emotional appeal, brand clarity, and visual hierarchy — each with actionable feedback.',
               },
               {
                 icon: '🔥',
                 title: 'Viridis heatmap overlay',
-                body: 'Every analysis produces a spatial heatmap showing which areas of your image drive the strongest predicted neural activation.',
+                body: 'Every analysis produces a spatial heatmap showing which areas of your ad drive the strongest predicted neural activation.',
               },
             ].map(card => (
               <div
@@ -134,18 +133,18 @@ export default function LandingPage() {
               {[
                 {
                   step: '01',
-                  title: 'Upload or connect',
-                  body: 'Drag-and-drop a thumbnail, or connect your Meta Ads account to pull creatives automatically.',
+                  title: 'Upload your ad',
+                  body: 'Drag-and-drop one or more static ad images — JPEG, PNG, or WebP. Up to 25 images per batch.',
                 },
                 {
                   step: '02',
-                  title: 'Model runs inference',
-                  body: 'TRIBE v2 encodes your image against fMRI responses, producing activation scores across 10 neural regions.',
+                  title: 'Dual-model analysis',
+                  body: 'BERG encodes the image against fMRI responses across 6 visual cortex ROIs. Claude Sonnet scores the same image for ad-specific creative dimensions.',
                 },
                 {
                   step: '03',
                   title: 'Read the results',
-                  body: 'View the spatial heatmap and ROI bar chart. No performance claims — just predicted neural signal.',
+                  body: 'View the spatial heatmap, ROI activation breakdown, and dimension scores with specific feedback. No performance guarantees — just signal.',
                 },
               ].map(item => (
                 <div key={item.step} className="flex flex-col gap-3">
@@ -158,35 +157,55 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Brain regions ────────────────────────────────────────────── */}
-        <section className="max-w-5xl mx-auto px-6 py-20">
-          <p className="text-center text-xs font-semibold uppercase tracking-widest text-gray-600 mb-4">
-            Neural regions analyzed
-          </p>
-          <p className="text-center text-gray-500 text-sm mb-10 max-w-xl mx-auto">
-            Each score reflects predicted activation in that cortical region when viewing your creative.
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {[
-              { key: 'FFA',      label: 'Face Detection' },
-              { key: 'V1/V2',   label: 'Visual Signal' },
-              { key: 'V4',      label: 'Color & Form' },
-              { key: 'LO',      label: 'Object Recognition' },
-              { key: 'PPA',     label: 'Scene Context' },
-              { key: 'STS',     label: 'Social Cues' },
-              { key: 'DAN',     label: 'Spatial Attention' },
-              { key: 'VWFA',    label: 'Text Processing' },
-              { key: 'DMN',     label: 'Default Mode' },
-              { key: 'AV Assoc',label: 'Audio-Visual' },
-            ].map(r => (
-              <div
-                key={r.key}
-                className="bg-gray-900 border border-gray-800 rounded-xl px-3 py-3 text-center"
-              >
-                <p className="text-indigo-400 text-xs font-mono font-semibold">{r.key}</p>
-                <p className="text-gray-500 text-xs mt-1 leading-tight">{r.label}</p>
-              </div>
-            ))}
+        {/* ── Brain regions + ad dimensions ───────────────────────────── */}
+        <section className="max-w-5xl mx-auto px-6 py-20 space-y-14">
+          <div>
+            <p className="text-center text-xs font-semibold uppercase tracking-widest text-gray-600 mb-4">
+              Neural regions — BERG
+            </p>
+            <p className="text-center text-gray-500 text-sm mb-10 max-w-xl mx-auto">
+              Each score reflects predicted activation in that visual cortex region when viewing your ad.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {[
+                { key: 'FFA',   label: 'Face Detection' },
+                { key: 'V1/V2', label: 'Low-Level Visual' },
+                { key: 'V4',    label: 'Color & Form' },
+                { key: 'LO',    label: 'Object Recognition' },
+                { key: 'PPA',   label: 'Scene Context' },
+                { key: 'VWFA',  label: 'Text Processing' },
+              ].map(r => (
+                <div
+                  key={r.key}
+                  className="bg-gray-900 border border-gray-800 rounded-xl px-3 py-3 text-center"
+                >
+                  <p className="text-indigo-400 text-xs font-mono font-semibold">{r.key}</p>
+                  <p className="text-gray-500 text-xs mt-1 leading-tight">{r.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-center text-xs font-semibold uppercase tracking-widest text-gray-600 mb-4">
+              Ad dimensions — Claude Sonnet
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { key: 'CTA', label: 'CTA Strength' },
+                { key: 'EQ',  label: 'Emotional Appeal' },
+                { key: 'BQ',  label: 'Brand Clarity' },
+                { key: 'VH',  label: 'Visual Hierarchy' },
+              ].map(r => (
+                <div
+                  key={r.key}
+                  className="bg-gray-900 border border-gray-800 rounded-xl px-3 py-3 text-center"
+                >
+                  <p className="text-violet-400 text-xs font-mono font-semibold">{r.key}</p>
+                  <p className="text-gray-500 text-xs mt-1 leading-tight">{r.label}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -194,7 +213,7 @@ export default function LandingPage() {
         <section className="border-t border-gray-800/50">
           <div className="max-w-2xl mx-auto px-6 py-24 text-center">
             <h2 className="text-3xl sm:text-4xl font-bold mb-4">
-              Ready to see what your creative activates?
+              Ready to see what your ad activates?
             </h2>
             <p className="text-gray-500 mb-8">
               Free. No credit card. 10 analyses per day.
@@ -215,12 +234,12 @@ export default function LandingPage() {
           <p>
             Powered by{' '}
             <a
-              href="https://ai.meta.com/research/publications/a-foundation-model-of-vision-audition-and-language-for-in-silico-neuroscience/"
+              href="https://github.com/gifale95/BERG"
               className="underline hover:text-gray-400 transition-colors"
               target="_blank"
               rel="noopener noreferrer"
             >
-              Meta FAIR TRIBE v2
+              BERG fmri-nsd-fwrf
             </a>{' '}
             &mdash; Licensed under{' '}
             <a
