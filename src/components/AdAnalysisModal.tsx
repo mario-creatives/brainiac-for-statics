@@ -87,6 +87,7 @@ interface ModalCard {
   result: AnalysisResult | null
   spend?: number
   isWinner?: boolean
+  isLoser?: boolean
 }
 
 interface Props {
@@ -124,6 +125,11 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, isHistori
           {card.isWinner && (
             <span className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wider bg-yellow-500 text-yellow-950 px-2 py-1 rounded">
               ★ Winner
+            </span>
+          )}
+          {card.isLoser && (
+            <span className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wider bg-red-900 text-red-300 px-2 py-1 rounded border border-red-800">
+              ✗ Loser
             </span>
           )}
           <button

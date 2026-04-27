@@ -243,22 +243,36 @@ Congruence principle — every element must reinforce the same core message:
 - CTA must match the offer or ask — "Shop now" without a visible product or price is incoherent.
 - Trust signals must validate the specific claim made, not a different dimension entirely.`
 
-function buildBergPrompt(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string): string {
+function buildBergPrompt(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string, spendUsd?: number): string {
   const scoreLines = roiAverages
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)} — ${r.description}`)
     .join('\n')
 
+  const isLoser = mode === 'historical' && spendUsd !== undefined && spendUsd < WINNER_THRESHOLD_USD
+  const isWinner = mode === 'historical' && !isLoser
+
   const roiContext = mode === 'historical' ? ROI_AD_CONTEXT_HISTORICAL : ROI_AD_CONTEXT
 
-  const ending = mode === 'historical'
-    ? `For each ROI: name it, quote the score, write 2 sentences explaining what its activation level reveals about this ad's effectiveness for this audience and category. Pure observation — no third sentence with recommendations, no "consider", no "test", no "darken", no "push closer to threshold".
+  let ending: string
+  if (isLoser) {
+    ending = `For each ROI: name it, quote the score, write 2 sentences explaining what its activation level reveals about why this ad failed to generate meaningful spend ($${spendUsd}). Pure observation — no recommendations, no "consider", no "test", no "darken".
+
+GOOD: "V1_V2 — 0.415: Low edge density means the visual did not disrupt the scroll; with $${spendUsd} spend, this confirms the image failed to earn the stop that would have made the headline readable."
+
+BAD: "V1_V2 — 0.415: Low contrast. Darken the background to push edge density and improve scroll-stopping power."
+
+Format as a markdown bulleted list.`
+  } else if (isWinner) {
+    ending = `For each ROI: name it, quote the score, write 2 sentences explaining what its activation level reveals about this ad's effectiveness for this audience and category. Pure observation — no third sentence with recommendations, no "consider", no "test", no "darken", no "push closer to threshold".
 
 GOOD: "VWFA — 1.000: Text is fully commanding visual attention; this is the single strongest signal in this creative. At high spend in a problem-aware audience, the audience reads this ad more than they recognize the product, and that trade-off worked for this conversion mechanic."
 
 BAD: "VWFA — 1.000: Text is fully commanding attention. Audit the text hierarchy to ensure the offer line occupies the dominant position."
 
 Format as a markdown bulleted list.`
-    : `Give 5–6 specific, actionable recommendations. For each: name the ROI, quote its score, state the ad-performance implication and the exact change to make. Two sentences max — no filler. Reference winning patterns above where relevant.\n\nFormat as a markdown bulleted list.`
+  } else {
+    ending = `Give 5–6 specific, actionable recommendations. For each: name the ROI, quote its score, state the ad-performance implication and the exact change to make. Two sentences max — no filler. Reference winning patterns above where relevant.\n\nFormat as a markdown bulleted list.`
+  }
 
   return `You are interpreting BERG fMRI brain activation predictions for a static ad image.
 
@@ -518,6 +532,117 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
 }`
 
 
+const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
+  "copy": {
+    "headline": { "text": "<exact text or null>", "clarity": <1-10>, "urgency": <1-10>, "relevance": <1-10>, "feedback": "<two sentences: what this headline reveals about why the audience did not convert>" },
+    "subheadline": { "text": "<exact text or null>", "supports_headline": <true/false>, "clarity": <1-10>, "feedback": "<one sentence: what the subheadline's presence or absence reveals about the structural failure>" },
+    "benefits_features": { "identified": ["<benefit 1>"], "clarity": <1-10>, "prominence": <1-10>, "feedback": "<two sentences: what the benefit structure reveals about the conversion gap>" },
+    "trust_signals": { "identified": ["<signal>"], "strength": <1-10>, "feedback": "<two sentences: what the trust signal level reveals about why credibility did not land>" },
+    "safety_signals": { "identified": ["<signal>"], "strength": <1-10>, "feedback": "<two sentences: what safety signal handling reveals about compliance or friction failures>" },
+    "cta": { "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>, "feedback": "<two sentences: what the CTA reveals about why the next step failed to convert>" }
+  },
+  "behavioral_economics": {
+    "scarcity":      { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "urgency":       { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "social_proof":  { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "anchoring":     { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "loss_aversion": { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "authority":     { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "reciprocity":   { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "overall_feedback": "<two sentences: which BE levers are absent or weak and what that reveals about why conversion stalled>"
+  },
+  "neuroscience": {
+    "attention_prediction": "<one-two sentences: what captures attention first and why>",
+    "emotional_encoding":   "<one-two sentences: emotional response likely triggered>",
+    "memory_encoding":      "<one-two sentences: how memorable and what aids or hinders recall>",
+    "feedback":             "<two sentences: top neural processing insight about why this ad failed to hold attention or drive action>"
+  },
+  "visual_dimensions": {
+    "cta_strength":     { "score": <1-10>, "feedback": "<two sentences: what this score reveals about why the ad failed to drive action>" },
+    "emotional_appeal": { "score": <1-10>, "feedback": "<two sentences: what this score reveals about the emotional failure mode>" },
+    "brand_clarity":    { "score": <1-10>, "feedback": "<two sentences: what this score reveals about why brand registration failed>" },
+    "visual_hierarchy": { "score": <1-10>, "feedback": "<two sentences: what this score reveals about how hierarchy limited performance>" }
+  },
+  "pattern_matches": ["<anti-pattern this ad embodies, or winning rule it violated>"],
+  "overall": {
+    "verdict":           "<three-four sentences: why this ad failed to achieve meaningful spend — what structural choices limited its distribution>",
+    "top_strength":      "<one sentence: what worked structurally, if anything, and why it was insufficient>",
+    "critical_weakness": "<one sentence: primary structural failure that most directly explains the low spend>",
+    "priority_fix":      "<one sentence: single most diagnostic failure pattern this ad reveals about what does not work in this category>"
+  },
+  "market_context": {
+    "awareness_level": "<one of: unaware | problem_aware | solution_aware | product_aware | most_aware>",
+    "awareness_reasoning": "<one sentence: why this awareness level — and whether the ad matched or mismatched it>",
+    "sophistication_level": <1-5>,
+    "sophistication_reasoning": "<one sentence: why this sophistication level and whether the ad addressed it correctly>"
+  },
+  "ad_format": {
+    "type": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | testimonial | hybrid>",
+    "composition": {
+      "has_headline": <true/false>,
+      "has_subheadline": <true/false>,
+      "has_body_copy": <true/false>,
+      "has_benefits_list": <true/false>,
+      "has_trust_signals": <true/false>,
+      "has_cta": <true/false>,
+      "has_price_or_offer": <true/false>,
+      "is_visual_dominant": <true/false>,
+      "is_text_heavy": <true/false>
+    },
+    "format_assessment": "<one sentence: what this format reveals about audience mismatch or conversion intent failure>"
+  },
+  "hook_analysis": {
+    "scroll_stop_score": <1-10>,
+    "pattern_interrupt": "<what element(s) were intended to stop scroll and why they did or did not work>",
+    "first_half_second": "<what the eye hits first and why it failed or succeeded for this audience>",
+    "hook_feedback": "<one sentence: what the hook's failure reveals about attention patterns in this vertical>"
+  },
+  "offer_architecture": {
+    "offer_present": <true/false>,
+    "offer_text": "<exact offer text or null>",
+    "has_price_anchor": <true/false>,
+    "has_guarantee": <true/false>,
+    "has_urgency_mechanism": <true/false>,
+    "has_trial_or_free": <true/false>,
+    "perceived_value_score": <1-10>,
+    "offer_clarity_score": <1-10>,
+    "offer_feedback": "<two sentences: what the offer architecture reveals about why the decision pathway broke down>"
+  },
+  "cognitive_load": {
+    "score": <1-10, where 1=effortless and 10=overwhelming>,
+    "density": "<one of: minimal | moderate | heavy>",
+    "overload_risk": "<what specific element(s) caused friction, or 'none'>",
+    "simplification": "<one sentence: what this load level reveals about copy failure in this category>"
+  },
+  "platform_fit": {
+    "optimised_for": ["<platform 1>"],
+    "weak_for": ["<platform 1>"],
+    "reasoning": "<two sentences: why this format failed or fit each platform>",
+    "adaptation_notes": "<one-two sentences: what platform mismatch reveals about why this ad did not find its audience>"
+  },
+  "framework_score": {
+    "minimum_viable_test": "<pass or fail: does visual + 5 words communicate the core feeling?>",
+    "headline_leaves_gap": <true/false>,
+    "subheadline_justified": <true/false>,
+    "benefits_justified": <true/false>,
+    "trust_signal_justified": <true/false>,
+    "cta_justified": <true/false>,
+    "overall_framework_grade": "<A | B | C | D>",
+    "framework_feedback": "<two sentences: what framework violations or over-building reveals about why this ad underperformed>"
+  },
+  "congruence": {
+    "overall_score": <1-10, where 10=fully congruent>,
+    "headline_to_visual":       { "aligned": <true/false>, "note": "<one sentence>" },
+    "headline_to_subheadline":  { "aligned": <true/false>, "note": "<one sentence>" },
+    "body_to_headline":         { "aligned": <true/false>, "note": "<one sentence>" },
+    "benefits_to_headline":     { "aligned": <true/false>, "note": "<one sentence>" },
+    "cta_to_offer":             { "aligned": <true/false>, "note": "<one sentence>" },
+    "trust_signals_to_claim":   { "aligned": <true/false>, "note": "<one sentence>" },
+    "incoherence_summary": "<one sentence: primary mismatch that contributed to failure, or 'No incoherence detected'>",
+    "fix": "<one sentence: what the congruence failure reveals about creative architecture mistakes in this category>"
+  }
+}`
+
 function buildRedditBlock(topic: string, posts: RedditPost[]): string {
   const postLines = posts.map((p, i) =>
     `Post ${i + 1}: "${p.title}"\nURL: ${p.url}\nSnippet: "${p.snippet}"`
@@ -556,6 +681,7 @@ function buildComprehensiveVisionPrompt(
   redditPosts?: RedditPost[],
   conceptTopic?: string,
   mode?: string,
+  spendUsd?: number,
 ): string {
   const scoreLines = roiAverages
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)}`)
@@ -565,14 +691,20 @@ function buildComprehensiveVisionPrompt(
     ? `\n${buildRedditBlock(conceptTopic, redditPosts)}\n`
     : ''
 
-  const baseSchema = mode === 'historical' ? COMPREHENSIVE_JSON_SCHEMA_HISTORICAL : COMPREHENSIVE_JSON_SCHEMA
+  const isLoser = mode === 'historical' && spendUsd !== undefined && spendUsd < WINNER_THRESHOLD_USD
+  const isWinner = mode === 'historical' && !isLoser
+
+  const baseSchema = isLoser ? COMPREHENSIVE_JSON_SCHEMA_LOSER
+    : isWinner ? COMPREHENSIVE_JSON_SCHEMA_HISTORICAL
+    : COMPREHENSIVE_JSON_SCHEMA
 
   const schema = (redditPosts && redditPosts.length > 0 && conceptTopic)
     ? baseSchema.replace(/\n\}$/, `${buildRedditSchema(redditPosts)}\n}`)
     : baseSchema
 
-  const preamble = mode === 'historical'
-    ? `You are a senior advertising strategist analyzing a confirmed winning ad. Your task is to understand WHY it worked — not to critique or suggest improvements. Write observations throughout: what is present, why it works for this audience, what structural choices reveal about effective creative architecture in this category.
+  let preamble: string
+  if (isWinner) {
+    preamble = `You are a senior advertising strategist analyzing a confirmed winning ad. Your task is to understand WHY it worked — not to critique or suggest improvements. Write observations throughout: what is present, why it works for this audience, what structural choices reveal about effective creative architecture in this category.
 
 FORBIDDEN — do not use these words or any directive grammar:
 add, consider, should, remove, test, introduce, improve, increase, audit, expand, replace, darken, sharpen, push, bridge, would dramatically, would materially, would meaningfully, could be made, this could, try, ensure, must.
@@ -584,10 +716,27 @@ BAD (directive — never write this):
 "The headline is short. Consider adding a mechanism or benefit statement to increase specificity and improve conversion rate."
 
 Every field that normally asks 'what to fix' now asks 'what does this reveal'. If you find yourself wanting to write 'add X', rewrite it as 'the absence of X reveals…'.`
-    : `You are a senior advertising strategist, media buyer, and neuroscience analyst reviewing a static ad image.`
+  } else if (isLoser) {
+    preamble = `You are a senior advertising strategist analyzing a confirmed underperforming ad ($${spendUsd} spend). This ad did not achieve meaningful distribution. Your task is to understand WHY it failed — what structural choices limited its reach, where the creative architecture broke down, and what the audience did not respond to.
 
-  const analysisInstruction = mode === 'historical'
+FORBIDDEN — do not use these words or any directive grammar:
+add, consider, should, remove, test, introduce, improve, increase, audit, expand, replace, darken, sharpen, push, bridge, would dramatically, would materially, would meaningfully, could be made, this could, try, ensure, must.
+
+GOOD (observation of failure — write like this):
+"The headline names a mechanism without establishing the problem first; at $${spendUsd} spend in a problem-aware vertical, this reveals the audience had not self-identified with the pain sufficiently for a mechanism-first approach to create urgency."
+
+BAD (directive — never write this):
+"The headline jumps to the mechanism. Add a problem-statement line above it to establish pain before introducing the solution."
+
+Every field describes what IS present and what it reveals about why this ad failed to generate meaningful spend. If you find yourself wanting to write 'add X', rewrite it as 'the absence of X reveals why conversion stalled'.`
+  } else {
+    preamble = `You are a senior advertising strategist, media buyer, and neuroscience analyst reviewing a static ad image.`
+  }
+
+  const analysisInstruction = isWinner
     ? `Analyze this winning ad. Quote actual text, describe actual colors and layout, reference actual visual elements. Observations only — no improvement suggestions. Do not skip any section.`
+    : isLoser
+    ? `Analyze this underperforming ad. Quote actual text, describe actual colors and layout, reference actual visual elements. Failure analysis only — what broke down, not what to fix. Do not skip any section.`
     : `Analyze this ad image comprehensively. Quote actual text you see, describe actual colors and layout, reference actual visual elements. No generic feedback. Do not skip any section.`
 
   return `${preamble}
@@ -607,11 +756,11 @@ ${schema}
 If pattern_matches is empty because no patterns are available, return [].`
 }
 
-async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string): Promise<string> {
+async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string, spendUsd?: number): Promise<string> {
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 8192,
-    messages: [{ role: 'user', content: buildBergPrompt(roiAverages, patternContext, visualDescription, mode) }],
+    messages: [{ role: 'user', content: buildBergPrompt(roiAverages, patternContext, visualDescription, mode, spendUsd) }],
   })
   const textBlock = message.content.find(b => b.type === 'text')
   return textBlock?.type === 'text' ? textBlock.text : ''
@@ -626,6 +775,7 @@ async function runComprehensiveVisionAnalysis(
   redditPosts?: RedditPost[],
   conceptTopic?: string,
   mode?: string,
+  spendUsd?: number,
 ): Promise<Omit<ComprehensiveAnalysis, 'berg_recommendations'> | null> {
   try {
     const message = await anthropic.messages.create({
@@ -642,7 +792,7 @@ async function runComprehensiveVisionAnalysis(
               data: imageBase64,
             },
           },
-          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, redditPosts, conceptTopic, mode) },
+          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, redditPosts, conceptTopic, mode, spendUsd) },
         ],
       }],
     })
@@ -764,9 +914,9 @@ export async function POST(req: NextRequest) {
   let visionResult: Omit<ComprehensiveAnalysis, 'berg_recommendations'> | null
   try {
     ;[bergText, visionResult] = await Promise.all([
-      runBergAnalysis(roi_averages, patternContext, visualDescription, mode),
+      runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd),
       image_base64
-        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, redditPosts ?? undefined, concept_topic, mode)
+        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, redditPosts ?? undefined, concept_topic, mode, spend_usd)
         : Promise.resolve(null),
     ])
   } catch (e) {

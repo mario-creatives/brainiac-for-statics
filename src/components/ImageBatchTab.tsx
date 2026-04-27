@@ -584,6 +584,7 @@ export function ImageBatchTab({ token }: Props) {
             result: selectedCard.result,
             spend: selectedCard.spend,
             isWinner: mode === 'historical' && (selectedCard.spend ?? 0) >= WINNER_THRESHOLD_USD,
+            isLoser: mode === 'historical' && selectedCard.spend !== undefined && selectedCard.spend < WINNER_THRESHOLD_USD,
           }}
           comprehensive={cardComprehensive[selectedCard.id]}
           loading={cardLoading[selectedCard.id]}
@@ -617,6 +618,7 @@ function ImageResultCard({
 }) {
   const topRoi = card.result?.roi_data?.slice(0, 3) ?? []
   const isWinner = mode === 'historical' && (card.spend ?? 0) >= WINNER_THRESHOLD_USD
+  const isLoser = mode === 'historical' && card.spend !== undefined && card.spend < WINNER_THRESHOLD_USD
 
   return (
     <div
@@ -641,6 +643,11 @@ function ImageResultCard({
         {isWinner && (
           <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider bg-yellow-500 text-yellow-950 px-1.5 py-0.5 rounded">
             ★ Winner
+          </span>
+        )}
+        {isLoser && (
+          <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider bg-red-900 text-red-300 px-1.5 py-0.5 rounded border border-red-800">
+            ✗ Loser
           </span>
         )}
         <div className="absolute top-1.5 right-1.5">
