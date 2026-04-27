@@ -3,7 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
 import {
   getWinningPatterns,
-  getRecentWinningAnalyses,
+  getAllWinningAnalyses,
   storeComprehensiveAnalysis,
   WINNER_THRESHOLD_USD,
   type PatternLibraryRow,
@@ -120,6 +120,24 @@ export interface ComprehensiveAnalysis {
     overall_framework_grade: 'A' | 'B' | 'C' | 'D'
     framework_feedback: string
   }
+  congruence: {
+    overall_score: number
+    headline_to_visual: { aligned: boolean; note: string }
+    headline_to_subheadline: { aligned: boolean; note: string }
+    body_to_headline: { aligned: boolean; note: string }
+    benefits_to_headline: { aligned: boolean; note: string }
+    cta_to_offer: { aligned: boolean; note: string }
+    trust_signals_to_claim: { aligned: boolean; note: string }
+    incoherence_summary: string
+    fix: string
+  }
+  reddit_research?: {
+    topic: string
+    posts_found: Array<{ title: string; url: string; snippet: string }>
+    situation_patterns: string[]
+    congruence_with_reddit: { verdict: 'aligned' | 'partial' | 'misaligned'; note: string }
+    visual_ideation: { concept: string; rationale: string; source_urls: string[] }
+  }
 }
 
 const anthropic = new Anthropic({ timeout: 120000 })
@@ -141,17 +159,26 @@ function buildPatternContext(
 
   if (winningExamples.length > 0) {
     lines.push('')
-    lines.push('--- Recent Winning Ad Examples ---')
+    lines.push('--- All Winning Ad Examples (every ad above spend threshold) ---')
     winningExamples.forEach((ex, i) => {
       const ca = ex.comprehensive_analysis as unknown as ComprehensiveAnalysis | null
       if (!ca) return
-      const headline = ca.copy?.headline?.text ?? 'unknown'
-      const cta = ca.copy?.cta?.text ?? 'unknown'
+      const headline = ca.copy?.headline?.text ?? 'n/a'
+      const headlineWords = headline !== 'n/a' ? headline.trim().split(/\s+/).length : 0
+      const hasSubheadline = !!ca.copy?.subheadline?.text
+      const benefits = ca.copy?.benefits_features?.identified ?? []
+      const hasTrust = (ca.copy?.trust_signals?.identified?.length ?? 0) > 0
+      const cta = ca.copy?.cta?.text ?? 'n/a'
+      const offer = ca.offer_architecture?.offer_present ?? false
+      const grade = ca.framework_score?.overall_framework_grade ?? '?'
+      const awareness = ca.market_context?.awareness_level ?? 'unknown'
+      const scrollStop = ca.hook_analysis?.scroll_stop_score ?? 0
+      const cogLoad = ca.cognitive_load?.score ?? 0
+      const congruenceScore = ca.congruence?.overall_score ?? 'n/a'
       const topBE = Object.entries(ca.behavioral_economics ?? {})
         .filter(([k, v]) => k !== 'overall_feedback' && (v as { present: boolean }).present)
-        .map(([k]) => k)
-        .join(', ')
-      lines.push(`Example ${i + 1} ($${ex.spend_usd} spend): headline="${headline}", CTA="${cta}", behavioral signals=${topBE || 'none'}`)
+        .map(([k]) => k).join(', ') || 'none'
+      lines.push(`Example ${i + 1} ($${ex.spend_usd} spend): headline="${headline}" (${headlineWords}w) | subheadline=${hasSubheadline} | benefits=${benefits.length} | trust=${hasTrust} | cta="${cta}" | offer=${offer} | grade=${grade} | awareness=${awareness} | scroll_stop=${scrollStop}/10 | cog_load=${cogLoad}/10 | congruence=${congruenceScore}/10 | BE=[${topBE}]`)
     })
   }
 
@@ -186,9 +213,17 @@ Market sophistication levels (1 = low saturation, 5 = highly saturated/jaded):
 - Level 2: Market has seen claims. A bigger, more specific claim needed.
 - Level 3: Claims saturated. The MECHANISM (how it works) is the differentiator.
 - Level 4: Mechanisms saturated. IDENTIFICATION — "for people like you" — is the differentiator.
-- Level 5: Everything saturated. SENSATION and experience are the only differentiators.`
+- Level 5: Everything saturated. SENSATION and experience are the only differentiators.
 
-function buildBergPrompt(roiAverages: ROIAverage[], patternContext: string): string {
+Congruence principle — every element must reinforce the same core message:
+- Headline and visual must tell the same story with no ambiguity.
+- Subheadline must resolve the specific tension the headline creates — not introduce a new topic.
+- Body must elaborate the headline's promise. If headline is about energy but body talks about sleep mechanics with no energy connection, that is incoherence.
+- Each benefit must be a direct consequence of the core mechanism — tangential benefits dilute focus.
+- CTA must match the offer or ask — "Shop now" without a visible product or price is incoherent.
+- Trust signals must validate the specific claim made, not a different dimension entirely.`
+
+function buildBergPrompt(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string): string {
   const scoreLines = roiAverages
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)} — ${r.description}`)
     .join('\n')
@@ -199,6 +234,15 @@ ${ROI_AD_CONTEXT}
 
 BERG brain activation scores for this ad:
 ${scoreLines}
+${visualDescription ? `\nConfirmed visual content: "${visualDescription}"\n` : ''}
+IMPORTANT — interpretation context:
+These BERG scores are brain encoding predictions. They model how neural regions WOULD respond to the image's low-level visual properties (edges, spatial frequencies, color distributions). They are NOT object detectors.
+A high FFA score on an image with no faces does NOT mean a face is present — it means the visual patterns (curves, skin-tone-like colors, oval shapes) incidentally activated the face-processing area.
+
+For each ROI:
+- If the score is high AND the corresponding element appears present in the confirmed visual: treat as a strong creative signal.
+- If the score is high BUT the visual description contradicts the element's presence: flag as an incidental signal, not a recommendation. Example: "FFA is elevated despite no human face — this likely reflects shape/tonal properties, not a usable face signal."
+- Base ALL recommendations on what is actually in the image, not what a high score implies might be there.
 ${patternContext ? `\n${patternContext}\n` : ''}
 Give 5–6 specific, actionable suggestions to improve this ad's performance in paid media. For each suggestion: name the ROI, quote its score, explain what it means about the creative in ad-performance terms, and state the specific change to make. Do not guarantee outcomes. Where relevant, reference the winning patterns above.
 
@@ -318,38 +362,113 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "cta_justified": <true/false>,
     "overall_framework_grade": "<A | B | C | D>",
     "framework_feedback": "<two sentences: where the framework is violated or over-built>"
+  },
+  "congruence": {
+    "overall_score": <1-10, where 10=fully congruent>,
+    "headline_to_visual":       { "aligned": <true/false>, "note": "<one sentence>" },
+    "headline_to_subheadline":  { "aligned": <true/false>, "note": "<one sentence>" },
+    "body_to_headline":         { "aligned": <true/false>, "note": "<one sentence>" },
+    "benefits_to_headline":     { "aligned": <true/false>, "note": "<one sentence>" },
+    "cta_to_offer":             { "aligned": <true/false>, "note": "<one sentence>" },
+    "trust_signals_to_claim":   { "aligned": <true/false>, "note": "<one sentence>" },
+    "incoherence_summary": "<one sentence: primary mismatch, or 'No incoherence detected'>",
+    "fix": "<single most important change to improve congruence>"
   }
 }`
+
+interface RedditPost { title: string; url: string; snippet: string }
+
+async function fetchRedditPosts(topic: string): Promise<RedditPost[] | null> {
+  try {
+    const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(topic)}&sort=relevance&limit=5&type=link`
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8000)
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Brainiac-AdAnalyzer/1.0' },
+    })
+    clearTimeout(timeout)
+    if (!res.ok) return null
+    const data = await res.json() as { data?: { children?: Array<{ data: { title: string; permalink: string; selftext?: string } }> } }
+    const posts = (data?.data?.children ?? []).map(c => ({
+      title: c.data.title,
+      url: `https://www.reddit.com${c.data.permalink}`,
+      snippet: (c.data.selftext ?? '').slice(0, 250).replace(/\n+/g, ' '),
+    })).filter(p => p.title).slice(0, 5)
+    return posts.length > 0 ? posts : null
+  } catch { return null }
+}
+
+function buildRedditBlock(topic: string, posts: RedditPost[]): string {
+  const postLines = posts.map((p, i) =>
+    `Post ${i + 1}: "${p.title}"\nURL: ${p.url}\nSnippet: "${p.snippet}"`
+  ).join('\n\n')
+
+  return `--- Reddit research: real people describing "${topic}" ---
+${postLines}
+
+Reddit analysis instructions:
+1. Identify 2–3 situation patterns from how these people describe their experience (use their language verbatim, not paraphrased).
+2. Check whether the ad's headline, subheadline, body, benefits, and CTA are congruent with how real people describe this situation.
+3. Propose one specific visual concept grounded in these Reddit descriptions — state who is shown, the setting, the physical/emotional detail.
+4. In source_urls: include ONLY exact URLs from the list above. Do not modify. Do not add URLs not in this list.`
+}
+
+function buildRedditSchema(posts: RedditPost[]): string {
+  const urlList = posts.map(p => `"${p.url}"`).join(', ')
+  return `,
+  "reddit_research": {
+    "topic": "<topic string>",
+    "posts_found": [{ "title": "<title>", "url": "<exact url from: ${urlList}>", "snippet": "<first 100 chars>" }],
+    "situation_patterns": ["<pattern in real people's exact language>", "<pattern 2>"],
+    "congruence_with_reddit": { "verdict": "<aligned|partial|misaligned>", "note": "<one sentence>" },
+    "visual_ideation": {
+      "concept": "<specific visual scene: who, where, what, emotional state>",
+      "rationale": "<one sentence: grounded in which Reddit insight>",
+      "source_urls": ["<one of: ${urlList}>"]
+    }
+  }`
+}
 
 function buildComprehensiveVisionPrompt(
   roiAverages: ROIAverage[],
   patternContext: string,
   confirmedElements?: ExtractedElements,
+  redditPosts?: RedditPost[],
+  conceptTopic?: string,
 ): string {
   const scoreLines = roiAverages
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)}`)
     .join('\n')
 
+  const redditSection = (redditPosts && redditPosts.length > 0 && conceptTopic)
+    ? `\n${buildRedditBlock(conceptTopic, redditPosts)}\n`
+    : ''
+
+  const schema = (redditPosts && redditPosts.length > 0 && conceptTopic)
+    ? COMPREHENSIVE_JSON_SCHEMA.replace(/\n\}$/, `${buildRedditSchema(redditPosts)}\n}`)
+    : COMPREHENSIVE_JSON_SCHEMA
+
   return `You are a senior advertising strategist, media buyer, and neuroscience analyst reviewing a static ad image.
 ${confirmedElements ? `\n${buildConfirmedElementsBlock(confirmedElements)}\n` : ''}
 ${FRAMEWORK_CONTEXT}
 ${patternContext ? `\n${patternContext}\n` : ''}
-BERG brain activation scores:
+${redditSection}BERG brain activation scores:
 ${scoreLines}
 
 Analyze this ad image comprehensively. Be specific — quote actual text you see, describe actual colors and layout, reference actual visual elements. Do not give generic feedback. Do not skip any section.
 
 Return a JSON object with EXACTLY this structure — no markdown fences, no extra keys:
-${COMPREHENSIVE_JSON_SCHEMA}
+${schema}
 
 If pattern_matches is empty because no patterns are available, return [].`
 }
 
-async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string): Promise<string> {
+async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string): Promise<string> {
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 8192,
-    messages: [{ role: 'user', content: buildBergPrompt(roiAverages, patternContext) }],
+    messages: [{ role: 'user', content: buildBergPrompt(roiAverages, patternContext, visualDescription) }],
   })
   const textBlock = message.content.find(b => b.type === 'text')
   return textBlock?.type === 'text' ? textBlock.text : ''
@@ -361,6 +480,8 @@ async function runComprehensiveVisionAnalysis(
   roiAverages: ROIAverage[],
   patternContext: string,
   confirmedElements?: ExtractedElements,
+  redditPosts?: RedditPost[],
+  conceptTopic?: string,
 ): Promise<Omit<ComprehensiveAnalysis, 'berg_recommendations'> | null> {
   try {
     const message = await anthropic.messages.create({
@@ -377,7 +498,7 @@ async function runComprehensiveVisionAnalysis(
               data: imageBase64,
             },
           },
-          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements) },
+          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, redditPosts, conceptTopic) },
         ],
       }],
     })
@@ -452,6 +573,17 @@ function emptyComprehensive(bergBullets: string[]): ComprehensiveAnalysis {
       trust_signal_justified: false, cta_justified: false,
       overall_framework_grade: 'D', framework_feedback: '',
     },
+    congruence: {
+      overall_score: 0,
+      headline_to_visual: { aligned: false, note: '' },
+      headline_to_subheadline: { aligned: false, note: '' },
+      body_to_headline: { aligned: false, note: '' },
+      benefits_to_headline: { aligned: false, note: '' },
+      cta_to_offer: { aligned: false, note: '' },
+      trust_signals_to_claim: { aligned: false, note: '' },
+      incoherence_summary: '',
+      fix: '',
+    },
   }
 }
 
@@ -471,21 +603,24 @@ export async function POST(req: NextRequest) {
   const spend_usd: number | undefined = body.spend_usd !== undefined ? Number(body.spend_usd) : undefined
   const analysis_id: string | undefined = body.analysis_id
   const confirmed_elements: ExtractedElements | undefined = body.confirmed_elements
+  const concept_topic: string | undefined = body.concept_topic
 
-  const [patterns, winningExamples] = await Promise.all([
-    getWinningPatterns(8),
-    getRecentWinningAnalyses(3),
+  const [patterns, winningExamples, redditPosts] = await Promise.all([
+    getWinningPatterns(),
+    getAllWinningAnalyses(),
+    concept_topic ? fetchRedditPosts(concept_topic) : Promise.resolve(null),
   ])
 
   const patternContext = buildPatternContext(patterns, winningExamples)
+  const visualDescription = confirmed_elements?.visual_description
 
   let bergText: string
   let visionResult: Omit<ComprehensiveAnalysis, 'berg_recommendations'> | null
   try {
     ;[bergText, visionResult] = await Promise.all([
-      runBergAnalysis(roi_averages, patternContext),
+      runBergAnalysis(roi_averages, patternContext, visualDescription),
       image_base64
-        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements)
+        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, redditPosts ?? undefined, concept_topic)
         : Promise.resolve(null),
     ])
   } catch (e) {

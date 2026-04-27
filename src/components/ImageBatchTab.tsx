@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { Upload, Square } from 'lucide-react'
 import type { AnalysisResult, ROIRegion } from '@/types'
 import { AttributionFooter } from '@/components/AttributionFooter'
@@ -57,11 +57,30 @@ export function ImageBatchTab({ token }: Props) {
   const [awaitingConfirmation, setAwaitingConfirmation] = useState<Record<string, boolean>>({})
   const [confirmedElements, setConfirmedElements] = useState<Record<string, ExtractedElements>>({})
   const [showExtractionPanel, setShowExtractionPanel] = useState(false)
+  const [conceptTopic, setConceptTopic] = useState('')
+  const [userAdCount, setUserAdCount] = useState<number | null>(null)
 
   const cardsRef = useRef<ImageCard[]>([])
   cardsRef.current = cards
   const stoppedRef = useRef(false)
   const intervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map())
+
+  async function fetchAdCount() {
+    const { count } = await supabase
+      .from('analyses')
+      .select('*', { count: 'exact', head: true })
+      .eq('type', 'thumbnail')
+      .eq('status', 'complete')
+    setUserAdCount(count ?? 0)
+  }
+
+  useEffect(() => { fetchAdCount() }, [])
+
+  const feedbackLocked = userAdCount !== null && userAdCount < 10
+
+  useEffect(() => {
+    if (feedbackLocked && mode === 'feedback') setMode('historical')
+  }, [feedbackLocked])
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []).slice(0, 25)
@@ -83,6 +102,7 @@ export function ImageBatchTab({ token }: Props) {
     setExtractionLoading({})
     setAwaitingConfirmation({})
     setConfirmedElements({})
+    setConceptTopic('')
     e.target.value = ''
   }
 
@@ -101,6 +121,7 @@ export function ImageBatchTab({ token }: Props) {
     setExtractionLoading({})
     setAwaitingConfirmation({})
     setConfirmedElements({})
+    setConceptTopic('')
   }
 
   function handleStop() {
@@ -173,7 +194,7 @@ export function ImageBatchTab({ token }: Props) {
     setExtractionLoading(prev => ({ ...prev, [card.id]: false }))
   }
 
-  async function runComprehensive(card: ImageCard, freshToken: string, confirmed?: ExtractedElements) {
+  async function runComprehensive(card: ImageCard, freshToken: string, confirmed?: ExtractedElements, topic?: string) {
     if (!card.result?.roi_data) return
     setCardLoading(prev => ({ ...prev, [card.id]: true }))
     setCardError(prev => { const next = { ...prev }; delete next[card.id]; return next })
@@ -190,6 +211,7 @@ export function ImageBatchTab({ token }: Props) {
           spend_usd: mode === 'historical' ? card.spend : undefined,
           analysis_id: card.analysisId,
           confirmed_elements: confirmed,
+          concept_topic: topic && topic.trim() ? topic.trim() : undefined,
         }),
       })
       const data = await res.json()
@@ -293,11 +315,13 @@ export function ImageBatchTab({ token }: Props) {
       // Historical: run extraction first, wait for user to confirm before comprehensive
       await Promise.all(completedCards.map(c => runExtraction(c, freshToken)))
     } else {
-      // Feedback: run comprehensive automatically
-      await Promise.all(completedCards.map(c => runComprehensive(c, freshToken)))
+      // Feedback: run comprehensive automatically, pass concept topic for Reddit research
+      const topic = conceptTopic.trim() || undefined
+      await Promise.all(completedCards.map(c => runComprehensive(c, freshToken, undefined, topic)))
     }
 
     setAnalyzing(false)
+    fetchAdCount()
   }
 
   async function handleCardClick(card: ImageCard) {
@@ -329,7 +353,7 @@ export function ImageBatchTab({ token }: Props) {
       if (cardComprehensive[card.id] || cardLoading[card.id]) return
       if (!card.result?.roi_data) return
       const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-      runComprehensive(card, freshToken)
+      runComprehensive(card, freshToken, undefined, conceptTopic.trim() || undefined)
     }
   }
 
@@ -369,22 +393,48 @@ export function ImageBatchTab({ token }: Props) {
             <button
               key={m}
               onClick={() => setMode(m)}
-              disabled={analyzing}
+              disabled={analyzing || (m === 'feedback' && feedbackLocked)}
+              title={m === 'feedback' && feedbackLocked ? `Unlocks after ${10 - (userAdCount ?? 0)} more historical ads` : undefined}
               className={[
                 'px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
                 mode === m ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200',
+                m === 'feedback' && feedbackLocked ? 'opacity-40 cursor-not-allowed' : '',
               ].join(' ')}
             >
               {label}
             </button>
           ))}
         </div>
-        <p className="text-[11px] text-gray-500 max-w-md leading-relaxed">
-          {mode === 'historical'
-            ? `Upload past ads with spend data. Ads with $${WINNER_THRESHOLD_USD}+ spend feed the shared winning-pattern library.`
-            : 'Upload new ads for review. Results include winning patterns from the shared library as reference.'}
-        </p>
+        {feedbackLocked ? (
+          <div className="flex items-center gap-2 text-[11px] text-gray-500">
+            <div className="w-20 bg-gray-800 rounded-full h-1">
+              <div
+                className="bg-indigo-500 h-1 rounded-full transition-all"
+                style={{ width: `${Math.min(((userAdCount ?? 0) / 10) * 100, 100)}%` }}
+              />
+            </div>
+            <span>{userAdCount ?? 0}/10 ads — Feedback mode unlocks at 10</span>
+          </div>
+        ) : (
+          <p className="text-[11px] text-gray-500 max-w-md leading-relaxed">
+            {mode === 'historical'
+              ? `Upload past ads with spend data. Ads with $${WINNER_THRESHOLD_USD}+ spend feed the shared winning-pattern library.`
+              : 'Upload new ads for review. Results include winning patterns from the shared library as reference.'}
+          </p>
+        )}
       </div>
+
+      {/* Concept topic input (feedback mode only) */}
+      {mode === 'feedback' && (
+        <input
+          type="text"
+          placeholder="Concept topic for Reddit research — e.g. afternoon energy slump, meal prep anxiety (optional)"
+          value={conceptTopic}
+          onChange={e => setConceptTopic(e.target.value)}
+          disabled={analyzing}
+          className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-200 focus:border-[#ff2a2b] focus:outline-none placeholder:text-gray-600 disabled:opacity-50"
+        />
+      )}
 
       {/* Upload zone */}
       {cards.length === 0 ? (
@@ -542,7 +592,7 @@ export function ImageBatchTab({ token }: Props) {
             const card = selectedCard
             const confirmed = confirmedElements[card.id]
             const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-            runComprehensive(card, freshToken, confirmed)
+            runComprehensive(card, freshToken, confirmed, conceptTopic.trim() || undefined)
           }}
         />
       )}

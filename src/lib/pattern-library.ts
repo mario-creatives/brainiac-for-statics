@@ -18,26 +18,24 @@ export interface WinningAnalysisSummary {
   spend_usd: number
 }
 
-export async function getWinningPatterns(limit = 8): Promise<PatternLibraryRow[]> {
+export async function getWinningPatterns(): Promise<PatternLibraryRow[]> {
   const { data, error } = await supabaseServer
     .from('pattern_library')
     .select('*')
-    .order('confidence', { ascending: false })
     .order('winner_count', { ascending: false })
-    .limit(limit)
+    .order('confidence', { ascending: false })
 
   if (error) return []
   return (data ?? []) as PatternLibraryRow[]
 }
 
-export async function getRecentWinningAnalyses(limit = 3): Promise<WinningAnalysisSummary[]> {
+export async function getAllWinningAnalyses(): Promise<WinningAnalysisSummary[]> {
   const { data, error } = await supabaseServer
     .from('analyses')
     .select('id, comprehensive_analysis, spend_usd')
     .eq('is_winner', true)
     .not('comprehensive_analysis', 'is', null)
-    .order('created_at', { ascending: false })
-    .limit(limit)
+    .order('spend_usd', { ascending: false })
 
   if (error) return []
   return (data ?? []) as WinningAnalysisSummary[]
@@ -57,14 +55,13 @@ export async function storeComprehensiveAnalysis(
     .eq('id', analysisId)
 }
 
-export async function getRecentWinnersForSynthesis(limit = 20): Promise<WinningAnalysisSummary[]> {
+export async function getAllWinnersForSynthesis(): Promise<WinningAnalysisSummary[]> {
   const { data, error } = await supabaseServer
     .from('analyses')
     .select('id, comprehensive_analysis, spend_usd')
     .eq('is_winner', true)
     .not('comprehensive_analysis', 'is', null)
-    .order('created_at', { ascending: false })
-    .limit(limit)
+    .order('spend_usd', { ascending: false })
 
   if (error) return []
   return (data ?? []) as WinningAnalysisSummary[]
@@ -85,9 +82,9 @@ export async function upsertPatterns(
       await supabaseServer
         .from('pattern_library')
         .update({
-          confidence: p.confidence,
           winner_count: (existing.winner_count ?? 1) + 1,
           updated_at: new Date().toISOString(),
+          // confidence intentionally NOT updated — preserve original value
         })
         .eq('id', existing.id)
     } else {
