@@ -235,30 +235,32 @@ Congruence principle — every element must reinforce the same core message:
 - CTA must match the offer or ask — "Shop now" without a visible product or price is incoherent.
 - Trust signals must validate the specific claim made, not a different dimension entirely.`
 
-function buildBergPrompt(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string): string {
+function buildBergPrompt(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string): string {
   const scoreLines = roiAverages
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)} — ${r.description}`)
     .join('\n')
 
-  return `You are interpreting BERG fMRI brain activation predictions for a static ad image for paid media performance.
+  const ending = mode === 'historical'
+    ? `For each ROI, explain what its activation level reveals about why this ad's visual choices worked. Name the ROI, quote the score, one to two sentences — observations only, no suggestions.\n\nFormat as a markdown bulleted list.`
+    : `Give 5–6 specific, actionable recommendations. For each: name the ROI, quote its score, state the ad-performance implication and the exact change to make. Two sentences max — no filler. Reference winning patterns above where relevant.\n\nFormat as a markdown bulleted list.`
+
+  return `You are interpreting BERG fMRI brain activation predictions for a static ad image.
 
 ${ROI_AD_CONTEXT}
 
-BERG brain activation scores for this ad:
+BERG brain activation scores:
 ${scoreLines}
 ${visualDescription ? `\nConfirmed visual content: "${visualDescription}"\n` : ''}
 IMPORTANT — interpretation context:
-These BERG scores are brain encoding predictions. They model how neural regions WOULD respond to the image's low-level visual properties (edges, spatial frequencies, color distributions). They are NOT object detectors.
-A high FFA score on an image with no faces does NOT mean a face is present — it means the visual patterns (curves, skin-tone-like colors, oval shapes) incidentally activated the face-processing area.
+BERG scores model how neural regions respond to low-level visual properties (edges, spatial frequencies, color distributions). They are NOT object detectors.
+High FFA on an image with no faces means the visual patterns (curves, skin-tone-like colors, oval shapes) incidentally activated face-processing — not that a face is present.
 
 For each ROI:
-- If the score is high AND the corresponding element appears present in the confirmed visual: treat as a strong creative signal.
-- If the score is high BUT the visual description contradicts the element's presence: flag as an incidental signal, not a recommendation. Example: "FFA is elevated despite no human face — this likely reflects shape/tonal properties, not a usable face signal."
-- Base ALL recommendations on what is actually in the image, not what a high score implies might be there.
+- High score + element present in confirmed visual: strong creative signal.
+- High score + visual description contradicts element presence: flag as incidental. Example: "FFA elevated despite no human face — likely reflects shape/tonal properties, not a usable face signal."
+- Base all analysis on what is actually in the image.
 ${patternContext ? `\n${patternContext}\n` : ''}
-Give 5–6 specific, actionable suggestions to improve this ad's performance in paid media. For each suggestion: name the ROI, quote its score, explain what it means about the creative in ad-performance terms, and state the specific change to make. Do not guarantee outcomes. Where relevant, reference the winning patterns above.
-
-Format as a markdown bulleted list. Each bullet is two to three sentences.`
+${ending}`
 }
 
 function buildConfirmedElementsBlock(confirmed: ExtractedElements): string {
@@ -426,6 +428,7 @@ function buildComprehensiveVisionPrompt(
   confirmedElements?: ExtractedElements,
   redditPosts?: RedditPost[],
   conceptTopic?: string,
+  mode?: string,
 ): string {
   const scoreLines = roiAverages
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)}`)
@@ -439,14 +442,33 @@ function buildComprehensiveVisionPrompt(
     ? COMPREHENSIVE_JSON_SCHEMA.replace(/\n\}$/, `${buildRedditSchema(redditPosts)}\n}`)
     : COMPREHENSIVE_JSON_SCHEMA
 
-  return `You are a senior advertising strategist, media buyer, and neuroscience analyst reviewing a static ad image.
+  const preamble = mode === 'historical'
+    ? `You are a senior advertising strategist analyzing a confirmed winning ad. Your task is to understand WHY it worked — not to critique or suggest improvements. Write observations throughout: what is present, why it worked, what it reveals about the audience and creative architecture. For fields that normally ask for fixes or priority actions, write the key insight this structural choice reveals instead. Never write directives — no 'add', 'consider', 'should', or 'remove'.`
+    : `You are a senior advertising strategist, media buyer, and neuroscience analyst reviewing a static ad image.`
+
+  const analysisInstruction = mode === 'historical'
+    ? `Analyze this winning ad. Quote actual text, describe actual colors and layout, reference actual visual elements. Observations only — no improvement suggestions. Do not skip any section.`
+    : `Analyze this ad image comprehensively. Quote actual text you see, describe actual colors and layout, reference actual visual elements. No generic feedback. Do not skip any section.`
+
+  const historicalFieldGuide = mode === 'historical'
+    ? `\nField guidance for historical analysis:
+- "priority_fix": the single most transferable creative insight from this ad's structural choices.
+- "critical_weakness": what this structural gap reveals about what this audience tolerates or does not need.
+- "hook_feedback": what this hook's success reveals about audience attention patterns in this vertical.
+- "simplification": what the cognitive load score reveals about minimum-viable copy for this category.
+- congruence "fix": what the congruence pattern reveals about effective creative architecture here.\n`
+    : ''
+
+  return `${preamble}
 ${confirmedElements ? `\n${buildConfirmedElementsBlock(confirmedElements)}\n` : ''}
+Writing style: specific and direct — every word earns its place. No filler phrases. Detailed explanations in minimal words.
+
 ${FRAMEWORK_CONTEXT}
 ${patternContext ? `\n${patternContext}\n` : ''}
 ${redditSection}BERG brain activation scores:
 ${scoreLines}
-
-Analyze this ad image comprehensively. Be specific — quote actual text you see, describe actual colors and layout, reference actual visual elements. Do not give generic feedback. Do not skip any section.
+${historicalFieldGuide}
+${analysisInstruction}
 
 Return a JSON object with EXACTLY this structure — no markdown fences, no extra keys:
 ${schema}
@@ -454,11 +476,11 @@ ${schema}
 If pattern_matches is empty because no patterns are available, return [].`
 }
 
-async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string): Promise<string> {
+async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string): Promise<string> {
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 8192,
-    messages: [{ role: 'user', content: buildBergPrompt(roiAverages, patternContext, visualDescription) }],
+    messages: [{ role: 'user', content: buildBergPrompt(roiAverages, patternContext, visualDescription, mode) }],
   })
   const textBlock = message.content.find(b => b.type === 'text')
   return textBlock?.type === 'text' ? textBlock.text : ''
@@ -472,6 +494,7 @@ async function runComprehensiveVisionAnalysis(
   confirmedElements?: ExtractedElements,
   redditPosts?: RedditPost[],
   conceptTopic?: string,
+  mode?: string,
 ): Promise<Omit<ComprehensiveAnalysis, 'berg_recommendations'> | null> {
   try {
     const message = await anthropic.messages.create({
@@ -488,7 +511,7 @@ async function runComprehensiveVisionAnalysis(
               data: imageBase64,
             },
           },
-          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, redditPosts, conceptTopic) },
+          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, redditPosts, conceptTopic, mode) },
         ],
       }],
     })
@@ -594,6 +617,7 @@ export async function POST(req: NextRequest) {
   const analysis_id: string | undefined = body.analysis_id
   const confirmed_elements: ExtractedElements | undefined = body.confirmed_elements
   const concept_topic: string | undefined = body.concept_topic
+  const mode: string | undefined = body.mode
 
   const [patterns, winningExamples, losingPatterns, redditPosts] = await Promise.all([
     getWinningPatterns(),
@@ -609,9 +633,9 @@ export async function POST(req: NextRequest) {
   let visionResult: Omit<ComprehensiveAnalysis, 'berg_recommendations'> | null
   try {
     ;[bergText, visionResult] = await Promise.all([
-      runBergAnalysis(roi_averages, patternContext, visualDescription),
+      runBergAnalysis(roi_averages, patternContext, visualDescription, mode),
       image_base64
-        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, redditPosts ?? undefined, concept_topic)
+        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, redditPosts ?? undefined, concept_topic, mode)
         : Promise.resolve(null),
     ])
   } catch (e) {

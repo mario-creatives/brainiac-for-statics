@@ -1,11 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { X, Copy, Check, RefreshCw, Sparkles } from 'lucide-react'
+import { X } from 'lucide-react'
 import type { AnalysisResult } from '@/types'
 import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
-import type { CreativeVariant } from '@/app/api/analyze/diversify/route'
-import type { ExtractedElements } from '@/app/api/analyze/extract-elements/route'
 
 function RichLine({ text }: { text: string }) {
   const parts = text.split(/(\*\*[^*]+\*\*)/)
@@ -97,42 +94,13 @@ interface Props {
   comprehensive?: ComprehensiveAnalysis
   loading?: boolean
   error?: string
-  confirmedElements?: ExtractedElements
-  conceptTopic?: string
+  isHistorical?: boolean
   token: string
   onClose: () => void
   onRetry?: () => void
 }
 
-export function AdAnalysisModal({ card, comprehensive, loading, error, confirmedElements, conceptTopic, token, onClose, onRetry }: Props) {
-  const [variants, setVariants] = useState<CreativeVariant[] | null>(null)
-  const [variantsLoading, setVariantsLoading] = useState(false)
-  const [variantsError, setVariantsError] = useState<string | null>(null)
-
-  async function generateVariants() {
-    if (!comprehensive) return
-    setVariantsLoading(true)
-    setVariantsError(null)
-    try {
-      const res = await fetch('/api/analyze/diversify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          comprehensive,
-          confirmed_elements: confirmedElements,
-          concept_topic: conceptTopic,
-          variant_count: 6,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Generation failed')
-      setVariants(data.variants)
-    } catch (e) {
-      setVariantsError(e instanceof Error ? e.message : 'Network error')
-    }
-    setVariantsLoading(false)
-  }
-
+export function AdAnalysisModal({ card, comprehensive, loading, error, isHistorical, onClose, onRetry }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
@@ -174,9 +142,24 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, confirmed
             )}
           </div>
 
-          {/* BERG ROI scores */}
+          {/* Brain Activation — BERG (bars + heatmap legend + narrative) */}
           {card.result?.roi_data && (
             <Section title="Brain Activation — BERG">
+              {card.result.heatmap_url && (
+                <div className="space-y-1 pb-1">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="h-2 w-24 rounded-full shrink-0"
+                      style={{ background: 'linear-gradient(to right, #440154, #31688E, #35B779, #FDE725)' }}
+                    />
+                    <div className="flex justify-between w-24 shrink-0">
+                      <span className="text-[9px] text-gray-600">low</span>
+                      <span className="text-[9px] text-gray-600">high</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-600">Heatmap overlay colors: purple = minimal neural activation, yellow = peak. Brighter regions indicate stronger brain processing of that visual area.</p>
+                </div>
+              )}
               <div className="space-y-2">
                 {card.result.roi_data.map(roi => (
                   <div key={roi.region_key} className="space-y-0.5">
@@ -191,6 +174,16 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, confirmed
                   </div>
                 ))}
               </div>
+              {comprehensive?.berg_recommendations && comprehensive.berg_recommendations.length > 0 && (
+                <div className="text-xs text-gray-300 leading-relaxed space-y-1.5 border-t border-gray-800 pt-3">
+                  {comprehensive.berg_recommendations.map((line, i) => (
+                    <div key={i} className="flex gap-2">
+                      <span className="text-indigo-400 shrink-0">—</span>
+                      <span><RichLine text={line} /></span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </Section>
           )}
 
@@ -215,63 +208,7 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, confirmed
             </div>
           )}
 
-          {comprehensive && <ComprehensiveSections data={comprehensive} />}
-
-          {/* Creative Variants */}
-          {comprehensive && (
-            <div className="border-t border-gray-800 pt-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-widest">Creative Variants</p>
-                  <p className="text-[10px] text-gray-600 mt-0.5">Diversified concepts for an Andromeda-friendly ad set</p>
-                </div>
-                {variants && !variantsLoading && (
-                  <button
-                    onClick={generateVariants}
-                    className="flex items-center gap-1.5 text-[10px] text-gray-400 hover:text-gray-200 transition-colors"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    Regenerate
-                  </button>
-                )}
-              </div>
-
-              {!variants && !variantsLoading && !variantsError && (
-                <button
-                  onClick={generateVariants}
-                  className="flex items-center gap-2 px-3 py-2 bg-indigo-600/20 border border-indigo-700/50 rounded-lg text-xs text-indigo-300 hover:bg-indigo-600/30 transition-colors"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Generate creative variants
-                </button>
-              )}
-
-              {variantsLoading && (
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <div className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin" />
-                  Generating diversified variants…
-                </div>
-              )}
-
-              {variantsError && !variantsLoading && (
-                <div className="space-y-1.5">
-                  <p className="text-xs text-[#ff2a2b]">{variantsError}</p>
-                  <button
-                    onClick={generateVariants}
-                    className="text-xs text-gray-400 hover:text-gray-200 underline transition-colors"
-                  >
-                    Try again
-                  </button>
-                </div>
-              )}
-
-              {variants && !variantsLoading && (
-                <div className="space-y-3">
-                  {variants.map(v => <VariantCard key={v.id} variant={v} />)}
-                </div>
-              )}
-            </div>
-          )}
+          {comprehensive && <ComprehensiveSections data={comprehensive} isHistorical={isHistorical} />}
         </div>
       </div>
     </div>
@@ -287,7 +224,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function ComprehensiveSections({ data }: { data: ComprehensiveAnalysis }) {
+function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnalysis; isHistorical?: boolean }) {
   return (
     <>
       {/* Market Context */}
@@ -590,20 +527,6 @@ function ComprehensiveSections({ data }: { data: ComprehensiveAnalysis }) {
         </Section>
       )}
 
-      {/* BERG Recommendations */}
-      {data.berg_recommendations && data.berg_recommendations.length > 0 && (
-        <Section title="BERG Recommendations">
-          <div className="text-xs text-gray-300 leading-relaxed space-y-1.5">
-            {data.berg_recommendations.map((line, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="text-indigo-400 shrink-0">—</span>
-                <span><RichLine text={line} /></span>
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
-
       {/* Framework Score */}
       {data.framework_score && (
         <Section title="Framework Score">
@@ -662,7 +585,7 @@ function ComprehensiveSections({ data }: { data: ComprehensiveAnalysis }) {
           )}
           {data.congruence.fix && (
             <p className={`text-[11px] leading-snug ${data.congruence.overall_score < 7 ? 'text-[#ff2a2b]' : 'text-gray-400'}`}>
-              Fix: {data.congruence.fix}
+              {isHistorical ? 'Insight' : 'Fix'}: {data.congruence.fix}
             </p>
           )}
         </Section>
@@ -741,151 +664,23 @@ function ComprehensiveSections({ data }: { data: ComprehensiveAnalysis }) {
           )}
           {data.overall.critical_weakness && (
             <div className="bg-gray-950 border border-red-900/40 rounded-lg px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-[#ff2a2b] font-semibold mb-0.5">Critical Weakness</p>
+              <p className="text-[10px] uppercase tracking-wide text-[#ff2a2b] font-semibold mb-0.5">
+                {isHistorical ? 'Structural Absence' : 'Critical Weakness'}
+              </p>
               <p className="text-xs text-gray-200 leading-snug">{data.overall.critical_weakness}</p>
             </div>
           )}
           {data.overall.priority_fix && (
             <div className="bg-gray-950 border border-gray-700 rounded-lg px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-0.5">Priority Fix</p>
+              <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-0.5">
+                {isHistorical ? 'Key Learning' : 'Priority Fix'}
+              </p>
               <p className="text-xs text-gray-200 leading-snug">{data.overall.priority_fix}</p>
             </div>
           )}
         </Section>
       )}
     </>
-  )
-}
-
-const AXIS_COLORS: Record<string, string> = {
-  unaware: 'border-purple-800/60 text-purple-400',
-  problem_aware: 'border-orange-800/60 text-orange-400',
-  solution_aware: 'border-amber-800/60 text-amber-400',
-  product_aware: 'border-sky-800/60 text-sky-400',
-  most_aware: 'border-emerald-800/60 text-emerald-400',
-  urgent: 'border-red-800/60 text-red-400',
-  calm: 'border-sky-800/60 text-sky-400',
-  playful: 'border-pink-800/60 text-pink-400',
-  aspirational: 'border-indigo-800/60 text-indigo-400',
-  authoritative: 'border-gray-600/60 text-gray-300',
-  empathetic: 'border-rose-800/60 text-rose-400',
-  provocative: 'border-yellow-800/60 text-yellow-400',
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  function handleCopy() {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    }).catch(() => {})
-  }
-  return (
-    <button
-      onClick={handleCopy}
-      className="shrink-0 p-1 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-800 transition-colors"
-      title="Copy"
-    >
-      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-    </button>
-  )
-}
-
-function VariantCard({ variant }: { variant: CreativeVariant }) {
-  const [copyOpen, setCopyOpen] = useState(true)
-
-  return (
-    <div className="bg-gray-950 border border-gray-800 rounded-xl p-3 space-y-2.5">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2 flex-wrap">
-        <span className="text-xs font-semibold text-white">{variant.angle_name}</span>
-        <div className="flex flex-wrap gap-1">
-          {[variant.awareness_target, variant.emotional_register, variant.visual_style, variant.format_type].map(badge => (
-            <span
-              key={badge}
-              className={`text-[9px] font-medium uppercase px-1.5 py-0.5 rounded border bg-gray-900 ${AXIS_COLORS[badge] ?? 'border-gray-700 text-gray-400'}`}
-            >
-              {badge.replace(/_/g, ' ')}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* Hypothesis */}
-      <p className="text-[11px] text-gray-500 italic leading-snug">Tests: {variant.hypothesis}</p>
-
-      {/* Copy block */}
-      <div className="space-y-1.5">
-        <button
-          onClick={() => setCopyOpen(v => !v)}
-          className="text-[10px] uppercase tracking-wide text-gray-500 hover:text-gray-300 font-semibold transition-colors"
-        >
-          Copy {copyOpen ? '▲' : '▼'}
-        </button>
-        {copyOpen && (
-          <div className="space-y-1.5 pl-1">
-            <div className="flex items-start gap-1">
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-gray-600 uppercase tracking-wide">Headline</p>
-                <p className="text-xs text-gray-200 font-medium">{variant.copy.headline}</p>
-              </div>
-              <CopyButton text={variant.copy.headline} />
-            </div>
-            {variant.copy.subheadline && (
-              <div className="flex items-start gap-1">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-gray-600 uppercase tracking-wide">Subheadline</p>
-                  <p className="text-xs text-gray-300">{variant.copy.subheadline}</p>
-                </div>
-                <CopyButton text={variant.copy.subheadline} />
-              </div>
-            )}
-            {variant.copy.body && (
-              <div className="flex items-start gap-1">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-gray-600 uppercase tracking-wide">Body</p>
-                  <p className="text-xs text-gray-300 leading-snug">{variant.copy.body}</p>
-                </div>
-                <CopyButton text={variant.copy.body} />
-              </div>
-            )}
-            <div className="flex items-start gap-1">
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-gray-600 uppercase tracking-wide">CTA</p>
-                <p className="text-xs text-gray-200">{variant.copy.cta}</p>
-              </div>
-              <CopyButton text={variant.copy.cta} />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Visual concept */}
-      {variant.visual_concept && (
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-gray-600 font-semibold mb-0.5">Visual Concept</p>
-          <p className="text-[11px] text-gray-400 leading-snug">{variant.visual_concept}</p>
-        </div>
-      )}
-
-      {/* Gem prompt */}
-      {variant.gem_prompt && (
-        <div className="relative">
-          <p className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold mb-1">Image Prompt</p>
-          <pre className="text-[10px] text-gray-300 leading-relaxed whitespace-pre-wrap break-words bg-gray-900 border border-gray-800 rounded-lg p-2.5 pr-8 font-mono">
-            {variant.gem_prompt}
-          </pre>
-          <div className="absolute top-6 right-1">
-            <CopyButton text={variant.gem_prompt} />
-          </div>
-        </div>
-      )}
-
-      {/* Why distinct */}
-      {variant.why_distinct && (
-        <p className="text-[10px] text-gray-600 leading-snug">Distinct because: {variant.why_distinct}</p>
-      )}
-    </div>
   )
 }
 

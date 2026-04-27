@@ -212,6 +212,7 @@ export function ImageBatchTab({ token }: Props) {
           analysis_id: card.analysisId,
           confirmed_elements: confirmed,
           concept_topic: topic && topic.trim() ? topic.trim() : undefined,
+          mode,
         }),
       })
       const data = await res.json()
@@ -587,8 +588,7 @@ export function ImageBatchTab({ token }: Props) {
           comprehensive={cardComprehensive[selectedCard.id]}
           loading={cardLoading[selectedCard.id]}
           error={cardError[selectedCard.id]}
-          confirmedElements={confirmedElements[selectedCard.id]}
-          conceptTopic={mode === 'feedback' ? conceptTopic.trim() || undefined : undefined}
+          isHistorical={mode === 'historical'}
           token={token}
           onClose={() => setSelectedCard(null)}
           onRetry={async () => {
