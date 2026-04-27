@@ -19,7 +19,7 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: 'Brainiac — Brain Activation Analysis for Creatives',
   description:
-    "Upload a thumbnail or connect your Meta Ads account. Brainiac runs Meta FAIR's TRIBE v2 brain encoding model and shows which neural regions activate in response to your creative.",
+    "Upload a static ad image. Brainiac runs BERG fMRI brain activation analysis and Llama 4 Maverick to score your ad on neural engagement, CTA strength, emotional appeal, brand clarity, and visual hierarchy.",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

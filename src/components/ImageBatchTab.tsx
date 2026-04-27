@@ -5,6 +5,7 @@ import { Upload, X, Square } from 'lucide-react'
 import type { AnalysisResult, ROIRegion } from '@/types'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import { supabase } from '@/lib/supabase'
+import type { VisualAdAnalysis } from '@/app/api/analyze/image-summary/route'
 
 function RichLine({ text }: { text: string }) {
   const parts = text.split(/(\*\*[^*]+\*\*)/)
@@ -16,6 +17,18 @@ function RichLine({ text }: { text: string }) {
           : <span key={i}>{p}</span>
       )}
     </>
+  )
+}
+
+function ScoreBadge({ score }: { score: number }) {
+  const color =
+    score >= 8 ? 'bg-emerald-900/40 text-emerald-300 border-emerald-800/50' :
+    score >= 5 ? 'bg-amber-900/40 text-amber-300 border-amber-800/50' :
+                 'bg-red-900/40 text-red-300 border-red-800/50'
+  return (
+    <span className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded border ${color}`}>
+      {score}/10
+    </span>
   )
 }
 
@@ -33,6 +46,21 @@ interface ROIAverage extends ROIRegion { /* activation is already the average */
 
 interface Props { token: string }
 
+async function fileToBase64(file: File): Promise<{ base64: string; mime_type: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      // result is "data:<mime>;base64,<data>" — strip the prefix
+      const [header, base64] = result.split(',')
+      const mime_type = header.replace('data:', '').replace(';base64', '')
+      resolve({ base64, mime_type })
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
 export function ImageBatchTab({ token }: Props) {
   const [cards, setCards] = useState<ImageCard[]>([])
   const [analyzing, setAnalyzing] = useState(false)
@@ -41,6 +69,7 @@ export function ImageBatchTab({ token }: Props) {
   const [aiSummary, setAiSummary] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [cardSuggestions, setCardSuggestions] = useState<Record<string, string>>({})
+  const [cardVisualAnalysis, setCardVisualAnalysis] = useState<Record<string, VisualAdAnalysis>>({})
   const [cardSuggestionsLoading, setCardSuggestionsLoading] = useState<Record<string, boolean>>({})
 
   const cardsRef = useRef<ImageCard[]>([])
@@ -49,7 +78,7 @@ export function ImageBatchTab({ token }: Props) {
   const intervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map())
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []).slice(0, 15)
+    const files = Array.from(e.target.files ?? []).slice(0, 25)
     const next: ImageCard[] = files.map(file => ({
       id: `${file.name}-${file.size}-${file.lastModified}`,
       file,
@@ -92,7 +121,6 @@ export function ImageBatchTab({ token }: Props) {
         })
 
         if (!res.ok) {
-          // Non-retryable — don't loop forever
           if (res.status === 401 || res.status === 403 || res.status === 404) {
             clearInterval(iv)
             intervalsRef.current.delete(cardId)
@@ -129,7 +157,6 @@ export function ImageBatchTab({ token }: Props) {
     setRoiAverages(null)
     setAiSummary(null)
 
-    // Refresh the session token before starting — stored token may have expired
     const { data: { session } } = await supabase.auth.getSession()
     const freshToken = session?.access_token ?? token
 
@@ -172,7 +199,6 @@ export function ImageBatchTab({ token }: Props) {
     if (stoppedRef.current) return
     setAnalyzing(false)
 
-    // Compute ROI averages from completed cards
     const completed = cardsRef.current.filter(c => c.status === 'complete' && c.result?.roi_data)
     if (!completed.length) return
 
@@ -196,7 +222,6 @@ export function ImageBatchTab({ token }: Props) {
 
     setRoiAverages(averages)
 
-    // Fetch batch-level suggestions
     setAiLoading(true)
     try {
       const res = await fetch('/api/analyze/image-summary', {
@@ -213,16 +238,25 @@ export function ImageBatchTab({ token }: Props) {
   async function handleCardClick(card: ImageCard) {
     setSelectedCard(card)
     if (!card.result?.roi_data || cardSuggestions[card.id] || cardSuggestionsLoading[card.id]) return
+
     setCardSuggestionsLoading(prev => ({ ...prev, [card.id]: true }))
     try {
       const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
+      const { base64, mime_type } = await fileToBase64(card.file)
+
       const res = await fetch('/api/analyze/image-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
-        body: JSON.stringify({ roi_averages: card.result.roi_data, image_count: 1 }),
+        body: JSON.stringify({
+          roi_averages: card.result.roi_data,
+          image_count: 1,
+          image_base64: base64,
+          mime_type,
+        }),
       })
       const data = await res.json()
       if (data.summary) setCardSuggestions(prev => ({ ...prev, [card.id]: data.summary }))
+      if (data.visual_analysis) setCardVisualAnalysis(prev => ({ ...prev, [card.id]: data.visual_analysis }))
     } catch { /* non-fatal */ }
     setCardSuggestionsLoading(prev => ({ ...prev, [card.id]: false }))
   }
@@ -237,7 +271,7 @@ export function ImageBatchTab({ token }: Props) {
         <label className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-gray-700 rounded-xl p-12 cursor-pointer hover:border-indigo-600 transition-colors">
           <Upload className="w-8 h-8 text-gray-500" />
           <div className="text-center">
-            <p className="text-sm text-gray-300">Upload up to 15 thumbnail images</p>
+            <p className="text-sm text-gray-300">Upload up to 25 static ad images</p>
             <p className="text-xs text-gray-600 mt-1">JPEG, PNG, WebP · max 10 MB each</p>
           </div>
           <input
@@ -274,7 +308,7 @@ export function ImageBatchTab({ token }: Props) {
           onClick={handleAnalyze}
           className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
         >
-          Analyze {cards.length} image{cards.length > 1 ? 's' : ''}
+          Analyze {cards.length} ad{cards.length > 1 ? 's' : ''}
         </button>
       )}
 
@@ -330,7 +364,7 @@ export function ImageBatchTab({ token }: Props) {
           <div>
             <h3 className="text-sm font-semibold text-white">Average Brain Activation</h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              Averaged across {cards.filter(c => c.status === 'complete').length} analyzed images
+              BERG · averaged across {cards.filter(c => c.status === 'complete').length} ad images
             </p>
           </div>
           <div className="space-y-3">
@@ -358,11 +392,11 @@ export function ImageBatchTab({ token }: Props) {
         </div>
       )}
 
-      {/* AI suggestions */}
+      {/* AI batch suggestions */}
       {(aiLoading || aiSummary) && (
         <div className="panel">
           <div className="panel-header">
-            <span className="panel-label">Design Suggestions</span>
+            <span className="panel-label">Ad Creative Recommendations</span>
             <span className="panel-meta">BERG · batch analysis</span>
           </div>
           <div className="p-5">
@@ -401,7 +435,7 @@ export function ImageBatchTab({ token }: Props) {
           onClick={() => setSelectedCard(null)}
         >
           <div
-            className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
+            className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
             onClick={e => e.stopPropagation()}
           >
             <div className="relative aspect-video bg-gray-800">
@@ -422,11 +456,14 @@ export function ImageBatchTab({ token }: Props) {
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-4 space-y-4 overflow-y-auto">
+
+            <div className="p-4 space-y-5 overflow-y-auto">
               <p className="text-sm font-medium text-white truncate">{selectedCard.file.name}</p>
+
+              {/* BERG ROI scores */}
               {selectedCard.result?.roi_data && (
                 <div className="space-y-2">
-                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Brain Activation Scores</p>
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Brain Activation — BERG</p>
                   {selectedCard.result.roi_data.map(roi => (
                     <div key={roi.region_key} className="space-y-0.5">
                       <div className="flex items-center justify-between">
@@ -441,29 +478,63 @@ export function ImageBatchTab({ token }: Props) {
                   ))}
                 </div>
               )}
-              {(cardSuggestionsLoading[selectedCard.id] || cardSuggestions[selectedCard.id]) && (
-                <div className="space-y-2 border-t border-gray-800 pt-4">
-                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Improvement Suggestions</p>
-                  {cardSuggestionsLoading[selectedCard.id] ? (
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <div className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin" />
-                      Analyzing…
-                    </div>
-                  ) : (
-                    <div className="text-xs text-gray-300 leading-relaxed space-y-1.5">
-                      {cardSuggestions[selectedCard.id].split('\n').map((line, i) => {
-                        const bullet = line.match(/^[-*]\s+(.+)/)
-                        if (bullet) return (
-                          <div key={i} className="flex gap-2">
-                            <span className="text-indigo-400 shrink-0">—</span>
-                            <span><RichLine text={bullet[1]} /></span>
-                          </div>
-                        )
-                        if (line.startsWith('#')) return null
-                        return line.trim() ? <p key={i}>{line}</p> : null
-                      })}
-                    </div>
-                  )}
+
+              {/* Llama 4 Maverick visual ad analysis */}
+              {(() => {
+                const va = cardVisualAnalysis[selectedCard.id]
+                if (!va && !cardSuggestionsLoading[selectedCard.id]) return null
+                if (cardSuggestionsLoading[selectedCard.id] && !va) return (
+                  <div className="border-t border-gray-800 pt-4 flex items-center gap-2 text-xs text-gray-500">
+                    <div className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin" />
+                    Running Llama 4 Maverick analysis…
+                  </div>
+                )
+                if (!va) return null
+                return (
+                  <div className="border-t border-gray-800 pt-4 space-y-3">
+                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Ad Dimensions — Llama 4 Maverick</p>
+                    {(
+                      [
+                        ['CTA Strength', va.cta_strength],
+                        ['Emotional Appeal', va.emotional_appeal],
+                        ['Brand Clarity', va.brand_clarity],
+                        ['Visual Hierarchy', va.visual_hierarchy],
+                      ] as [string, { score: number; feedback: string }][]
+                    ).map(([label, dim]) => (
+                      <div key={label} className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-300 font-medium">{label}</span>
+                          <ScoreBadge score={dim.score} />
+                        </div>
+                        <p className="text-[11px] text-gray-400 leading-snug">{dim.feedback}</p>
+                      </div>
+                    ))}
+                    {va.overall_verdict && (
+                      <div className="bg-gray-800/60 rounded-lg px-3 py-2.5 border border-gray-700">
+                        <p className="text-xs text-gray-300 leading-relaxed">{va.overall_verdict}</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* BERG-based improvement suggestions */}
+              {(cardSuggestions[selectedCard.id]) && (
+                <div className="border-t border-gray-800 pt-4 space-y-2">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">BERG Improvement Suggestions</p>
+                  <div className="text-xs text-gray-300 leading-relaxed space-y-1.5">
+                    {cardSuggestions[selectedCard.id].split('\n').map((line, i) => {
+                      const bullet = line.match(/^[-*]\s+(.+)/)
+                      if (bullet) return (
+                        <div key={i} className="flex gap-2">
+                          <span className="text-indigo-400 shrink-0">—</span>
+                          <span><RichLine text={bullet[1]} /></span>
+                        </div>
+                      )
+                      if (line.startsWith('#')) return null
+                      return line.trim() ? <p key={i}>{line}</p> : null
+                    })}
+                  </div>
                 </div>
               )}
             </div>

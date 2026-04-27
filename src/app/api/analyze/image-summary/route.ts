@@ -3,7 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 30
+export const maxDuration = 45
 
 interface ROIAverage {
   region_key: string
@@ -12,57 +12,91 @@ interface ROIAverage {
   activation: number
 }
 
-interface CorrelationEntry {
-  region_key: string
-  label: string
-  description: string
-  r: number
-}
-
 const anthropic = new Anthropic()
 
-function buildPrompt(body: Record<string, unknown>): string {
+// ── Llama 4 Maverick ad-dimension analysis ────────────────────────────────────
+
+export interface VisualAdAnalysis {
+  cta_strength: { score: number; feedback: string }
+  emotional_appeal: { score: number; feedback: string }
+  brand_clarity: { score: number; feedback: string }
+  visual_hierarchy: { score: number; feedback: string }
+  overall_verdict: string
+}
+
+async function runLlama4AdAnalysis(image_base64: string, mime_type: string): Promise<VisualAdAnalysis | null> {
+  const apiKey = process.env.TOGETHER_API_KEY
+  if (!apiKey) return null
+
+  const systemPrompt = `You are an expert advertising creative director analyzing static ad images for performance potential. You evaluate ads on four dimensions and return structured JSON.`
+
+  const userPrompt = `Analyze this static ad image for advertising effectiveness. Consider it as a paid media creative (social, display, or OOH).
+
+Return a JSON object with exactly this structure — no extra keys, no markdown fences:
+{
+  "cta_strength": {
+    "score": <integer 1-10>,
+    "feedback": "<one sentence: is the call-to-action clear, prominent, and compelling?>"
+  },
+  "emotional_appeal": {
+    "score": <integer 1-10>,
+    "feedback": "<one sentence: does the image evoke a clear emotional response relevant to the product/offer?>"
+  },
+  "brand_clarity": {
+    "score": <integer 1-10>,
+    "feedback": "<one sentence: is the brand identity (logo, colors, tone) immediately recognizable?>"
+  },
+  "visual_hierarchy": {
+    "score": <integer 1-10>,
+    "feedback": "<one sentence: does the layout guide the viewer's eye from headline to supporting content to CTA?>"
+  },
+  "overall_verdict": "<two to three sentences: top strength, biggest weakness, single highest-priority fix>"
+}`
+
+  try {
+    const res = await fetch('https://api.together.xyz/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
+        max_tokens: 512,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: { url: `data:${mime_type};base64,${image_base64}` },
+              },
+              { type: 'text', text: userPrompt },
+            ],
+          },
+        ],
+      }),
+    })
+
+    if (!res.ok) return null
+
+    const data = await res.json()
+    const raw: string = data?.choices?.[0]?.message?.content ?? ''
+
+    // Strip markdown fences if the model adds them despite instructions
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    return JSON.parse(cleaned) as VisualAdAnalysis
+  } catch {
+    return null
+  }
+}
+
+// ── Claude BERG-based recommendation prompt ───────────────────────────────────
+
+function buildBergPrompt(body: Record<string, unknown>): string {
   const context = body.context as string | undefined
-
-  // ── YouTube channel correlation ──────────────────────────────────────────
-  if (context === 'channel') {
-    const handle = body.channel_handle as string
-    const video_count = body.video_count as number
-    const correlations = body.correlations as CorrelationEntry[]
-    const lines = correlations
-      .map(c => `- ${c.label}: r=${c.r.toFixed(3)} (${Math.abs(c.r) >= 0.5 ? 'strong' : Math.abs(c.r) >= 0.25 ? 'moderate' : 'weak'} ${c.r >= 0 ? 'positive' : 'negative'} correlation with view count)`)
-      .join('\n')
-
-    return `You are interpreting BERG fMRI brain activation data correlated against real view counts for the YouTube channel @${handle} (${video_count} videos analyzed).
-
-Each score is a Pearson r between that brain region's predicted activation and log(view_count). Positive r means thumbnails that activated that region more tended to get more views on this channel.
-
-Correlation results:
-${lines}
-
-Give 3–4 specific, actionable suggestions for how this creator should design future thumbnails based on which brain regions actually correlate with performance on their channel. Reference the specific region names and r values. Do not guarantee outcomes.
-
-Format as a markdown bulleted list. Each bullet is one to two sentences.`
-  }
-
-  // ── Video TRIBE v2 analysis ──────────────────────────────────────────────
-  if (context === 'video') {
-    const roi_data = body.roi_data as ROIAverage[]
-    const lines = roi_data
-      .map(r => `- ${r.label}: ${r.activation.toFixed(3)} — ${r.description}`)
-      .join('\n')
-
-    return `You are interpreting Meta FAIR TRIBE v2 fMRI brain activation predictions for an uploaded video.
-
-TRIBE v2 predicts which cortical regions activate as someone watches the video, based on the Natural Scenes Dataset. Scores are normalized 0–1.
-
-Average activation across the video:
-${lines}
-
-Give 3–4 specific, actionable suggestions to improve this video's visual impact based on what the activation pattern reveals about attention and cognitive load. Reference specific region names. Do not guarantee outcomes.
-
-Format as a markdown bulleted list. Each bullet is one to two sentences.`
-  }
 
   // ── Landing page — desktop & mobile ─────────────────────────────────────
   if (context === 'webpage_desktop' || context === 'webpage_mobile') {
@@ -73,9 +107,9 @@ Format as a markdown bulleted list. Each bullet is one to two sentences.`
       .map(r => `- ${r.label}: ${r.activation.toFixed(3)} — ${r.description}`)
       .join('\n')
 
-    return `You are interpreting BERG fMRI brain activation predictions for a landing page screenshot captured on ${viewport}.
+    return `You are interpreting BERG fMRI brain activation predictions for an ad landing page screenshot captured on ${viewport}.
 
-BERG predicts which visual cortex regions activate when a person views the page above the fold. Scores are normalized 0–1.
+BERG predicts which visual cortex regions activate when a person views the page above the fold. Scores are normalized 0–1. Higher scores mean stronger predicted neural engagement with that type of visual processing.
 
 Page: ${page_url}
 Viewport: ${viewport}
@@ -83,12 +117,12 @@ Viewport: ${viewport}
 Brain activation scores:
 ${lines}
 
-Give 4–5 specific, actionable design suggestions for the ${context === 'webpage_desktop' ? 'desktop' : 'mobile'} layout. Ground each suggestion in the specific region scores (e.g. "FFA score of 0.12 is low — add a human face near the headline"). Consider layout differences appropriate for ${context === 'webpage_desktop' ? 'desktop (wide viewport, mouse interaction)' : 'mobile (narrow viewport, thumb reach, smaller text)'}.
+Give 4–5 specific, actionable design suggestions to improve this landing page's ability to convert ad traffic. Ground each suggestion in the specific region scores (e.g. "FFA score of 0.12 is low — add a human face near the headline to drive trust and attention"). Consider layout differences appropriate for ${context === 'webpage_desktop' ? 'desktop (wide viewport, mouse interaction)' : 'mobile (narrow viewport, thumb reach, smaller text)'}.
 
 Format as a markdown bulleted list. Each bullet is one to two sentences. Do not guarantee business outcomes.`
   }
 
-  // ── Image batch (default) ────────────────────────────────────────────────
+  // ── Single static ad image ───────────────────────────────────────────────
   const roi_averages = body.roi_averages as ROIAverage[]
   const image_count = body.image_count as number
   const isSingle = image_count === 1
@@ -98,23 +132,29 @@ Format as a markdown bulleted list. Each bullet is one to two sentences. Do not 
     .join('\n')
 
   return isSingle
-    ? `You are interpreting BERG fMRI brain activation predictions for a single thumbnail image.
+    ? `You are interpreting BERG fMRI brain activation predictions for a static ad image.
+
+BERG predicts which visual cortex regions activate when a viewer looks at the ad. Scores are normalized 0–1.
 
 Brain activation scores:
 ${scoreLines}
 
-Give 3–4 specific, actionable suggestions to improve this thumbnail's visual impact. Reference specific region names (e.g. "Your low FFA score suggests…"). Do not guarantee outcomes.
+Give 3–4 specific, actionable suggestions to improve this ad's visual impact and attention capture for paid media performance. Reference specific region names and scores (e.g. "Your FFA score of 0.08 is low — the absence of a human face is likely reducing viewer attention; add a person or expressive face near the focal point"). Do not guarantee outcomes.
 
 Format as a markdown bulleted list. Each bullet is one to two sentences.`
-    : `You are interpreting BERG fMRI brain activation predictions for a set of ${image_count} thumbnail images.
+    : `You are interpreting BERG fMRI brain activation predictions for a batch of ${image_count} static ad images.
 
-Average activation across all ${image_count} images:
+BERG predicts which visual cortex regions activate when a viewer looks at an ad. Scores are normalized 0–1.
+
+Average activation across all ${image_count} ads:
 ${scoreLines}
 
-Give 4–5 concise, actionable design suggestions based on these activation patterns. Do not guarantee outcomes.
+Give 4–5 concise, actionable design suggestions for improving this creative set's performance in paid media. Reference specific region names and scores. Do not guarantee outcomes.
 
 Format as a markdown bulleted list. Each bullet is one to two sentences.`
 }
+
+// ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
@@ -126,14 +166,25 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
 
-  const prompt = buildPrompt(body)
+  const image_base64: string | undefined = body.image_base64
+  const mime_type: string = body.mime_type ?? 'image/jpeg'
 
-  const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 512,
-    messages: [{ role: 'user', content: prompt }],
+  const bergPrompt = buildBergPrompt(body)
+
+  // Run BERG recommendations (Claude) and Llama 4 ad analysis in parallel when image provided
+  const [claudeMessage, visual_analysis] = await Promise.all([
+    anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [{ role: 'user', content: bergPrompt }],
+    }),
+    image_base64 ? runLlama4AdAnalysis(image_base64, mime_type) : Promise.resolve(null),
+  ])
+
+  const summary = claudeMessage.content[0].type === 'text' ? claudeMessage.content[0].text : ''
+
+  return NextResponse.json({
+    summary,
+    ...(visual_analysis ? { visual_analysis } : {}),
   })
-
-  const summary = message.content[0].type === 'text' ? message.content[0].text : ''
-  return NextResponse.json({ summary })
 }
