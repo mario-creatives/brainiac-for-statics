@@ -3,7 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 120
 
 interface ROIAverage {
   region_key: string
@@ -12,7 +12,7 @@ interface ROIAverage {
   activation: number
 }
 
-const anthropic = new Anthropic()
+const anthropic = new Anthropic({ timeout: 120000 })
 
 // Set to true to enable extended thinking on both Sonnet calls.
 // Produces more thorough output at the cost of ~5–10s extra latency.

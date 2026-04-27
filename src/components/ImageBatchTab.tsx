@@ -1,36 +1,16 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Upload, X, Square } from 'lucide-react'
+import { Upload, Square } from 'lucide-react'
 import type { AnalysisResult, ROIRegion } from '@/types'
 import { AttributionFooter } from '@/components/AttributionFooter'
+import { AdAnalysisModal } from '@/components/AdAnalysisModal'
 import { supabase } from '@/lib/supabase'
-import type { VisualAdAnalysis } from '@/app/api/analyze/image-summary/route'
+import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
 
-function RichLine({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*)/)
-  return (
-    <>
-      {parts.map((p, i) =>
-        p.startsWith('**') && p.endsWith('**')
-          ? <strong key={i} className="text-white font-semibold">{p.slice(2, -2)}</strong>
-          : <span key={i}>{p}</span>
-      )}
-    </>
-  )
-}
+const WINNER_THRESHOLD_USD = 1000
 
-function ScoreBadge({ score }: { score: number }) {
-  const color =
-    score >= 8 ? 'bg-emerald-900/40 text-emerald-300 border-emerald-800/50' :
-    score >= 5 ? 'bg-amber-900/40 text-amber-300 border-amber-800/50' :
-                 'bg-red-900/40 text-red-300 border-red-800/50'
-  return (
-    <span className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded border ${color}`}>
-      {score}/10
-    </span>
-  )
-}
+type Mode = 'historical' | 'feedback'
 
 interface ImageCard {
   id: string
@@ -40,6 +20,7 @@ interface ImageCard {
   status: 'pending' | 'uploading' | 'processing' | 'complete' | 'failed'
   result: AnalysisResult | null
   error?: string
+  spend?: number
 }
 
 interface ROIAverage extends ROIRegion { /* activation is already the average */ }
@@ -51,7 +32,6 @@ async function fileToBase64(file: File): Promise<{ base64: string; mime_type: st
     const reader = new FileReader()
     reader.onload = () => {
       const result = reader.result as string
-      // result is "data:<mime>;base64,<data>" — strip the prefix
       const [header, base64] = result.split(',')
       const mime_type = header.replace('data:', '').replace(';base64', '')
       resolve({ base64, mime_type })
@@ -62,15 +42,13 @@ async function fileToBase64(file: File): Promise<{ base64: string; mime_type: st
 }
 
 export function ImageBatchTab({ token }: Props) {
+  const [mode, setMode] = useState<Mode>('feedback')
   const [cards, setCards] = useState<ImageCard[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [selectedCard, setSelectedCard] = useState<ImageCard | null>(null)
   const [roiAverages, setRoiAverages] = useState<ROIAverage[] | null>(null)
-  const [aiSummary, setAiSummary] = useState<string | null>(null)
-  const [aiLoading, setAiLoading] = useState(false)
-  const [cardSuggestions, setCardSuggestions] = useState<Record<string, string>>({})
-  const [cardVisualAnalysis, setCardVisualAnalysis] = useState<Record<string, VisualAdAnalysis>>({})
-  const [cardSuggestionsLoading, setCardSuggestionsLoading] = useState<Record<string, boolean>>({})
+  const [cardComprehensive, setCardComprehensive] = useState<Record<string, ComprehensiveAnalysis>>({})
+  const [cardLoading, setCardLoading] = useState<Record<string, boolean>>({})
 
   const cardsRef = useRef<ImageCard[]>([])
   cardsRef.current = cards
@@ -86,10 +64,12 @@ export function ImageBatchTab({ token }: Props) {
       analysisId: null,
       status: 'pending',
       result: null,
+      spend: undefined,
     }))
     setCards(next)
     setRoiAverages(null)
-    setAiSummary(null)
+    setCardComprehensive({})
+    setCardLoading({})
     e.target.value = ''
   }
 
@@ -100,8 +80,9 @@ export function ImageBatchTab({ token }: Props) {
     cards.forEach(c => URL.revokeObjectURL(c.previewUrl))
     setCards([])
     setRoiAverages(null)
-    setAiSummary(null)
     setAnalyzing(false)
+    setCardComprehensive({})
+    setCardLoading({})
   }
 
   function handleStop() {
@@ -109,6 +90,11 @@ export function ImageBatchTab({ token }: Props) {
     intervalsRef.current.forEach(clearInterval)
     intervalsRef.current.clear()
     setAnalyzing(false)
+  }
+
+  function updateSpend(cardId: string, value: string) {
+    const num = value === '' ? undefined : Number(value)
+    setCards(prev => prev.map(c => c.id === cardId ? { ...c, spend: num } : c))
   }
 
   function pollOne(analysisId: string, cardId: string, tok: string): Promise<void> {
@@ -150,12 +136,45 @@ export function ImageBatchTab({ token }: Props) {
     })
   }
 
+  async function runComprehensive(card: ImageCard, freshToken: string) {
+    if (!card.result?.roi_data) return
+    setCardLoading(prev => ({ ...prev, [card.id]: true }))
+    try {
+      const { base64, mime_type } = await fileToBase64(card.file)
+      const res = await fetch('/api/analyze/comprehensive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
+        body: JSON.stringify({
+          roi_averages: card.result.roi_data,
+          image_count: 1,
+          image_base64: base64,
+          mime_type,
+          spend_usd: mode === 'historical' ? card.spend : undefined,
+          analysis_id: card.analysisId,
+        }),
+      })
+      const data = await res.json()
+      if (data.comprehensive) {
+        setCardComprehensive(prev => ({ ...prev, [card.id]: data.comprehensive }))
+      }
+    } catch { /* non-fatal */ }
+    setCardLoading(prev => ({ ...prev, [card.id]: false }))
+  }
+
   async function handleAnalyze() {
     if (!cards.length || analyzing) return
+    if (mode === 'historical') {
+      const missing = cards.some(c => c.spend === undefined || isNaN(c.spend) || c.spend < 0)
+      if (missing) {
+        alert('Enter spend for every ad in historical mode (use 0 if unknown).')
+        return
+      }
+    }
+
     stoppedRef.current = false
     setAnalyzing(true)
     setRoiAverages(null)
-    setAiSummary(null)
+    setCardComprehensive({})
 
     const { data: { session } } = await supabase.auth.getSession()
     const freshToken = session?.access_token ?? token
@@ -197,68 +216,45 @@ export function ImageBatchTab({ token }: Props) {
     await Promise.all(valid.map(({ analysisId, cardId }) => pollOne(analysisId, cardId, freshToken)))
 
     if (stoppedRef.current) return
-    setAnalyzing(false)
 
+    // Compute averages for the batch summary
     const completed = cardsRef.current.filter(c => c.status === 'complete' && c.result?.roi_data)
-    if (!completed.length) return
-
-    const roiMap = new Map<string, { label: string; description: string; total: number; count: number }>()
-    for (const c of completed) {
-      for (const roi of c.result!.roi_data!) {
-        const existing = roiMap.get(roi.region_key)
-        if (existing) { existing.total += roi.activation; existing.count++ }
-        else roiMap.set(roi.region_key, { label: roi.label, description: roi.description, total: roi.activation, count: 1 })
+    if (completed.length) {
+      const roiMap = new Map<string, { label: string; description: string; total: number; count: number }>()
+      for (const c of completed) {
+        for (const roi of c.result!.roi_data!) {
+          const existing = roiMap.get(roi.region_key)
+          if (existing) { existing.total += roi.activation; existing.count++ }
+          else roiMap.set(roi.region_key, { label: roi.label, description: roi.description, total: roi.activation, count: 1 })
+        }
       }
+      const averages: ROIAverage[] = Array.from(roiMap.entries())
+        .map(([region_key, v]) => ({
+          region_key,
+          label: v.label,
+          description: v.description,
+          activation: v.total / v.count,
+        }))
+        .sort((a, b) => b.activation - a.activation)
+      setRoiAverages(averages)
     }
 
-    const averages: ROIAverage[] = Array.from(roiMap.entries())
-      .map(([region_key, v]) => ({
-        region_key,
-        label: v.label,
-        description: v.description,
-        activation: v.total / v.count,
-      }))
-      .sort((a, b) => b.activation - a.activation)
+    // Run comprehensive analysis per card in parallel
+    await Promise.all(
+      cardsRef.current
+        .filter(c => c.status === 'complete')
+        .map(c => runComprehensive(c, freshToken))
+    )
 
-    setRoiAverages(averages)
-
-    setAiLoading(true)
-    try {
-      const res = await fetch('/api/analyze/image-summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
-        body: JSON.stringify({ roi_averages: averages, image_count: completed.length }),
-      })
-      const data = await res.json()
-      setAiSummary(data.summary ?? null)
-    } catch { /* non-fatal */ }
-    setAiLoading(false)
+    setAnalyzing(false)
   }
 
   async function handleCardClick(card: ImageCard) {
     setSelectedCard(card)
-    if (!card.result?.roi_data || cardSuggestions[card.id] || cardSuggestionsLoading[card.id]) return
-
-    setCardSuggestionsLoading(prev => ({ ...prev, [card.id]: true }))
-    try {
-      const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-      const { base64, mime_type } = await fileToBase64(card.file)
-
-      const res = await fetch('/api/analyze/image-summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
-        body: JSON.stringify({
-          roi_averages: card.result.roi_data,
-          image_count: 1,
-          image_base64: base64,
-          mime_type,
-        }),
-      })
-      const data = await res.json()
-      if (data.summary) setCardSuggestions(prev => ({ ...prev, [card.id]: data.summary }))
-      if (data.visual_analysis) setCardVisualAnalysis(prev => ({ ...prev, [card.id]: data.visual_analysis }))
-    } catch { /* non-fatal */ }
-    setCardSuggestionsLoading(prev => ({ ...prev, [card.id]: false }))
+    if (cardComprehensive[card.id] || cardLoading[card.id]) return
+    if (!card.result?.roi_data) return
+    const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
+    runComprehensive(card, freshToken)
   }
 
   const doneCount = cards.filter(c => c.status === 'complete' || c.status === 'failed').length
@@ -266,6 +262,33 @@ export function ImageBatchTab({ token }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* Mode toggle */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex gap-1 bg-gray-950 border border-gray-800 rounded-lg p-1">
+          {([
+            ['feedback', 'Feedback Mode'],
+            ['historical', 'Historical Mode'],
+          ] as [Mode, string][]).map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              disabled={analyzing}
+              className={[
+                'px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                mode === m ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200',
+              ].join(' ')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-gray-500 max-w-md leading-relaxed">
+          {mode === 'historical'
+            ? `Upload past ads with spend data. Ads with $${WINNER_THRESHOLD_USD}+ spend feed the shared winning-pattern library.`
+            : 'Upload new ads for review. Results include winning patterns from the shared library as reference.'}
+        </p>
+      </div>
+
       {/* Upload zone */}
       {cards.length === 0 ? (
         <label className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-gray-700 rounded-xl p-12 cursor-pointer hover:border-indigo-600 transition-colors">
@@ -274,13 +297,7 @@ export function ImageBatchTab({ token }: Props) {
             <p className="text-sm text-gray-300">Upload up to 25 static ad images</p>
             <p className="text-xs text-gray-600 mt-1">JPEG, PNG, WebP · max 10 MB each</p>
           </div>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleFileSelect}
-          />
+          <input type="file" accept="image/*" multiple className="hidden" onChange={handleFileSelect} />
         </label>
       ) : (
         <div className="flex items-center justify-between">
@@ -321,7 +338,7 @@ export function ImageBatchTab({ token }: Props) {
                 {analyzing
                   ? processingCard
                     ? `Analyzing: ${processingCard.file.name}`
-                    : 'Uploading…'
+                    : 'Running comprehensive analysis…'
                   : `Done — ${doneCount} of ${cards.length} analyzed`}
               </span>
               <span className="text-xs text-gray-600">{doneCount} / {cards.length}</span>
@@ -352,13 +369,16 @@ export function ImageBatchTab({ token }: Props) {
             <ImageResultCard
               key={card.id}
               card={card}
+              mode={mode}
+              disabled={analyzing}
+              onSpendChange={(v) => updateSpend(card.id, v)}
               onClick={card.status === 'complete' ? () => handleCardClick(card) : undefined}
             />
           ))}
         </div>
       )}
 
-      {/* Summary stats */}
+      {/* Batch summary */}
       {roiAverages && (
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-4">
           <div>
@@ -379,10 +399,7 @@ export function ImageBatchTab({ token }: Props) {
                 </div>
                 <div className="flex items-center gap-2 pl-6">
                   <div className="flex-1 bg-gray-800 rounded-full h-1.5">
-                    <div
-                      className="bg-indigo-500 h-1.5 rounded-full"
-                      style={{ width: `${roi.activation * 100}%` }}
-                    />
+                    <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${roi.activation * 100}%` }} />
                   </div>
                 </div>
                 <p className="text-[10px] text-gray-600 pl-6">{roi.description}</p>
@@ -392,166 +409,45 @@ export function ImageBatchTab({ token }: Props) {
         </div>
       )}
 
-      {/* AI batch suggestions */}
-      {(aiLoading || aiSummary) && (
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-label">Ad Creative Recommendations</span>
-            <span className="panel-meta">BERG · batch analysis</span>
-          </div>
-          <div className="p-5">
-            {aiLoading ? (
-              <div className="flex items-center gap-3 t-meta">
-                <div className="w-3 h-3 border border-indigo-500 border-t-transparent animate-spin" />
-                Generating recommendations…
-              </div>
-            ) : aiSummary ? (
-              <div className="space-y-3">
-                {aiSummary.split('\n').map((line, i) => {
-                  const bullet = line.match(/^[-*]\s+(.+)/)
-                  if (bullet) {
-                    return (
-                      <div key={i} className="flex gap-3 py-1 border-b border-gray-800 last:border-0">
-                        <span className="text-indigo-500 shrink-0 t-meta mt-0.5">—</span>
-                        <span className="text-sm text-gray-200 leading-relaxed"><RichLine text={bullet[1]} /></span>
-                      </div>
-                    )
-                  }
-                  if (line.startsWith('#')) return null
-                  return line.trim() ? <p key={i} className="t-meta pb-2">{line}</p> : null
-                })}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      )}
-
       {roiAverages && <AttributionFooter />}
 
       {/* Detail modal */}
       {selectedCard && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-          onClick={() => setSelectedCard(null)}
-        >
-          <div
-            className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="relative aspect-video bg-gray-800">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={selectedCard.previewUrl} alt={selectedCard.file.name} className="w-full h-full object-cover" />
-              {selectedCard.result?.heatmap_url && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={selectedCard.result.heatmap_url}
-                  alt="Brain activation heatmap"
-                  className="absolute inset-0 w-full h-full object-cover opacity-70"
-                />
-              )}
-              <button
-                onClick={() => setSelectedCard(null)}
-                className="absolute top-2 right-2 p-1 rounded-full bg-black/60 hover:bg-black/80 text-white transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-5 overflow-y-auto">
-              <p className="text-sm font-medium text-white truncate">{selectedCard.file.name}</p>
-
-              {/* BERG ROI scores */}
-              {selectedCard.result?.roi_data && (
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Brain Activation — BERG</p>
-                  {selectedCard.result.roi_data.map(roi => (
-                    <div key={roi.region_key} className="space-y-0.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-300">{roi.label}</span>
-                        <span className="text-xs font-mono text-gray-400">{roi.activation.toFixed(3)}</span>
-                      </div>
-                      <div className="w-full bg-gray-800 rounded-full h-1.5">
-                        <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${roi.activation * 100}%` }} />
-                      </div>
-                      <p className="text-[10px] text-gray-600">{roi.description}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Sonnet vision ad analysis */}
-              {(() => {
-                const va = cardVisualAnalysis[selectedCard.id]
-                if (!va && !cardSuggestionsLoading[selectedCard.id]) return null
-                if (cardSuggestionsLoading[selectedCard.id] && !va) return (
-                  <div className="border-t border-gray-800 pt-4 flex items-center gap-2 text-xs text-gray-500">
-                    <div className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin" />
-                    Running Sonnet vision analysis…
-                  </div>
-                )
-                if (!va) return null
-                return (
-                  <div className="border-t border-gray-800 pt-4 space-y-3">
-                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Ad Dimensions — Claude Sonnet</p>
-                    {(
-                      [
-                        ['CTA Strength', va.cta_strength],
-                        ['Emotional Appeal', va.emotional_appeal],
-                        ['Brand Clarity', va.brand_clarity],
-                        ['Visual Hierarchy', va.visual_hierarchy],
-                      ] as [string, { score: number; feedback: string }][]
-                    ).map(([label, dim]) => (
-                      <div key={label} className="space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-gray-300 font-medium">{label}</span>
-                          <ScoreBadge score={dim.score} />
-                        </div>
-                        <p className="text-[11px] text-gray-400 leading-snug">{dim.feedback}</p>
-                      </div>
-                    ))}
-                    {va.overall_verdict && (
-                      <div className="bg-gray-800/60 rounded-lg px-3 py-2.5 border border-gray-700">
-                        <p className="text-xs text-gray-300 leading-relaxed">{va.overall_verdict}</p>
-                      </div>
-                    )}
-                  </div>
-                )
-              })()}
-
-              {/* BERG-based improvement suggestions */}
-              {(cardSuggestions[selectedCard.id]) && (
-                <div className="border-t border-gray-800 pt-4 space-y-2">
-                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">BERG Improvement Suggestions</p>
-                  <div className="text-xs text-gray-300 leading-relaxed space-y-1.5">
-                    {cardSuggestions[selectedCard.id].split('\n').map((line, i) => {
-                      const bullet = line.match(/^[-*]\s+(.+)/)
-                      if (bullet) return (
-                        <div key={i} className="flex gap-2">
-                          <span className="text-indigo-400 shrink-0">—</span>
-                          <span><RichLine text={bullet[1]} /></span>
-                        </div>
-                      )
-                      if (line.startsWith('#')) return null
-                      return line.trim() ? <p key={i}>{line}</p> : null
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <AdAnalysisModal
+          card={{
+            id: selectedCard.id,
+            fileName: selectedCard.file.name,
+            previewUrl: selectedCard.previewUrl,
+            result: selectedCard.result,
+            spend: selectedCard.spend,
+            isWinner: mode === 'historical' && (selectedCard.spend ?? 0) >= WINNER_THRESHOLD_USD,
+          }}
+          comprehensive={cardComprehensive[selectedCard.id]}
+          loading={cardLoading[selectedCard.id]}
+          onClose={() => setSelectedCard(null)}
+        />
       )}
     </div>
   )
 }
 
-function ImageResultCard({ card, onClick }: { card: ImageCard; onClick?: () => void }) {
+function ImageResultCard({
+  card, mode, disabled, onSpendChange, onClick,
+}: {
+  card: ImageCard
+  mode: Mode
+  disabled: boolean
+  onSpendChange: (value: string) => void
+  onClick?: () => void
+}) {
   const topRoi = card.result?.roi_data?.slice(0, 3) ?? []
+  const isWinner = mode === 'historical' && (card.spend ?? 0) >= WINNER_THRESHOLD_USD
 
   return (
     <div
       className={[
-        'bg-gray-900 border border-gray-800 rounded-xl overflow-hidden flex flex-col',
+        'bg-gray-900 border rounded-xl overflow-hidden flex flex-col',
+        isWinner ? 'border-yellow-600/60' : 'border-gray-800',
         onClick ? 'cursor-pointer hover:border-indigo-700 transition-colors' : '',
       ].join(' ')}
       onClick={onClick}
@@ -566,6 +462,11 @@ function ImageResultCard({ card, onClick }: { card: ImageCard; onClick?: () => v
             alt="Brain activation heatmap"
             className="absolute inset-0 w-full h-full object-cover opacity-70"
           />
+        )}
+        {isWinner && (
+          <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider bg-yellow-500 text-yellow-950 px-1.5 py-0.5 rounded">
+            ★ Winner
+          </span>
         )}
         <div className="absolute top-1.5 right-1.5">
           {card.status === 'pending' && (
@@ -584,6 +485,22 @@ function ImageResultCard({ card, onClick }: { card: ImageCard; onClick?: () => v
 
       <div className="p-2.5 flex-1 flex flex-col gap-2">
         <p className="text-xs text-gray-300 leading-snug line-clamp-2">{card.file.name}</p>
+
+        {mode === 'historical' && (
+          <div onClick={e => e.stopPropagation()} className="flex items-center gap-1.5">
+            <span className="text-[10px] text-gray-500">$</span>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              placeholder="Spend"
+              disabled={disabled}
+              value={card.spend ?? ''}
+              onChange={e => onSpendChange(e.target.value)}
+              className="flex-1 bg-gray-950 border border-gray-800 rounded px-1.5 py-1 text-[11px] text-gray-200 focus:border-indigo-600 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+        )}
 
         {topRoi.length > 0 && (
           <div className="space-y-1 mt-auto">

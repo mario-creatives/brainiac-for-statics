@@ -125,11 +125,11 @@ export default function DashboardPage() {
         {activeTab === 'images' && token && (
           <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
             <div className="mb-5">
-              <h2 className="text-sm font-semibold text-white">Static Ad Analyzer</h2>
+              <h2 className="text-sm font-semibold text-white">Static Ad Intelligence</h2>
               <p className="text-xs text-gray-500 mt-1">
-                Upload up to 25 static ad images. Each is analyzed with BERG for brain activation scores,
-                then assessed by Claude Sonnet for ad-specific dimensions: CTA strength, emotional appeal,
-                brand clarity, and visual hierarchy.
+                Two modes: <span className="text-gray-300">Historical</span> — upload past ads with spend data; ads with $1000+ spend feed
+                a shared winning-pattern library. <span className="text-gray-300">Feedback</span> — upload new ads and receive comprehensive analysis
+                (BERG brain activation, copy, behavioral economics, neuroscience, visual dimensions) with winning patterns injected as reference.
               </p>
             </div>
             <ImageBatchTab token={token} />
