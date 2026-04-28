@@ -151,6 +151,16 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, isHistori
           {/* Brain Activation — BERG (bars + heatmap legend + narrative) */}
           {card.result?.roi_data && (
             <Section title="Brain Activation — BERG">
+              {card.result.mean_top_roi_score != null && (
+                <div className="bg-gray-950 border border-indigo-900/40 rounded-lg px-3 py-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold">Neural Engagement Score</span>
+                    <span className="text-lg text-white font-mono font-semibold">{card.result.mean_top_roi_score.toFixed(2)}</span>
+                    <span className="text-[10px] text-gray-500 font-mono">/ 1.00</span>
+                  </div>
+                  <p className="text-[10px] text-gray-500 leading-snug mt-0.5">Mean activation across the top-scoring brain regions. Higher = stronger overall neural response to the ad.</p>
+                </div>
+              )}
               {card.result.heatmap_url && (
                 <div className="space-y-1 pb-1">
                   <div className="flex items-center gap-2">
@@ -417,6 +427,18 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
         >
           <ScoreBadge score={data.copy?.subheadline?.clarity ?? 0} />
         </CopyRow>
+        {data.body_dna && bodyChips(data.body_dna).length > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-gray-500 font-medium uppercase tracking-wide">Body Copy</span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {bodyChips(data.body_dna).map((chip, i) => (
+                <span key={i} className="text-[9px] text-gray-400 bg-gray-900 border border-gray-800 rounded px-1.5 py-0.5 font-mono">{chip}</span>
+              ))}
+            </div>
+          </div>
+        )}
         <CopyList
           label="Benefits / Features"
           items={data.copy?.benefits_features?.identified ?? []}
@@ -442,6 +464,14 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
           score={data.copy?.safety_signals?.strength ?? 0}
           alignment={data.copy?.safety_signals?.library_alignment}
           rewrite={data.copy?.safety_signals?.rewrite}
+        />
+        <CopyList
+          label="Proof Signals"
+          items={data.copy?.proof_signals?.identified ?? []}
+          feedback={data.copy?.proof_signals?.feedback}
+          score={data.copy?.proof_signals?.strength ?? 0}
+          alignment={data.copy?.proof_signals?.library_alignment}
+          rewrite={data.copy?.proof_signals?.rewrite}
         />
         <CopyRow
           label="CTA"
@@ -958,6 +988,18 @@ function ctaChips(dna: ComprehensiveAnalysis['copy']['cta']['dna']): string[] {
   if (dna.friction_level && dna.friction_level !== 'absent') chips.push(`friction: ${dna.friction_level}`)
   if (dna.has_value_anchor) chips.push('value-anchor')
   if (dna.has_urgency_signal) chips.push('urgency')
+  return chips
+}
+
+function bodyChips(dna: ComprehensiveAnalysis['body_dna']): string[] {
+  if (!dna) return []
+  const chips: string[] = []
+  if (dna.word_count != null) chips.push(`${dna.word_count}w`)
+  if (dna.paragraph_count != null) chips.push(`${dna.paragraph_count}p`)
+  if (dna.sentence_count != null) chips.push(`${dna.sentence_count}s`)
+  if (dna.avg_sentence_length != null) chips.push(`avg ${dna.avg_sentence_length}w/s`)
+  if (dna.frame && dna.frame !== 'absent') chips.push(`frame: ${dna.frame}`)
+  if (dna.personal_pronoun_density && dna.personal_pronoun_density !== 'absent') chips.push(`pronouns: ${dna.personal_pronoun_density}`)
   return chips
 }
 

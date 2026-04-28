@@ -664,6 +664,7 @@ function ImageResultCard({
   const grade = comprehensive?.framework_score?.overall_framework_grade
   const comboVerdict = comprehensive?.combination_analysis?.historical_match?.verdict
   const topRoi = card.result?.roi_data?.slice(0, 3) ?? []
+  const neuralScore = card.result?.mean_top_roi_score
   const isWinner = mode === 'historical' && (card.spend ?? 0) >= WINNER_THRESHOLD_USD
   const isLoser = mode === 'historical' && card.spend !== undefined && card.spend < WINNER_THRESHOLD_USD
 
@@ -724,8 +725,13 @@ function ImageResultCard({
       <div className="p-2.5 flex-1 flex flex-col gap-2">
         <p className="text-xs text-gray-300 leading-snug line-clamp-2">{card.file.name}</p>
 
-        {(composition || grade || comboVerdict) && (
+        {(composition || grade || comboVerdict || neuralScore != null) && (
           <div className="flex items-center flex-wrap gap-1">
+            {neuralScore != null && (
+              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border text-indigo-300 border-indigo-800/60 bg-gray-900" title="Neural Engagement Score">
+                N {neuralScore.toFixed(2)}
+              </span>
+            )}
             {composition && (
               <span className="text-[9px] text-white font-mono bg-gray-950 border border-gray-800 rounded px-1.5 py-0.5 truncate max-w-full" title={composition}>
                 {composition}

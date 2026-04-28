@@ -88,6 +88,11 @@ export interface ComprehensiveAnalysis {
       library_alignment?: LibraryAlignment | null
       rewrite?: ElementRewrite | null
     }
+    proof_signals: {
+      identified: string[]; strength: number; feedback: string
+      library_alignment?: LibraryAlignment | null
+      rewrite?: ElementRewrite | null
+    }
     cta: {
       text: string; clarity: number; placement: string; contrast: number; feedback: string
       dna?: CtaDNA | null
@@ -582,6 +587,13 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
       "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
       "rewrite": "<null when strength >= 7. Otherwise object same shape as trust_signals.rewrite>"
     },
+    "proof_signals": {
+      "identified": ["<verbatim proof claim from confirmed_elements.proof_signals: 'Clinically tested', 'Before/after shown', '3x faster in study', etc.>"],
+      "strength": <1-10 — strength of evidence-based claims; 1=none/weak, 10=multiple specific quantified studies/clinical results>,
+      "feedback": "<two sentences — must agree with strength; describe whether proof claims address audience skepticism for this awareness/sophistication segment>",
+      "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
+      "rewrite": "<null when strength >= 7. Otherwise object: { 'proposed_signals': ['<specific proof claim>'], 'rationale': '<one sentence on which evidence type would lift conversion>', 'expected_lift': '<projected strength change + library citation>' }>"
+    },
     "cta": {
       "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>,
       "feedback": "<two sentences — must agree with min(clarity,contrast)>",
@@ -734,6 +746,11 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
       "identified": ["<signal>"], "strength": <1-10>,
       "feedback": "<two sentences — must agree with strength>"
     },
+    "proof_signals": {
+      "identified": ["<verbatim proof claim from confirmed_elements.proof_signals>"],
+      "strength": <1-10 — strength of evidence-based claims>,
+      "feedback": "<two sentences: describe what proof architecture this winning ad uses and what it reveals about audience skepticism>"
+    },
     "cta": {
       "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>,
       "feedback": "<two sentences — must agree with min(clarity,contrast)>",
@@ -847,7 +864,7 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
       "verdict": "<strong_winner_pattern | mixed_record | mostly_loser_pattern | no_segment_data>",
       "verdict_reasoning": "<one sentence>"
     },
-    "alternative_combination": null
+    "alternative_combination": "<For winners with all elements 7+: null (combination is optimal). Otherwise object: { 'recommended': '<composition_tag>', 'intent': 'test_variant', 'rationale': '<two sentences: which DNA dimension would extend the working pattern, citing Block 0 learned rules and specific winner examples>', 'element_changes': { 'headline': '<new text or unchanged>', 'subheadline': '<new text or unchanged or remove>', 'benefits': ['<benefit>'] | 'unchanged' | 'remove' | 'trim_to_2', 'trust_signals': ['<signal>'] | 'unchanged' | 'remove', 'cta': '<new text or unchanged>', 'offer': '<new text or unchanged or remove>' }, 'predicted_impact': '<one sentence: which segment-pattern this would extend>' }>"
   }
 }`
 
@@ -877,6 +894,11 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "safety_signals": {
       "identified": ["<signal>"], "strength": <1-10>,
       "feedback": "<two sentences — must agree with strength>"
+    },
+    "proof_signals": {
+      "identified": ["<verbatim proof claim from confirmed_elements.proof_signals>"],
+      "strength": <1-10 — strength of evidence-based claims>,
+      "feedback": "<two sentences: describe what proof gap or absence reveals about why this losing ad failed to overcome audience skepticism>"
     },
     "cta": {
       "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>,
@@ -991,7 +1013,7 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
       "verdict": "<strong_winner_pattern | mixed_record | mostly_loser_pattern | no_segment_data>",
       "verdict_reasoning": "<one sentence>"
     },
-    "alternative_combination": null
+    "alternative_combination": "<For losers, this is the diagnostic insight: object: { 'recommended': '<composition_tag>', 'intent': 'replacement', 'rationale': '<two sentences: which DNA dimensions of this loser likely caused the failure and what combination would have likely worked given pattern library evidence — cite Block 0 learned rules and specific winner examples>', 'element_changes': { 'headline': '<new text>', 'subheadline': '<new text or remove>', 'benefits': ['<benefit>'] | 'remove' | 'trim_to_2', 'trust_signals': ['<signal>'] | 'remove', 'cta': '<new text>', 'offer': '<new text or remove>' }, 'predicted_impact': '<one sentence: which winner segment-pattern this aligns with>' }>"
   }
 }`
 
@@ -1197,6 +1219,7 @@ function emptyComprehensive(bergBullets: string[]): ComprehensiveAnalysis {
       benefits_features: { identified: [], clarity: 0, prominence: 0, feedback: '' },
       trust_signals: { identified: [], strength: 0, feedback: '' },
       safety_signals: { identified: [], strength: 0, feedback: '' },
+      proof_signals: { identified: [], strength: 0, feedback: '' },
       cta: { text: '', clarity: 0, placement: '', contrast: 0, feedback: '' },
     },
     behavioral_economics: {
