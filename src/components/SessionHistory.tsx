@@ -54,7 +54,6 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
         body: JSON.stringify({ analysis_id: id }),
       })
       if (res.ok) {
-        // Stream the response (keep-alive format) then notify parent to reload.
         const reader = res.body?.getReader()
         const decoder = new TextDecoder()
         let text = ''
@@ -66,17 +65,26 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
           }
         }
         const last = text.split('\n').filter(l => l.trim()).pop() ?? '{}'
-        const data = JSON.parse(last)
-        if (!data.error) {
-          // Reload this row's grade/composition from the parent callback.
+        const data = JSON.parse(last) as Record<string, unknown>
+        if (!data.error && data.comprehensive) {
+          const ca = data.comprehensive as Record<string, unknown>
+          const fwk = ca?.framework_score as Record<string, unknown> | undefined
+          const copy = ca?.copy as Record<string, unknown> | undefined
+          const headline = copy?.headline as Record<string, unknown> | undefined
+          // Update just this row in place — no full list reload, no loading flash.
+          setAnalyses(prev => prev.map(a => a.id !== id ? a : {
+            ...a,
+            framework_grade: (fwk?.overall_framework_grade as string) ?? a.framework_grade,
+            composition_tag: (ca?.composition_tag as string) ?? a.composition_tag,
+            headline_text: (headline?.text as string) ?? a.headline_text,
+          }))
+          // Reopen the modal with the freshly analyzed data.
           onReanalyze?.(id)
-          // Refresh the list so the updated grade/composition chips appear.
-          await load()
         }
       }
     } catch { /* non-fatal */ }
     setReanalyzingId(null)
-  }, [token, reanalyzingId, onReanalyze, load])
+  }, [token, reanalyzingId, onReanalyze])
 
   useEffect(() => {
     if (expanded) load()

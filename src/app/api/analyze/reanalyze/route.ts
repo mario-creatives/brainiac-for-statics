@@ -22,6 +22,27 @@ export const maxDuration = 120
 
 const anthropic = new Anthropic({ timeout: 120000 })
 
+/** Derive a composition_tag from which elements are actually present. */
+function deriveCompositionTag(ca: ComprehensiveAnalysis): string {
+  const hasHeadline = !!ca.copy?.headline?.text
+  const hasSub = !!(ca.copy?.subheadline?.text && ca.copy.subheadline.text !== 'absent')
+  const hasBenefits = (ca.copy?.benefits_features?.identified?.length ?? 0) > 0
+  const hasTrust = (ca.copy?.trust_signals?.identified?.length ?? 0) > 0
+  const hasCta = !!ca.copy?.cta?.text
+  const hasOffer = !!ca.offer_architecture?.offer_text
+
+  if (!hasHeadline) return 'visual_only'
+  const slots = ['headline']
+  if (hasSub) slots.push('sub')
+  if (hasBenefits) slots.push('benefits')
+  if (hasTrust) slots.push('trust')
+  if (hasCta) slots.push('cta')
+  if (hasOffer) slots.push('offer')
+  if (slots.length === 1) return 'headline_only'
+  if (slots.length >= 6) return 'full_stack'
+  return slots.join('+')
+}
+
 /** Reconstruct an ExtractedElements object from a stored ComprehensiveAnalysis.
  *  Used for re-analysis when the original image is no longer available. */
 function reconstructFromComprehensive(ca: ComprehensiveAnalysis): ExtractedElements {
@@ -44,7 +65,9 @@ function reconstructFromComprehensive(ca: ComprehensiveAnalysis): ExtractedEleme
     benefits_dna: (ca.copy?.benefits_features?.dna as ExtractedElements['benefits_dna']) ?? null,
     trust_dna: (ca.copy?.trust_signals?.dna as TrustDNA | null | undefined) ?? null,
     cta_dna: (ca.copy?.cta?.dna as CtaDNA | null | undefined) ?? null,
-    composition_tag: ca.composition_tag ?? 'headline_only',
+    // Prefer the stored tag; fall back to deriving from present elements so
+    // old analyses that pre-date composition_tag get a proper value.
+    composition_tag: ca.composition_tag || deriveCompositionTag(ca),
   }
 }
 
