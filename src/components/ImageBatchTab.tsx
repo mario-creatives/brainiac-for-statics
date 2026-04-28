@@ -251,7 +251,8 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
         }
       }
     } catch (e) {
-      setExtractionError(prev => ({ ...prev, [card.id]: e instanceof Error ? e.message : 'Network error' }))
+      const msg = e instanceof Error ? e.message : (e instanceof Event ? 'File read error' : 'Extraction failed')
+      setExtractionError(prev => ({ ...prev, [card.id]: msg }))
     }
     setExtractionLoading(prev => ({ ...prev, [card.id]: false }))
   }
@@ -758,10 +759,12 @@ function ImageResultCard({
       <div className="p-2.5 flex-1 flex flex-col gap-2">
         <p className="text-xs text-gray-300 leading-snug line-clamp-2">{card.file.name}</p>
 
-        {extractionError && !extractionLoading && (
+        {extractionError && (
           <div className="bg-red-900/20 border border-red-900/40 rounded px-2 py-1.5 space-y-1">
             <p className="text-[10px] text-red-300 leading-snug">{extractionError}</p>
-            {onRetryExtraction && (
+            {extractionLoading ? (
+              <span className="text-[10px] text-gray-400 animate-pulse">retrying…</span>
+            ) : onRetryExtraction && (
               <button
                 onClick={(e) => { e.stopPropagation(); onRetryExtraction() }}
                 className="text-[10px] text-red-200 underline hover:text-red-100"
