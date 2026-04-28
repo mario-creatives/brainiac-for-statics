@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { keepAliveStream } from '@/lib/streaming'
 import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -175,29 +176,14 @@ export async function POST(req: NextRequest) {
   const image_base64: string | undefined = body.image_base64
   const mime_type: string = body.mime_type ?? 'image/jpeg'
 
-  const encoder = new TextEncoder()
-  const stream = new ReadableStream({
-    async start(controller) {
-      try { controller.enqueue(encoder.encode('\n')) } catch {}
-      const ping = setInterval(() => {
-        try { controller.enqueue(encoder.encode('\n')) } catch {}
-      }, 10000)
-      try {
-        const [summary, visual_analysis] = await Promise.all([
-          runBergAnalysis(body),
-          image_base64 ? runAdDimensionAnalysis(image_base64, mime_type) : Promise.resolve(null),
-        ])
-        controller.enqueue(encoder.encode(JSON.stringify({
-          summary,
-          ...(visual_analysis ? { visual_analysis } : {}),
-        }) + '\n'))
-      } catch (e) {
-        controller.enqueue(encoder.encode(JSON.stringify({ error: e instanceof Error ? e.message : 'Image-summary failed' }) + '\n'))
-      } finally {
-        clearInterval(ping)
-        controller.close()
-      }
-    },
+  return keepAliveStream(async () => {
+    const [summary, visual_analysis] = await Promise.all([
+      runBergAnalysis(body),
+      image_base64 ? runAdDimensionAnalysis(image_base64, mime_type) : Promise.resolve(null),
+    ])
+    return {
+      summary,
+      ...(visual_analysis ? { visual_analysis } : {}),
+    }
   })
-  return new Response(stream, { headers: { 'Content-Type': 'application/json' } })
 }

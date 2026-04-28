@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
+import { keepAliveStream } from '@/lib/streaming'
 import {
   getWinningPatterns,
   getAllWinningAnalyses,
@@ -9,6 +10,7 @@ import {
   getFrameworkPrinciples,
   getLatestBaselineEvolution,
   storeComprehensiveAnalysis,
+  enqueueSynthesis,
   WINNER_THRESHOLD_USD,
   type PatternLibraryRow,
   type LosingPatternRow,
@@ -1312,61 +1314,46 @@ export async function POST(req: NextRequest) {
   const confirmed_elements: ExtractedElements | undefined = body.confirmed_elements
   const mode: string | undefined = body.mode
 
-  const encoder = new TextEncoder()
-  const stream = new ReadableStream({
-    async start(controller) {
-      // Send an immediate keep-alive byte so the connection sees activity
-      // within the first second; some proxies close idle streams in <15s.
-      try { controller.enqueue(encoder.encode('\n')) } catch {}
-      const ping = setInterval(() => {
-        try { controller.enqueue(encoder.encode('\n')) } catch {}
-      }, 10000)
-      try {
-        const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, evolvedBaseline] = await Promise.all([
-          getWinningPatterns(),
-          getAllWinningAnalyses(),
-          getLosingPatterns(),
-          getAllLosersForSynthesis(),
-          getFrameworkPrinciples(),
-          getLatestBaselineEvolution(),
-        ])
+  return keepAliveStream(async () => {
+    const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, evolvedBaseline] = await Promise.all([
+      getWinningPatterns(),
+      getAllWinningAnalyses(),
+      getLosingPatterns(),
+      getAllLosersForSynthesis(),
+      getFrameworkPrinciples(),
+      getLatestBaselineEvolution(),
+    ])
 
-        const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples)
-        const visualDescription = confirmed_elements?.visual_description
+    const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples)
+    const visualDescription = confirmed_elements?.visual_description
 
-        const [bergText, visionResult] = await Promise.all([
-          runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd),
-          image_base64
-            ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, mode, spend_usd, evolvedBaseline)
-            : Promise.resolve(null),
-        ])
+    const [bergText, visionResult] = await Promise.all([
+      runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd),
+      image_base64
+        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, mode, spend_usd, evolvedBaseline)
+        : Promise.resolve(null),
+    ])
 
-        const bergBullets = parseBergBullets(bergText)
-        const comprehensive: ComprehensiveAnalysis = visionResult
-          ? { ...visionResult, berg_recommendations: bergBullets }
-          : emptyComprehensive(bergBullets)
+    const bergBullets = parseBergBullets(bergText)
+    const comprehensive: ComprehensiveAnalysis = visionResult
+      ? { ...visionResult, berg_recommendations: bergBullets }
+      : emptyComprehensive(bergBullets)
 
-        if (analysis_id) {
-          await storeComprehensiveAnalysis(analysis_id, comprehensive as unknown as Record<string, unknown>, spend_usd)
+    if (analysis_id) {
+      await storeComprehensiveAnalysis(analysis_id, comprehensive as unknown as Record<string, unknown>, spend_usd)
 
-          if (spend_usd !== undefined) {
-            fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/analyze/synthesize-patterns`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ triggered_by: analysis_id }),
-            }).catch(() => { /* fire and forget */ })
-          }
-        }
-
-        controller.enqueue(encoder.encode(JSON.stringify({ comprehensive }) + '\n'))
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Analysis failed'
-        controller.enqueue(encoder.encode(JSON.stringify({ error: msg }) + '\n'))
-      } finally {
-        clearInterval(ping)
-        controller.close()
+      if (spend_usd !== undefined) {
+        // Enqueue for sequential incremental synthesis (one ad at a time).
+        await enqueueSynthesis(analysis_id)
+        // Kick the worker (fire-and-forget). The worker no-ops if another
+        // claim is already in flight.
+        fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/analyze/synthesize-patterns`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(() => { /* fire and forget */ })
       }
-    },
+    }
+
+    return { comprehensive }
   })
-  return new Response(stream, { headers: { 'Content-Type': 'application/json' } })
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
+import { keepAliveStream } from '@/lib/streaming'
 import {
   getWinningPatterns,
   getAllWinningAnalyses,
@@ -158,32 +159,16 @@ Return ONLY a JSON object with no markdown fences:
   ]
 }`
 
-  const encoder = new TextEncoder()
-  const stream = new ReadableStream({
-    async start(controller) {
-      try { controller.enqueue(encoder.encode('\n')) } catch {}
-      const ping = setInterval(() => {
-        try { controller.enqueue(encoder.encode('\n')) } catch {}
-      }, 10000)
-      try {
-        const message = await anthropic.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 8192,
-          messages: [{ role: 'user', content: prompt }],
-        })
+  return keepAliveStream(async () => {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 8192,
+      messages: [{ role: 'user', content: prompt }],
+    })
 
-        const textBlock = message.content.find(b => b.type === 'text')
-        const raw = textBlock?.type === 'text' ? textBlock.text : ''
-        const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-        const parsed = JSON.parse(cleaned) as { source_summary: string; variants: CreativeVariant[] }
-        controller.enqueue(encoder.encode(JSON.stringify(parsed) + '\n'))
-      } catch (err) {
-        controller.enqueue(encoder.encode(JSON.stringify({ error: String(err) }) + '\n'))
-      } finally {
-        clearInterval(ping)
-        controller.close()
-      }
-    },
+    const textBlock = message.content.find(b => b.type === 'text')
+    const raw = textBlock?.type === 'text' ? textBlock.text : ''
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    return JSON.parse(cleaned) as { source_summary: string; variants: CreativeVariant[] }
   })
-  return new Response(stream, { headers: { 'Content-Type': 'application/json' } })
 }
