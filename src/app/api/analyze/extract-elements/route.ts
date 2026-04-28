@@ -216,7 +216,7 @@ export async function POST(req: NextRequest) {
   const { image_base64, mime_type = 'image/jpeg' } = body
 
   const encoder = new TextEncoder()
-  const body = new ReadableStream({
+  const stream = new ReadableStream({
     async start(controller) {
       const ping = setInterval(() => {
         try { controller.enqueue(encoder.encode('\n')) } catch {}
@@ -269,5 +269,5 @@ ${EXTRACT_SCHEMA}`,
       }
     },
   })
-  return new Response(body, { headers: { 'Content-Type': 'application/json' } })
+  return new Response(stream, { headers: { 'Content-Type': 'application/json' } })
 }

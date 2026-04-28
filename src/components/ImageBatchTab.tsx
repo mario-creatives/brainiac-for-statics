@@ -238,7 +238,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
       })
       const data = await readJsonStream(res)
       if (data.extracted) {
-        setExtractedElements(prev => ({ ...prev, [card.id]: data.extracted }))
+        setExtractedElements(prev => ({ ...prev, [card.id]: data.extracted as ExtractedElements }))
         setAwaitingConfirmation(prev => ({ ...prev, [card.id]: true }))
       }
     } catch { /* non-fatal — user can still click to manually open */ }
