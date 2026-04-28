@@ -227,7 +227,7 @@ export async function POST(req: NextRequest) {
   return keepAliveStream(async () => {
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
+      max_tokens: 12000,
       messages: [{
         role: 'user',
         content: [

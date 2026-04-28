@@ -70,6 +70,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
   const [cardError, setCardError] = useState<Record<string, string>>({})
   const [extractedElements, setExtractedElements] = useState<Record<string, ExtractedElements>>({})
   const [extractionLoading, setExtractionLoading] = useState<Record<string, boolean>>({})
+  const [extractionError, setExtractionError] = useState<Record<string, string>>({})
   const [awaitingConfirmation, setAwaitingConfirmation] = useState<Record<string, boolean>>({})
   const [confirmedElements, setConfirmedElements] = useState<Record<string, ExtractedElements>>({})
   const [showExtractionPanel, setShowExtractionPanel] = useState(false)
@@ -149,6 +150,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     setCardError({})
     setExtractedElements({})
     setExtractionLoading({})
+    setExtractionError({})
     setAwaitingConfirmation({})
     setConfirmedElements({})
     e.target.value = ''
@@ -167,6 +169,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     setCardError({})
     setExtractedElements({})
     setExtractionLoading({})
+    setExtractionError({})
     setAwaitingConfirmation({})
     setConfirmedElements({})
   }
@@ -225,6 +228,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
   async function runExtraction(card: ImageCard, freshToken: string) {
     if (!card.result?.roi_data) return
     setExtractionLoading(prev => ({ ...prev, [card.id]: true }))
+    setExtractionError(prev => { const next = { ...prev }; delete next[card.id]; return next })
     try {
       const { base64, mime_type } = await fileToBase64(card.file)
       const res = await fetch('/api/analyze/extract-elements', {
@@ -232,12 +236,23 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
         body: JSON.stringify({ image_base64: base64, mime_type }),
       })
-      const data = await readJsonStream(res)
-      if (data.extracted) {
-        setExtractedElements(prev => ({ ...prev, [card.id]: data.extracted as ExtractedElements }))
-        setAwaitingConfirmation(prev => ({ ...prev, [card.id]: true }))
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({})) as Record<string, unknown>
+        setExtractionError(prev => ({ ...prev, [card.id]: (errData.error as string) ?? `Extraction failed (${res.status})` }))
+      } else {
+        const data = await readJsonStream(res)
+        if (data.error) {
+          setExtractionError(prev => ({ ...prev, [card.id]: data.error as string }))
+        } else if (data.extracted) {
+          setExtractedElements(prev => ({ ...prev, [card.id]: data.extracted as ExtractedElements }))
+          setAwaitingConfirmation(prev => ({ ...prev, [card.id]: true }))
+        } else {
+          setExtractionError(prev => ({ ...prev, [card.id]: 'Extraction returned no data' }))
+        }
       }
-    } catch { /* non-fatal — user can still click to manually open */ }
+    } catch (e) {
+      setExtractionError(prev => ({ ...prev, [card.id]: e instanceof Error ? e.message : 'Network error' }))
+    }
     setExtractionLoading(prev => ({ ...prev, [card.id]: false }))
   }
 
@@ -296,6 +311,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     setCardComprehensive({})
     setExtractedElements({})
     setExtractionLoading({})
+    setExtractionError({})
     setAwaitingConfirmation({})
     setConfirmedElements({})
 
@@ -370,21 +386,28 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
   }
 
   async function handleCardClick(card: ImageCard) {
-    // Both modes use the same flow: extraction → confirm → comprehensive.
+    // Both modes share the same flow: extraction → confirm → comprehensive.
+    // 1) Extraction is ready and awaiting confirmation → open the panel.
     if (awaitingConfirmation[card.id] && extractedElements[card.id]) {
       setSelectedCard(card)
       setShowExtractionPanel(true)
       return
     }
+    // 2) Extraction is in flight → ignore clicks; the badge already shows "extracting…".
     if (extractionLoading[card.id]) return
+    // 3) Already past extraction (confirmed, analysis loading, or analysis done)
+    //    → open the comprehensive analysis modal.
     if (confirmedElements[card.id] || cardComprehensive[card.id] || cardLoading[card.id]) {
       setSelectedCard(card)
       setShowExtractionPanel(false)
       return
     }
+    // 4) BERG complete but extraction failed or never ran → retry extraction.
+    //    Do NOT open the BERG-only modal here; it would mislead the user
+    //    into thinking analysis succeeded with no copy/CTA/etc. The badge
+    //    transitions ("extracting…" → "confirm →" or "extract failed")
+    //    drive the next step.
     if (card.status === 'complete' && card.result?.roi_data) {
-      setSelectedCard(card)
-      setShowExtractionPanel(false)
       const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
       runExtraction(card, freshToken)
     }
@@ -561,10 +584,15 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
               mode={mode}
               disabled={analyzing}
               extractionLoading={extractionLoading[card.id]}
+              extractionError={extractionError[card.id]}
               awaitingConfirmation={awaitingConfirmation[card.id]}
               confirmed={!!confirmedElements[card.id]}
               comprehensive={cardComprehensive[card.id]}
               onSpendChange={(v) => updateSpend(card.id, v)}
+              onRetryExtraction={async () => {
+                const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
+                runExtraction(card, freshToken)
+              }}
               onClick={card.status === 'complete' ? () => handleCardClick(card) : undefined}
             />
           ))}
@@ -647,16 +675,18 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
 }
 
 function ImageResultCard({
-  card, mode, disabled, extractionLoading, awaitingConfirmation, confirmed, comprehensive, onSpendChange, onClick,
+  card, mode, disabled, extractionLoading, extractionError, awaitingConfirmation, confirmed, comprehensive, onSpendChange, onRetryExtraction, onClick,
 }: {
   card: ImageCard
   mode: Mode
   disabled: boolean
   extractionLoading?: boolean
+  extractionError?: string
   awaitingConfirmation?: boolean
   confirmed?: boolean
   comprehensive?: ComprehensiveAnalysis
   onSpendChange: (value: string) => void
+  onRetryExtraction?: () => void
   onClick?: () => void
 }) {
   const composition = comprehensive?.composition_tag
@@ -709,6 +739,9 @@ function ImageResultCard({
           {card.status === 'complete' && extractionLoading && (
             <span className="text-[10px] bg-gray-900/80 text-gray-400 px-1.5 py-0.5 rounded animate-pulse">extracting…</span>
           )}
+          {card.status === 'complete' && extractionError && !extractionLoading && (
+            <span className="text-[10px] bg-red-900/80 text-red-300 px-1.5 py-0.5 rounded">extract failed</span>
+          )}
           {card.status === 'complete' && awaitingConfirmation && !extractionLoading && (
             <span className="text-[10px] bg-yellow-900/80 text-yellow-300 px-1.5 py-0.5 rounded">confirm →</span>
           )}
@@ -723,6 +756,20 @@ function ImageResultCard({
 
       <div className="p-2.5 flex-1 flex flex-col gap-2">
         <p className="text-xs text-gray-300 leading-snug line-clamp-2">{card.file.name}</p>
+
+        {extractionError && !extractionLoading && (
+          <div className="bg-red-900/20 border border-red-900/40 rounded px-2 py-1.5 space-y-1">
+            <p className="text-[10px] text-red-300 leading-snug">{extractionError}</p>
+            {onRetryExtraction && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRetryExtraction() }}
+                className="text-[10px] text-red-200 underline hover:text-red-100"
+              >
+                Retry extraction
+              </button>
+            )}
+          </div>
+        )}
 
         {(composition || grade || comboVerdict || neuralScore != null) && (
           <div className="flex items-center flex-wrap gap-1">
