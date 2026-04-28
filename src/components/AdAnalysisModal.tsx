@@ -806,65 +806,6 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
         </Section>
       )}
 
-      {/* Reddit Visual Research */}
-      {data.reddit_research && (
-        <Section title="Reddit Visual Research">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] bg-gray-800 text-gray-300 rounded px-2 py-0.5 font-mono">
-              {data.reddit_research.topic}
-            </span>
-            <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
-              data.reddit_research.congruence_with_reddit.verdict === 'aligned'
-                ? 'text-emerald-400 border-emerald-800/60 bg-gray-900'
-                : data.reddit_research.congruence_with_reddit.verdict === 'partial'
-                  ? 'text-amber-400 border-amber-800/60 bg-gray-900'
-                  : 'text-[#ff2a2b] border-red-900/60 bg-gray-900'
-            }`}>
-              {data.reddit_research.congruence_with_reddit.verdict}
-            </span>
-          </div>
-          {data.reddit_research.congruence_with_reddit.note && (
-            <p className="text-[11px] text-gray-400 leading-snug">
-              {data.reddit_research.congruence_with_reddit.note}
-            </p>
-          )}
-          {data.reddit_research.situation_patterns.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Situation Patterns</p>
-              <div className="flex flex-wrap gap-1.5">
-                {data.reddit_research.situation_patterns.map((p, i) => (
-                  <span key={i} className="text-xs text-gray-300 bg-gray-800 rounded px-2 py-0.5">{p}</span>
-                ))}
-              </div>
-            </div>
-          )}
-          {data.reddit_research.visual_ideation && (
-            <div className="bg-gray-950 border border-indigo-900/40 rounded-lg px-3 py-2.5 space-y-1.5">
-              <p className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold">Visual Ideation</p>
-              <p className="text-xs text-white font-medium leading-snug">{data.reddit_research.visual_ideation.concept}</p>
-              {data.reddit_research.visual_ideation.rationale && (
-                <p className="text-[11px] text-gray-400 leading-snug">{data.reddit_research.visual_ideation.rationale}</p>
-              )}
-              {data.reddit_research.visual_ideation.source_urls.length > 0 && (
-                <div className="pt-1 space-y-0.5">
-                  {data.reddit_research.visual_ideation.source_urls.map((url, i) => (
-                    <a
-                      key={i}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block text-[10px] text-indigo-400 hover:underline truncate"
-                    >
-                      View Reddit post →
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </Section>
-      )}
-
       {/* Overall Verdict */}
       {data.overall && (
         <Section title="Overall Verdict">

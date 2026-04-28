@@ -73,7 +73,6 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
   const [awaitingConfirmation, setAwaitingConfirmation] = useState<Record<string, boolean>>({})
   const [confirmedElements, setConfirmedElements] = useState<Record<string, ExtractedElements>>({})
   const [showExtractionPanel, setShowExtractionPanel] = useState(false)
-  const [conceptTopic, setConceptTopic] = useState('')
   const [userAdCount, setUserAdCount] = useState<number | null>(null)
   const [baselineStatus, setBaselineStatus] = useState<{
     has_evolution: boolean
@@ -153,7 +152,6 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     setExtractionLoading({})
     setAwaitingConfirmation({})
     setConfirmedElements({})
-    setConceptTopic('')
     e.target.value = ''
   }
 
@@ -172,7 +170,6 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     setExtractionLoading({})
     setAwaitingConfirmation({})
     setConfirmedElements({})
-    setConceptTopic('')
   }
 
   function handleStop() {
@@ -245,7 +242,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     setExtractionLoading(prev => ({ ...prev, [card.id]: false }))
   }
 
-  async function runComprehensive(card: ImageCard, freshToken: string, confirmed?: ExtractedElements, topic?: string) {
+  async function runComprehensive(card: ImageCard, freshToken: string, confirmed?: ExtractedElements) {
     if (!card.result?.roi_data) return
     setCardLoading(prev => ({ ...prev, [card.id]: true }))
     setCardError(prev => { const next = { ...prev }; delete next[card.id]; return next })
@@ -262,7 +259,6 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
           spend_usd: mode === 'historical' ? card.spend : undefined,
           analysis_id: card.analysisId,
           confirmed_elements: confirmed,
-          concept_topic: topic && topic.trim() ? topic.trim() : undefined,
           mode,
         }),
       })
@@ -368,9 +364,6 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     }
 
     const completedCards = cardsRef.current.filter(c => c.status === 'complete')
-    // Both modes now run extraction first and gate on user confirmation before
-    // the comprehensive analysis. Feedback mode's concept topic is applied at
-    // confirm-time, not before, so the user can correct extraction first.
     await Promise.all(completedCards.map(c => runExtraction(c, freshToken)))
 
     setAnalyzing(false)
@@ -405,8 +398,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     setAwaitingConfirmation(prev => ({ ...prev, [card.id]: false }))
     setShowExtractionPanel(false)
     const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-    const topic = mode === 'feedback' ? (conceptTopic.trim() || undefined) : undefined
-    runComprehensive(card, freshToken, confirmed, topic)
+    runComprehensive(card, freshToken, confirmed)
   }
 
   function handleExtractionSkip() {
@@ -420,8 +412,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     const auto = extractedElements[card.id]
     supabase.auth.getSession().then(({ data: { session } }) => {
       const freshToken = session?.access_token ?? token
-      const topic = mode === 'feedback' ? (conceptTopic.trim() || undefined) : undefined
-      runComprehensive(card, freshToken, auto, topic)
+      runComprehensive(card, freshToken, auto)
     })
   }
 
@@ -486,18 +477,6 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
               : ' · update pending'}
           </p>
         )
-      )}
-
-      {/* Concept topic input (feedback mode only) */}
-      {mode === 'feedback' && (
-        <input
-          type="text"
-          placeholder="Concept topic for Reddit research — e.g. afternoon energy slump, meal prep anxiety (optional)"
-          value={conceptTopic}
-          onChange={e => setConceptTopic(e.target.value)}
-          disabled={analyzing}
-          className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-200 focus:border-[#ff2a2b] focus:outline-none placeholder:text-gray-600 disabled:opacity-50"
-        />
       )}
 
       {/* Upload zone */}
@@ -660,7 +639,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
             const card = selectedCard
             const confirmed = confirmedElements[card.id]
             const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-            runComprehensive(card, freshToken, confirmed, conceptTopic.trim() || undefined)
+            runComprehensive(card, freshToken, confirmed)
           }}
         />
       )}

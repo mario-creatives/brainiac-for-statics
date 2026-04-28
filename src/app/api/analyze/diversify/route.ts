@@ -7,7 +7,6 @@ import {
   getLosingPatterns,
   WINNER_THRESHOLD_USD,
 } from '@/lib/pattern-library'
-import { fetchRedditPosts } from '@/lib/reddit'
 import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
 import type { ExtractedElements } from '@/app/api/analyze/extract-elements/route'
 
@@ -80,16 +79,14 @@ export async function POST(req: NextRequest) {
 
   const comprehensive: ComprehensiveAnalysis = body.comprehensive
   const confirmed_elements: ExtractedElements | undefined = body.confirmed_elements
-  const concept_topic: string | undefined = body.concept_topic
   const variant_count: number = Math.min(Math.max(Number(body.variant_count ?? 6), 4), 10)
 
   if (!comprehensive) return NextResponse.json({ error: 'comprehensive is required' }, { status: 400 })
 
-  const [winningPatterns, winningAnalyses, losingPatterns, redditPosts] = await Promise.all([
+  const [winningPatterns, winningAnalyses, losingPatterns] = await Promise.all([
     getWinningPatterns(),
     getAllWinningAnalyses(),
     getLosingPatterns(),
-    concept_topic ? fetchRedditPosts(concept_topic) : Promise.resolve(null),
   ])
 
   const sourceContext = buildSourceAdContext(comprehensive, confirmed_elements)
@@ -118,18 +115,10 @@ export async function POST(req: NextRequest) {
     return lines.join('\n')
   })()
 
-  const redditBlock = (redditPosts && redditPosts.length > 0 && concept_topic)
-    ? `--- Reddit insights: real people describing "${concept_topic}" ---
-${redditPosts.map((p, i) => `Post ${i + 1}: "${p.title}"\nURL: ${p.url}\nSnippet: "${p.snippet}"`).join('\n\n')}
-
-Use the language and situations from these posts to ground at least 2 variants in real audience experience.
-In gem_prompt and visual_concept for those variants, reference the scenes and emotions described above.`
-    : ''
-
   const prompt = `You are a senior creative strategist and Meta media buyer generating ${variant_count} deliberately diversified ad variants.
 
 ${sourceContext}
-${patternBlock ? `\n${patternBlock}\n` : ''}${redditBlock ? `\n${redditBlock}\n` : ''}
+${patternBlock ? `\n${patternBlock}\n` : ''}
 Generate ${variant_count} creative variants of this concept. Each variant must:
 
 1. Test the same product/hypothesis as the source ad — do NOT change what is being sold.

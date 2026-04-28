@@ -16,7 +16,6 @@ import {
   type FrameworkPrincipleRow,
   type BaselineEvolutionEntry,
 } from '@/lib/pattern-library'
-import { fetchRedditPosts, type RedditPost } from '@/lib/reddit'
 import type {
   ExtractedElements,
   HeadlineDNA,
@@ -225,13 +224,6 @@ export interface ComprehensiveAnalysis {
       }
       predicted_impact: string
     } | null
-  }
-  reddit_research?: {
-    topic: string
-    posts_found: Array<{ title: string; url: string; snippet: string }>
-    situation_patterns: string[]
-    congruence_with_reddit: { verdict: 'aligned' | 'partial' | 'misaligned'; note: string }
-    visual_ideation: { concept: string; rationale: string; source_urls: string[] }
   }
 }
 
@@ -1003,43 +995,10 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
   }
 }`
 
-function buildRedditBlock(topic: string, posts: RedditPost[]): string {
-  const postLines = posts.map((p, i) =>
-    `Post ${i + 1}: "${p.title}"\nURL: ${p.url}\nSnippet: "${p.snippet}"`
-  ).join('\n\n')
-
-  return `--- Reddit research: real people describing "${topic}" ---
-${postLines}
-
-Reddit analysis instructions:
-1. Identify 2–3 situation patterns from how these people describe their experience (use their language verbatim, not paraphrased).
-2. Check whether the ad's headline, subheadline, body, benefits, and CTA are congruent with how real people describe this situation.
-3. Propose one specific visual concept grounded in these Reddit descriptions — state who is shown, the setting, the physical/emotional detail.
-4. In source_urls: include ONLY exact URLs from the list above. Do not modify. Do not add URLs not in this list.`
-}
-
-function buildRedditSchema(posts: RedditPost[]): string {
-  const urlList = posts.map(p => `"${p.url}"`).join(', ')
-  return `,
-  "reddit_research": {
-    "topic": "<topic string>",
-    "posts_found": [{ "title": "<title>", "url": "<exact url from: ${urlList}>", "snippet": "<first 100 chars>" }],
-    "situation_patterns": ["<pattern in real people's exact language>", "<pattern 2>"],
-    "congruence_with_reddit": { "verdict": "<aligned|partial|misaligned>", "note": "<one sentence>" },
-    "visual_ideation": {
-      "concept": "<specific visual scene: who, where, what, emotional state>",
-      "rationale": "<one sentence: grounded in which Reddit insight>",
-      "source_urls": ["<one of: ${urlList}>"]
-    }
-  }`
-}
-
 function buildComprehensiveVisionPrompt(
   roiAverages: ROIAverage[],
   patternContext: string,
   confirmedElements?: ExtractedElements,
-  redditPosts?: RedditPost[],
-  conceptTopic?: string,
   mode?: string,
   spendUsd?: number,
   evolvedBaseline?: BaselineEvolutionEntry | null,
@@ -1048,20 +1007,12 @@ function buildComprehensiveVisionPrompt(
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)}`)
     .join('\n')
 
-  const redditSection = (redditPosts && redditPosts.length > 0 && conceptTopic)
-    ? `\n${buildRedditBlock(conceptTopic, redditPosts)}\n`
-    : ''
-
   const isLoser = mode === 'historical' && spendUsd !== undefined && spendUsd < WINNER_THRESHOLD_USD
   const isWinner = mode === 'historical' && !isLoser
 
-  const baseSchema = isLoser ? COMPREHENSIVE_JSON_SCHEMA_LOSER
+  const schema = isLoser ? COMPREHENSIVE_JSON_SCHEMA_LOSER
     : isWinner ? COMPREHENSIVE_JSON_SCHEMA_HISTORICAL
     : COMPREHENSIVE_JSON_SCHEMA
-
-  const schema = (redditPosts && redditPosts.length > 0 && conceptTopic)
-    ? baseSchema.replace(/\n\}$/, `${buildRedditSchema(redditPosts)}\n}`)
-    : baseSchema
 
   let preamble: string
   if (isWinner) {
@@ -1171,7 +1122,7 @@ Writing style: specific and direct — every word earns its place. No filler phr
 ${STATIC_FRAMEWORK_BASELINE}
 ${evolvedBaselineBlock}
 ${patternContext ? `\n${patternContext}\n` : ''}
-${redditSection}BERG brain activation scores:
+BERG brain activation scores:
 ${scoreLines}
 
 ${analysisInstruction}
@@ -1198,8 +1149,6 @@ async function runComprehensiveVisionAnalysis(
   roiAverages: ROIAverage[],
   patternContext: string,
   confirmedElements?: ExtractedElements,
-  redditPosts?: RedditPost[],
-  conceptTopic?: string,
   mode?: string,
   spendUsd?: number,
   evolvedBaseline?: BaselineEvolutionEntry | null,
@@ -1219,7 +1168,7 @@ async function runComprehensiveVisionAnalysis(
               data: imageBase64,
             },
           },
-          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, redditPosts, conceptTopic, mode, spendUsd, evolvedBaseline) },
+          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline) },
         ],
       }],
     })
@@ -1338,7 +1287,6 @@ export async function POST(req: NextRequest) {
   const spend_usd: number | undefined = body.spend_usd !== undefined ? Number(body.spend_usd) : undefined
   const analysis_id: string | undefined = body.analysis_id
   const confirmed_elements: ExtractedElements | undefined = body.confirmed_elements
-  const concept_topic: string | undefined = body.concept_topic
   const mode: string | undefined = body.mode
 
   const encoder = new TextEncoder()
@@ -1348,13 +1296,12 @@ export async function POST(req: NextRequest) {
         try { controller.enqueue(encoder.encode('\n')) } catch {}
       }, 15000)
       try {
-        const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, redditPosts, evolvedBaseline] = await Promise.all([
+        const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, evolvedBaseline] = await Promise.all([
           getWinningPatterns(),
           getAllWinningAnalyses(),
           getLosingPatterns(),
           getAllLosersForSynthesis(),
           getFrameworkPrinciples(),
-          concept_topic ? fetchRedditPosts(concept_topic) : Promise.resolve(null),
           getLatestBaselineEvolution(),
         ])
 
@@ -1364,7 +1311,7 @@ export async function POST(req: NextRequest) {
         const [bergText, visionResult] = await Promise.all([
           runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd),
           image_base64
-            ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, redditPosts ?? undefined, concept_topic, mode, spend_usd, evolvedBaseline)
+            ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, mode, spend_usd, evolvedBaseline)
             : Promise.resolve(null),
         ])
 
