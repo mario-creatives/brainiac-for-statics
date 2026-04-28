@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
 import { keepAliveStream } from '@/lib/streaming'
+import { parseClaudeJson } from '@/lib/parseClaudeJson'
 import {
   getWinningPatterns,
   getAllWinningAnalyses,
@@ -168,7 +169,6 @@ Return ONLY a JSON object with no markdown fences:
 
     const textBlock = message.content.find(b => b.type === 'text')
     const raw = textBlock?.type === 'text' ? textBlock.text : ''
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-    return JSON.parse(cleaned) as { source_summary: string; variants: CreativeVariant[] }
+    return parseClaudeJson<{ source_summary: string; variants: CreativeVariant[] }>(raw)
   })
 }

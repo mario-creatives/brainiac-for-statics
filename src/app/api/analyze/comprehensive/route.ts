@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
 import { keepAliveStream } from '@/lib/streaming'
+import { parseClaudeJson } from '@/lib/parseClaudeJson'
 import {
   getWinningPatterns,
   getAllWinningAnalyses,
@@ -1208,13 +1209,7 @@ async function runComprehensiveVisionAnalysis(
   })
   const textBlock = message.content.find(b => b.type === 'text')
   const raw = textBlock?.type === 'text' ? textBlock.text : ''
-  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-  if (!cleaned) throw new Error('Comprehensive vision analysis returned empty output')
-  try {
-    return JSON.parse(cleaned)
-  } catch {
-    throw new Error('Comprehensive vision analysis returned malformed JSON (likely hit max_tokens mid-output)')
-  }
+  return parseClaudeJson(raw)
 }
 
 function parseBergBullets(text: string): string[] {

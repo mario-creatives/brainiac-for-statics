@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
 import { keepAliveStream } from '@/lib/streaming'
+import { parseClaudeJson } from '@/lib/parseClaudeJson'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -260,8 +261,7 @@ ${EXTRACT_SCHEMA}`,
 
     const textBlock = message.content.find(b => b.type === 'text')
     const raw = textBlock?.type === 'text' ? textBlock.text : ''
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-    const extracted: ExtractedElements = JSON.parse(cleaned)
+    const extracted: ExtractedElements = parseClaudeJson(raw)
     return { extracted }
   })
 }

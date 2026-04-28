@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { parseClaudeJson } from '@/lib/parseClaudeJson'
 import {
   getAllWinnersForSynthesis,
   getAllLosersForSynthesis,
@@ -201,8 +202,7 @@ Return ONLY a JSON array with no markdown fences:
 
       const textBlock = message.content.find(b => b.type === 'text')
       const raw = textBlock?.type === 'text' ? textBlock.text : ''
-      const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      const parsed = JSON.parse(cleaned) as { category: string; rule_text: string; confidence: number; scope_ad_format?: string | null; scope_vertical?: string | null }[]
+      const parsed = parseClaudeJson<{ category: string; rule_text: string; confidence: number; scope_ad_format?: string | null; scope_vertical?: string | null }[]>(raw)
       await upsertPatterns(parsed)
       synthesized = parsed.length
     } catch { /* non-fatal */ }
@@ -248,8 +248,7 @@ Extract 4–8 specific, transferable anti-patterns scoped to their failure reaso
 
       const textBlock = message.content.find(b => b.type === 'text')
       const raw = textBlock?.type === 'text' ? textBlock.text : ''
-      const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      const parsed = JSON.parse(cleaned) as { category: string; loss_reason?: string; rule_text: string; confidence: number; scope_ad_format?: string | null; scope_vertical?: string | null }[]
+      const parsed = parseClaudeJson<{ category: string; loss_reason?: string; rule_text: string; confidence: number; scope_ad_format?: string | null; scope_vertical?: string | null }[]>(raw)
       await upsertAntiPatterns(parsed)
       antiPatterns = parsed.length
     } catch { /* non-fatal */ }
@@ -306,15 +305,14 @@ Return ONLY a JSON array, no markdown fences:
 
       const textBlock = message.content.find(b => b.type === 'text')
       const raw = textBlock?.type === 'text' ? textBlock.text : ''
-      const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      const parsed = JSON.parse(cleaned) as {
+      const parsed = parseClaudeJson<{
         scope_awareness: string | null
         scope_sophistication: number | null
         rule_text: string
         confidence: number
         supporting_winner_ids: string[]
         supporting_loser_ids: string[]
-      }[]
+      }[]>(raw)
       await upsertFrameworkPrinciples(parsed.map(p => ({
         rule_text: p.rule_text,
         confidence: p.confidence,
@@ -407,8 +405,7 @@ Return a JSON array of the FULL UPDATED cumulative principle set (include ALL ex
 
       const textBlock = message.content.find(b => b.type === 'text')
       const raw = textBlock?.type === 'text' ? textBlock.text : ''
-      const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      const parsed = JSON.parse(cleaned) as BaselinePrinciple[]
+      const parsed = parseClaudeJson<BaselinePrinciple[]>(raw)
 
       const newCount = parsed.filter(p => p.type === 'new').length
       const reinforcedCount = parsed.filter(p => p.type === 'reinforced').length
