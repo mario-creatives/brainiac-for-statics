@@ -266,18 +266,34 @@ function RewriteCard({ rewrite, label = 'Proposed Rewrite' }: { rewrite: Rewrite
   )
 }
 
-function LibraryAlignmentChips({ alignment }: { alignment?: ComprehensiveAnalysis['copy']['headline']['library_alignment'] | null }) {
+type AlignmentLike = {
+  winner_matches?: string[]
+  loser_matches?: string[]
+  verdict?: 'aligned_with_winners' | 'aligned_with_losers' | 'mixed' | 'no_analog'
+  winning_dna_dimensions?: string[]
+  losing_dna_dimensions?: string[]
+} | null | undefined
+
+function LibraryAlignmentChips({ alignment }: { alignment: AlignmentLike }) {
   if (!alignment) return null
   const winners = alignment.winner_matches ?? []
   const losers = alignment.loser_matches ?? []
-  if (winners.length === 0 && losers.length === 0) return null
+  const winningDims = alignment.winning_dna_dimensions ?? []
+  const losingDims = alignment.losing_dna_dimensions ?? []
+  if (winners.length === 0 && losers.length === 0 && winningDims.length === 0 && losingDims.length === 0) return null
+  const winningTooltip = winningDims.length > 0 ? `Winning DNA: ${winningDims.join(', ')}` : ''
+  const losingTooltip = losingDims.length > 0 ? `Losing DNA: ${losingDims.join(', ')}` : ''
   return (
     <div className="flex items-center gap-1 flex-wrap text-[10px]">
       {winners.length > 0 && (
         <>
           <span className="text-gray-500">Winner matches:</span>
           {winners.map((w, i) => (
-            <span key={`w-${i}`} className="text-emerald-400 font-mono bg-gray-900 px-1.5 py-0.5 rounded border border-emerald-900/40">{w}</span>
+            <span
+              key={`w-${i}`}
+              title={winningTooltip}
+              className="text-emerald-400 font-mono bg-gray-900 px-1.5 py-0.5 rounded border border-emerald-900/40 cursor-help"
+            >{w}</span>
           ))}
         </>
       )}
@@ -285,7 +301,11 @@ function LibraryAlignmentChips({ alignment }: { alignment?: ComprehensiveAnalysi
         <>
           <span className="text-gray-500 ml-2">Loser matches:</span>
           {losers.map((l, i) => (
-            <span key={`l-${i}`} className="text-[#ff2a2b] font-mono bg-gray-900 px-1.5 py-0.5 rounded border border-red-900/40">{l}</span>
+            <span
+              key={`l-${i}`}
+              title={losingTooltip}
+              className="text-[#ff2a2b] font-mono bg-gray-900 px-1.5 py-0.5 rounded border border-red-900/40 cursor-help"
+            >{l}</span>
           ))}
         </>
       )}
@@ -370,6 +390,8 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
               {data.hook_analysis.hook_feedback}
             </p>
           )}
+          <LibraryAlignmentChips alignment={data.hook_analysis.library_alignment} />
+          <RewriteCard rewrite={data.hook_analysis.rewrite} label="Proposed Hook Rewrite" />
         </Section>
       )}
 
@@ -437,7 +459,7 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
       <Section title="Behavioral Economics">
         <div className="grid grid-cols-2 gap-2">
           {Object.entries(BE_LABELS).map(([key, label]) => {
-            const be = (data.behavioral_economics as unknown as Record<string, { present: boolean; strength: number; note: string }>)?.[key]
+            const be = (data.behavioral_economics as unknown as Record<string, { present: boolean; strength: number; note: string; rewrite?: RewriteLike }>)?.[key]
             if (!be) return null
             return (
               <div
@@ -453,6 +475,7 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
                   {be.present && <ScoreBadge score={be.strength} />}
                 </div>
                 <p className="text-[10px] text-gray-400 leading-snug">{be.note || (be.present ? '' : 'Not present')}</p>
+                <RewriteCard rewrite={be.rewrite} label={`Strengthen ${label}`} />
               </div>
             )
           })}
@@ -508,6 +531,8 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
               {data.offer_architecture.offer_feedback}
             </p>
           )}
+          <LibraryAlignmentChips alignment={data.offer_architecture.library_alignment} />
+          <RewriteCard rewrite={data.offer_architecture.rewrite} label="Proposed Offer Rewrite" />
         </Section>
       )}
 
@@ -539,6 +564,7 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
               <p className="text-xs text-gray-300 leading-snug">{data.cognitive_load.simplification}</p>
             </div>
           )}
+          <RewriteCard rewrite={data.cognitive_load.rewrite} label="Proposed Subtraction" />
         </Section>
       )}
 
@@ -563,7 +589,7 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
               ['Emotional Appeal', data.visual_dimensions.emotional_appeal],
               ['Brand Clarity', data.visual_dimensions.brand_clarity],
               ['Visual Hierarchy', data.visual_dimensions.visual_hierarchy],
-            ] as [string, { score: number; feedback: string }][]
+            ] as [string, { score: number; feedback: string; rewrite?: RewriteLike }][]
           ).map(([label, dim]) => (
             <div key={label} className="space-y-1">
               <div className="flex items-center justify-between">
@@ -571,6 +597,7 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
                 <ScoreBadge score={dim?.score ?? 0} />
               </div>
               <p className="text-[11px] text-gray-400 leading-snug">{dim?.feedback}</p>
+              <RewriteCard rewrite={dim?.rewrite} label={`Proposed ${label} Change`} />
             </div>
           ))}
         </Section>
@@ -651,6 +678,8 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
               {isHistorical ? 'Insight' : 'Fix'}: {data.congruence.fix}
             </p>
           )}
+          <LibraryAlignmentChips alignment={data.congruence.library_alignment} />
+          <RewriteCard rewrite={data.congruence.rewrite} label="Proposed Congruence Fix" />
         </Section>
       )}
 
@@ -863,7 +892,7 @@ function CopyRow({
   feedback?: string
   children?: React.ReactNode
   dnaChips?: string[]
-  alignment?: ComprehensiveAnalysis['copy']['headline']['library_alignment'] | null
+  alignment?: AlignmentLike
   rewrite?: RewriteLike
 }) {
   return (
@@ -895,7 +924,7 @@ function CopyList({
   feedback?: string
   score: number
   dnaChips?: string[]
-  alignment?: ComprehensiveAnalysis['copy']['headline']['library_alignment'] | null
+  alignment?: AlignmentLike
   rewrite?: RewriteLike
 }) {
   return (

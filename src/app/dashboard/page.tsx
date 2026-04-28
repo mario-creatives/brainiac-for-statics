@@ -104,13 +104,13 @@ export default function DashboardPage() {
         {stats && (
           <div className="flex flex-wrap items-end gap-x-12 gap-y-4 animate-fade-up">
             <div>
-              <p className="text-[11px] uppercase tracking-wider text-gray-500 font-medium">Ads analyzed</p>
+              <p className="text-[11px] uppercase tracking-wider text-gray-500 font-medium">Historical ads analyzed</p>
               <p className="text-3xl font-semibold text-white tabular-nums mt-0.5">
                 {stats.count.toLocaleString()}
               </p>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-wider text-gray-500 font-medium">Total spend tracked</p>
+              <p className="text-[11px] uppercase tracking-wider text-gray-500 font-medium">Total historical spend tracked</p>
               <p className="text-3xl font-semibold text-white tabular-nums mt-0.5">
                 ${stats.totalSpend.toLocaleString(undefined, { maximumFractionDigits: 2 })}
               </p>
