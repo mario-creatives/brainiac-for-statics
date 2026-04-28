@@ -455,7 +455,7 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
         </CopyRow>
       </Section>
 
-      {/* Behavioral Economics */}
+      {/* Behavioral Economics — grid stays compact; rewrites render below as a list to avoid uneven cell heights */}
       <Section title="Behavioral Economics">
         <div className="grid grid-cols-2 gap-2">
           {Object.entries(BE_LABELS).map(([key, label]) => {
@@ -475,11 +475,23 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
                   {be.present && <ScoreBadge score={be.strength} />}
                 </div>
                 <p className="text-[10px] text-gray-400 leading-snug">{be.note || (be.present ? '' : 'Not present')}</p>
-                <RewriteCard rewrite={be.rewrite} label={`Strengthen ${label}`} />
               </div>
             )
           })}
         </div>
+        {/* BE rewrites stacked full-width below the grid so cells stay uniform */}
+        {Object.entries(BE_LABELS).some(([key]) => {
+          const be = (data.behavioral_economics as unknown as Record<string, { rewrite?: RewriteLike }>)?.[key]
+          return !!be?.rewrite
+        }) && (
+          <div className="space-y-2 pt-1">
+            {Object.entries(BE_LABELS).map(([key, label]) => {
+              const be = (data.behavioral_economics as unknown as Record<string, { rewrite?: RewriteLike }>)?.[key]
+              if (!be?.rewrite) return null
+              return <RewriteCard key={`rw-${key}`} rewrite={be.rewrite} label={`Strengthen ${label}`} />
+            })}
+          </div>
+        )}
         {data.behavioral_economics?.overall_feedback && (
           <p className="text-[11px] text-gray-400 leading-snug mt-1">{data.behavioral_economics.overall_feedback}</p>
         )}

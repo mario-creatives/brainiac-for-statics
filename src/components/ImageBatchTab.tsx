@@ -368,10 +368,14 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     const card = selectedCard
     setAwaitingConfirmation(prev => ({ ...prev, [card.id]: false }))
     setShowExtractionPanel(false)
+    // Skip means "use the un-edited extraction" — DNA is already populated.
+    // Pass it through so comprehensive analysis preserves the structural fingerprint
+    // instead of asking Claude to re-extract DNA without the schema enumerated.
+    const auto = extractedElements[card.id]
     supabase.auth.getSession().then(({ data: { session } }) => {
       const freshToken = session?.access_token ?? token
       const topic = mode === 'feedback' ? (conceptTopic.trim() || undefined) : undefined
-      runComprehensive(card, freshToken, undefined, topic)
+      runComprehensive(card, freshToken, auto, topic)
     })
   }
 
