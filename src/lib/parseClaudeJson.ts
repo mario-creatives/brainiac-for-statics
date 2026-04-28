@@ -52,6 +52,13 @@ export function parseClaudeJson<T = Record<string, unknown>>(raw: string): T {
   // Strip trailing commas before } or ] — a common Claude mistake.
   cleaned = cleaned.replace(/,\s*([}\]])/g, '$1')
 
+  // Fix double-quoted string values — Claude sometimes outputs "headline": ""value""
+  // when the extracted text itself starts/ends with a quote character.
+  // Pattern: ": "" followed by content followed by "" — collapse the outer extra quotes.
+  // We target the pattern: ": ""<content>"" and normalize to ": "<content>"
+  // Only apply when the inner content doesn't itself contain unescaped quotes.
+  cleaned = cleaned.replace(/:\s*""((?:[^"\\]|\\.)*)""(\s*[,}\]])/g, ': "$1"$2')
+
   try {
     return JSON.parse(cleaned) as T
   } catch (e) {

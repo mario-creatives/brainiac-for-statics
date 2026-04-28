@@ -402,12 +402,13 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
       setShowExtractionPanel(false)
       return
     }
-    // 4) BERG complete but extraction failed or never ran → retry extraction.
-    //    Do NOT open the BERG-only modal here; it would mislead the user
-    //    into thinking analysis succeeded with no copy/CTA/etc. The badge
-    //    transitions ("extracting…" → "confirm →" or "extract failed")
-    //    drive the next step.
+    // 4) BERG complete but extraction hasn't run yet (or failed and user wants a retry).
+    //    Open the BERG modal immediately so the user can view brain activation results,
+    //    then start extraction in the background. When extraction completes the
+    //    "confirm →" badge appears and the next click switches to the extraction panel.
     if (card.status === 'complete' && card.result?.roi_data) {
+      setSelectedCard(card)
+      setShowExtractionPanel(false)
       const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
       runExtraction(card, freshToken)
     }
