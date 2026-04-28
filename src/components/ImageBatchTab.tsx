@@ -42,7 +42,7 @@ interface ROIAverage extends ROIRegion { /* activation is already the average */
 
 interface Props {
   token: string
-  onStatsUpdate?: (stats: { count: number; totalSpend: number }) => void
+  onStatsUpdate?: () => void
 }
 
 async function fileToBase64(file: File): Promise<{ base64: string; mime_type: string }> {
@@ -97,9 +97,8 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
       .not('spend_usd', 'is', null)
     const rows = data ?? []
     const count = rows.length
-    const totalSpend = rows.reduce((sum, r) => sum + (Number(r.spend_usd) || 0), 0)
     setUserAdCount(count)
-    onStatsUpdate?.({ count, totalSpend })
+    onStatsUpdate?.()
   }
 
   async function fetchBaselineStatus() {

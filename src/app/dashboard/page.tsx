@@ -3,19 +3,25 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { ConsentGate } from '@/components/ConsentGate'
 import { UsageMeter } from '@/components/UsageMeter'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import { ImageBatchTab } from '@/components/ImageBatchTab'
 import { SessionHistory } from '@/components/SessionHistory'
 import { AdAnalysisModal } from '@/components/AdAnalysisModal'
-import { LogOut } from 'lucide-react'
+import { LogOut, BarChart3 } from 'lucide-react'
 import type { UsageInfo, ConsentType, AnalysisResult } from '@/types'
 import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
 
 interface Stats {
   count: number
   totalSpend: number
+  winners: number
+  losers: number
+  winRate: number
+  avgGrade: string | null
+  spendEfficiency: number
 }
 
 interface ReopenedAnalysis {
@@ -73,14 +79,38 @@ export default function DashboardPage() {
     // separates the two cleanly without needing a dedicated mode column.
     const { data } = await supabase
       .from('analyses')
-      .select('spend_usd')
+      .select('spend_usd, is_winner, comprehensive_analysis')
       .eq('type', 'thumbnail')
       .eq('status', 'complete')
       .not('spend_usd', 'is', null)
     const rows = data ?? []
     const count = rows.length
     const totalSpend = rows.reduce((sum, r) => sum + (Number(r.spend_usd) || 0), 0)
-    setStats({ count, totalSpend })
+    const winners = rows.filter(r => r.is_winner === true)
+    const losers = rows.filter(r => r.is_winner !== true)
+    const winnerSpend = winners.reduce((sum, r) => sum + (Number(r.spend_usd) || 0), 0)
+
+    const gradeMap: Record<string, number> = { A: 4, B: 3, C: 2, D: 1 }
+    const reverseMap: Record<number, string> = { 4: 'A', 3: 'B', 2: 'C', 1: 'D' }
+    const grades = rows
+      .map(r => {
+        const ca = r.comprehensive_analysis as Record<string, unknown> | null
+        const g = ((ca?.framework_score as Record<string, unknown>)?.overall_framework_grade as string) ?? null
+        return g != null && gradeMap[g] != null ? gradeMap[g] : null
+      })
+      .filter((n): n is number => n != null)
+    const avgGradeNum = grades.length > 0 ? Math.round(grades.reduce((a, b) => a + b, 0) / grades.length) : null
+    const avgGrade = avgGradeNum != null ? reverseMap[avgGradeNum] : null
+
+    setStats({
+      count,
+      totalSpend,
+      winners: winners.length,
+      losers: losers.length,
+      winRate: count > 0 ? winners.length / count : 0,
+      avgGrade,
+      spendEfficiency: winners.length > 0 ? winnerSpend / winners.length : 0,
+    })
   }, [])
 
   useEffect(() => {
@@ -133,6 +163,10 @@ export default function DashboardPage() {
           <span className="text-xs text-gray-500 hidden sm:block">Static ad intelligence</span>
         </div>
         <div className="flex items-center gap-6">
+          <Link href="/dashboard/historical-analysis" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
+            <BarChart3 className="w-3.5 h-3.5" />
+            Historical analysis
+          </Link>
           {usage && <UsageMeter usage={usage} />}
           <a href="/account" className="text-xs text-gray-400 hover:text-white transition-colors">Settings</a>
           <button
@@ -146,21 +180,40 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-8">
-        {/* Stats strip — total ads and total spend tracked */}
+        {/* Stats strip — historical-only metrics with one-liner captions explaining
+            what each number is for. */}
         {stats && (
-          <div className="flex flex-wrap items-end gap-x-12 gap-y-4 animate-fade-up">
-            <div>
-              <p className="text-[11px] uppercase tracking-wider text-gray-500 font-medium">Historical ads analyzed</p>
-              <p className="text-3xl font-semibold text-white tabular-nums mt-0.5">
-                {stats.count.toLocaleString()}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-wider text-gray-500 font-medium">Total historical spend tracked</p>
-              <p className="text-3xl font-semibold text-white tabular-nums mt-0.5">
-                ${stats.totalSpend.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-              </p>
-            </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4 animate-fade-up">
+            <DashStat
+              label="Historical ads"
+              value={stats.count.toLocaleString()}
+              caption="Every past ad you've analyzed in historical mode."
+            />
+            <DashStat
+              label="Win / loss"
+              value={`${stats.winners}W / ${stats.losers}L`}
+              caption="Above $1K spend = winner. Higher winner share = more consistent creative."
+            />
+            <DashStat
+              label="Win rate"
+              value={`${(stats.winRate * 100).toFixed(0)}%`}
+              caption="Share of historical ads that crossed $1K. The headline number to track."
+            />
+            <DashStat
+              label="Avg grade"
+              value={stats.avgGrade ?? '—'}
+              caption="Average copywriting framework grade. Whether you're shipping structurally sound creative."
+            />
+            <DashStat
+              label="Total spend"
+              value={`$${stats.totalSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+              caption="Cumulative spend feeding the pattern library."
+            />
+            <DashStat
+              label="Spend efficiency"
+              value={`$${Math.round(stats.spendEfficiency).toLocaleString()}`}
+              caption="Average spend per winner. Higher = winners scale further."
+            />
           </div>
         )}
 
@@ -179,7 +232,7 @@ export default function DashboardPage() {
                 visual dimensions) with the learned patterns injected as reference.
               </p>
             </div>
-            <ImageBatchTab token={token} onStatsUpdate={setStats} />
+            <ImageBatchTab token={token} onStatsUpdate={fetchStats} />
           </div>
         )}
 
@@ -204,6 +257,16 @@ export default function DashboardPage() {
           onClose={() => setReopened(null)}
         />
       )}
+    </div>
+  )
+}
+
+function DashStat({ label, value, caption }: { label: string; value: string; caption: string }) {
+  return (
+    <div className="space-y-0.5">
+      <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium">{label}</p>
+      <p className="text-2xl font-semibold text-white tabular-nums">{value}</p>
+      <p className="text-[10px] text-gray-600 leading-snug">{caption}</p>
     </div>
   )
 }
