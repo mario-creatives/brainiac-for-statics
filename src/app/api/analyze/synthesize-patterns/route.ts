@@ -9,6 +9,11 @@ import {
   getLatestBaselineEvolution,
   getHistoricalAdCount,
   storeBaselineEvolution,
+  claimNextSynthesisJob,
+  markSynthesisDone,
+  markSynthesisFailed,
+  hasPendingSynthesisJobs,
+  setAnalysisLossReason,
   WINNER_THRESHOLD_USD,
   type BaselinePrinciple,
 } from '@/lib/pattern-library'
@@ -17,9 +22,67 @@ import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/rout
 export const dynamic = 'force-dynamic'
 export const maxDuration = 180
 
+// Cap inputs to keep Claude prompts focused. Beyond this size, prompts
+// degrade into skim-and-condense rather than careful per-ad analysis.
+// Most-recent ads are kept (they reflect the current creative direction).
+const MAX_WINNERS_IN_PROMPT = 30
+const MAX_LOSERS_IN_PROMPT = 30
+
 const anthropic = new Anthropic({ timeout: 120000 })
 
-function buildAdSummary(ca: ComprehensiveAnalysis, spendUsd: number): string {
+// Loss-reason enum — every loser is classified into ONE of these.
+// Anti-patterns are derived per reason so a "weak hook" loser doesn't
+// contaminate the "no offer" anti-pattern bucket.
+export const LOSS_REASONS = [
+  'weak_hook',
+  'no_offer',
+  'no_proof',
+  'wrong_audience',
+  'saturated_pattern',
+  'congruence_failure',
+  'cognitive_overload',
+  'weak_cta',
+  'other',
+] as const
+export type LossReason = typeof LOSS_REASONS[number]
+
+async function classifyLossReason(ca: ComprehensiveAnalysis, spendUsd: number): Promise<LossReason> {
+  const fingerprint = buildAdSummary(ca, spendUsd, null)
+  const prompt = `Classify why this losing ad ($${spendUsd} spend) failed. Pick EXACTLY ONE reason from the enum.
+
+Enum:
+- weak_hook: scroll-stop score is low; pattern interrupt absent or generic
+- no_offer: offer architecture missing or unclear; no price anchor / guarantee / urgency
+- no_proof: no trust/proof signals; audience cannot validate the claim
+- wrong_audience: awareness or sophistication mismatch with the messaging
+- saturated_pattern: structure_type is overused for the segment; nothing differentiated
+- congruence_failure: elements contradict each other (headline-visual, headline-CTA, etc.)
+- cognitive_overload: too many elements or words; density "heavy" with score >= 7
+- weak_cta: CTA verb generic, framing weak, friction high
+- other: failure does not fit the above
+
+Ad fingerprint:
+${fingerprint}
+
+Return ONLY the enum value as a single string — no JSON, no explanation. Just one of: ${LOSS_REASONS.join(' | ')}`
+
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 32,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    const textBlock = message.content.find(b => b.type === 'text')
+    const raw = textBlock?.type === 'text' ? textBlock.text.trim() : ''
+    const candidate = raw.replace(/[^a-z_]/gi, '').toLowerCase()
+    if ((LOSS_REASONS as readonly string[]).includes(candidate)) {
+      return candidate as LossReason
+    }
+  } catch { /* fall through */ }
+  return 'other'
+}
+
+function buildAdSummary(ca: ComprehensiveAnalysis, spendUsd: number, lossReason?: LossReason | null): string {
   const headline = ca.copy?.headline?.text ?? 'n/a'
   const cta = ca.copy?.cta?.text ?? 'n/a'
   const hd = ca.copy?.headline?.dna ?? null
@@ -40,7 +103,8 @@ function buildAdSummary(ca: ComprehensiveAnalysis, spendUsd: number): string {
     .map(([k]) => k).join(', ') || 'none'
 
   const lines: string[] = []
-  lines.push(`($${spendUsd} spend, ${awareness}, soph=${soph}, format=${format})`)
+  const reasonTag = lossReason ? ` reason=${lossReason}` : ''
+  lines.push(`($${spendUsd} spend, ${awareness}, soph=${soph}, format=${format}${reasonTag})`)
   lines.push(`  combo=${combo} | grade=${grade} | scroll_stop=${scrollStop} | cog_load=${cogLoad} | congruence=${congruence} | BE=[${activeBE}]`)
   if (hd) {
     lines.push(`  HL="${headline}" (${hd.word_count}w/${hd.char_count}c) | ${hd.voice}/${hd.person}/${hd.tense}/${hd.sentence_type} | structure=${hd.structure_type} | spec=${hd.specificity_level} | mech=${hd.mechanism_present} aud=${hd.audience_explicit} out=${hd.outcome_explicit} time=${hd.time_bound} | reg=${hd.emotional_register}/${hd.tone_register} | metaphor=${hd.uses_metaphor} neg=${hd.uses_negation} contrast=${hd.uses_contrast} punct=[${hd.punctuation_signals.join(',')}]`)
@@ -63,13 +127,42 @@ function buildAdSummary(ca: ComprehensiveAnalysis, spendUsd: number): string {
 }
 
 export async function POST(_req: NextRequest) {
-  const [winners, losers] = await Promise.all([
-    getAllWinnersForSynthesis(),
-    getAllLosersForSynthesis(),
-  ])
+  // Claim a single pending job from the queue. If nothing is pending,
+  // exit immediately — this also acts as a no-op when called as a
+  // worker-kick from the comprehensive route.
+  const job = await claimNextSynthesisJob()
+  if (!job) return NextResponse.json({ skipped: true, reason: 'queue_empty' })
 
   let synthesized = 0
   let antiPatterns = 0
+  let frameworkPrinciples = 0
+  let baselineEvolved = false
+
+  try {
+    const [allWinners, allLosers] = await Promise.all([
+      getAllWinnersForSynthesis(),
+      getAllLosersForSynthesis(),
+    ])
+
+    // Trim inputs so Claude can do careful per-ad analysis instead of
+    // skimming. Order is already most-recent-first (or highest-spend
+    // first via the pattern-library helpers).
+    const winners = allWinners.slice(0, MAX_WINNERS_IN_PROMPT)
+    const losers = allLosers.slice(0, MAX_LOSERS_IN_PROMPT)
+
+    // Backfill loss_reason on any losers in this batch missing one. This
+    // keeps the anti-pattern bucket coherent — "weak hook" losers don't
+    // contaminate the "no proof" anti-pattern.
+    for (const l of losers) {
+      if (!l.loss_reason) {
+        const reason = await classifyLossReason(
+          l.comprehensive_analysis as unknown as ComprehensiveAnalysis,
+          l.spend_usd,
+        )
+        await setAnalysisLossReason(l.id, reason)
+        l.loss_reason = reason
+      }
+    }
 
   // Winner synthesis
   if (winners.length >= 2) {
@@ -112,29 +205,35 @@ Extract 6–10 specific, transferable, non-contradictory rules. Return ONLY a JS
     } catch { /* non-fatal */ }
   }
 
-  // Loser synthesis
+  // Loser synthesis — grouped by loss_reason so different failure modes
+  // produce different anti-patterns. Each loser carries its classified
+  // loss_reason in the fingerprint; Claude is instructed to derive
+  // reason-scoped rules (avoid the "weak hook" rule contaminating the
+  // "no proof" bucket).
   if (losers.length >= 2) {
     const loserSummaries = losers
-      .map(w => buildAdSummary(w.comprehensive_analysis as unknown as ComprehensiveAnalysis, w.spend_usd))
+      .map(w => buildAdSummary(w.comprehensive_analysis as unknown as ComprehensiveAnalysis, w.spend_usd, w.loss_reason as LossReason | null | undefined))
       .map((s, i) => `Loser ${i + 1}: ${s}`)
       .join('\n')
 
     const loserPrompt = `You are analyzing ${losers.length} losing ads (each with <$${WINNER_THRESHOLD_USD} spend) to extract anti-patterns — creative choices that consistently underperform.
 
+Each loser is tagged with a single reason for failure: ${LOSS_REASONS.join(' | ')}. Group your anti-patterns BY reason — do not mix losers from different failure modes when deriving a rule. A "weak_hook" pattern should not be contaminated by "no_offer" losers.
+
 CRITICAL RULES:
 - Frame every rule as "avoid X" or "X consistently underperforms when Y" — these are warnings, not absolute prohibitions.
+- Each rule MUST cite the loss_reason it is scoped to (use the loss_reason field in the output).
 - Conditional rules are valid: "Short headlines underperform for solution-aware audiences, but may work for unaware ones."
-- Confidence = share of losers where this pattern appears. Never claim 1.0 unless every loser shows it.
+- Confidence = share of losers WITH THE SAME loss_reason where this pattern appears. Never claim 1.0 unless every same-reason loser shows it.
 - Do NOT generate anti-patterns that contradict what winners prove works. If both a winner and a loser used benefit lists, the benefit list itself is not the anti-pattern — look deeper at execution differences.
-- Be specific: "body copy over 40 words consistently appears in low-spend ads" not "bad copy loses."
-- Separate offer-driven failures from creative-driven failures: if the offer is absent and spend is low, that is an offer failure. If the offer is present but creative elements are weak, that is a creative failure.
+- Be specific: "body copy over 40 words consistently appears in cognitive_overload losers" not "bad copy loses."
 
-Here are all ${losers.length} losing ad summaries:
+Here are all ${losers.length} losing ad summaries (each tagged with reason=...):
 ${loserSummaries}
 
-Extract 4–8 specific, transferable anti-patterns. Return ONLY a JSON array with no markdown fences:
+Extract 4–8 specific, transferable anti-patterns scoped to their failure reason. Return ONLY a JSON array with no markdown fences:
 [
-  { "category": "visual|copy|behavioral|neuroscience", "rule_text": "<specific avoid/underperforms rule>", "confidence": <0.0-1.0> }
+  { "category": "visual|copy|behavioral|neuroscience", "loss_reason": "<one of: ${LOSS_REASONS.join(' | ')}>", "rule_text": "<specific avoid/underperforms rule>", "confidence": <0.0-1.0> }
 ]`
 
     try {
@@ -147,13 +246,11 @@ Extract 4–8 specific, transferable anti-patterns. Return ONLY a JSON array wit
       const textBlock = message.content.find(b => b.type === 'text')
       const raw = textBlock?.type === 'text' ? textBlock.text : ''
       const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      const parsed = JSON.parse(cleaned) as { category: string; rule_text: string; confidence: number }[]
+      const parsed = JSON.parse(cleaned) as { category: string; loss_reason?: string; rule_text: string; confidence: number }[]
       await upsertAntiPatterns(parsed)
       antiPatterns = parsed.length
     } catch { /* non-fatal */ }
   }
-
-  let frameworkPrinciples = 0
 
   // Framework synthesis — derives conditional segment-scoped guard rails from accumulated history.
   // REQUIRES migration 006_framework_principles.sql to be applied to Supabase first
@@ -229,7 +326,6 @@ Return ONLY a JSON array, no markdown fences:
 
   // 4th pass — Feedback Baseline Evolution at every 50-ad milestone.
   // Requires migration 007_feedback_baseline.sql to be applied to Supabase.
-  let baselineEvolved = false
   try {
     const [totalHistoricalAds, latestEvolution] = await Promise.all([
       getHistoricalAdCount(),
@@ -321,13 +417,28 @@ Return a JSON array of the FULL UPDATED cumulative principle set (include ALL ex
     }
   } catch { /* non-fatal — synthesize-patterns continues */ }
 
+    await markSynthesisDone(job.id)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'synthesis failed'
+    await markSynthesisFailed(job.id, msg)
+  }
+
+  // Self-trigger if queue still has pending jobs. Sequential — by design,
+  // we never run two synthesis jobs in parallel. The next call will claim
+  // the next job, run, and chain again until the queue drains.
+  if (await hasPendingSynthesisJobs()) {
+    fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/analyze/synthesize-patterns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }).catch(() => { /* fire and forget */ })
+  }
+
   return NextResponse.json({
+    job_id: job.id,
+    analysis_id: job.analysis_id,
     synthesized,
     anti_patterns: antiPatterns,
     framework_principles: frameworkPrinciples,
     baseline_evolved: baselineEvolved,
-    winner_count: winners.length,
-    loser_count: losers.length,
-    skipped: winners.length < 2 && losers.length < 2,
   })
 }

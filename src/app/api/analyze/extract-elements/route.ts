@@ -92,6 +92,12 @@ export interface CtaDNA {
   has_urgency_signal: boolean | null
 }
 
+export const VERTICAL_CATEGORIES = [
+  'health', 'beauty_skincare', 'apparel', 'food_beverage', 'home_lifestyle',
+  'fitness', 'supplements', 'pet', 'accessories', 'wellness', 'other',
+] as const
+export type VerticalCategory = typeof VERTICAL_CATEGORIES[number]
+
 export interface ExtractedElements {
   headline: string | null
   subheadline: string | null
@@ -104,6 +110,7 @@ export interface ExtractedElements {
   offer_details: string | null
   visual_description: string
   ad_format_guess: string
+  vertical_category: VerticalCategory
 
   headline_dna: HeadlineDNA | null
   subheadline_dna: SubheadlineDNA | null
@@ -128,6 +135,7 @@ const EXTRACT_SCHEMA = `{
   "offer_details": "<any price, discount %, free trial, or promo text visible, or null>",
   "visual_description": "<one sentence: dominant visual subject, style, dominant colors>",
   "ad_format_guess": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | testimonial | hybrid>",
+  "vertical_category": "<D2C category — one of: health | beauty_skincare | apparel | food_beverage | home_lifestyle | fitness | supplements | pet | accessories | wellness | other>",
 
   "headline_dna": {
     "word_count": <integer count of words in headline, or null if no headline>,

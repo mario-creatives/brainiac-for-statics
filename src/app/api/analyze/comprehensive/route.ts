@@ -11,6 +11,7 @@ import {
   getLatestBaselineEvolution,
   storeComprehensiveAnalysis,
   enqueueSynthesis,
+  setAnalysisVerticalCategory,
   WINNER_THRESHOLD_USD,
   type PatternLibraryRow,
   type LosingPatternRow,
@@ -1341,6 +1342,12 @@ export async function POST(req: NextRequest) {
 
     if (analysis_id) {
       await storeComprehensiveAnalysis(analysis_id, comprehensive as unknown as Record<string, unknown>, spend_usd)
+
+      // Persist vertical_category from confirmed extraction so synthesis
+      // and the Historical Analysis tab can scope by D2C vertical.
+      if (confirmed_elements?.vertical_category) {
+        await setAnalysisVerticalCategory(analysis_id, confirmed_elements.vertical_category)
+      }
 
       if (spend_usd !== undefined) {
         // Enqueue for sequential incremental synthesis (one ad at a time).

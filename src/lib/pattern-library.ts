@@ -61,6 +61,8 @@ export interface WinningAnalysisSummary {
   id: string
   comprehensive_analysis: Record<string, unknown>
   spend_usd: number
+  loss_reason?: string | null
+  vertical_category?: string | null
 }
 
 export async function getWinningPatterns(): Promise<PatternLibraryRow[]> {
@@ -111,7 +113,7 @@ export async function getLosingPatterns(): Promise<LosingPatternRow[]> {
 export async function getAllWinningAnalyses(): Promise<WinningAnalysisSummary[]> {
   const { data, error } = await supabaseServer
     .from('analyses')
-    .select('id, comprehensive_analysis, spend_usd')
+    .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category')
     .eq('is_winner', true)
     .not('comprehensive_analysis', 'is', null)
     .order('spend_usd', { ascending: false })
@@ -123,7 +125,7 @@ export async function getAllWinningAnalyses(): Promise<WinningAnalysisSummary[]>
 export async function getAllLosersForSynthesis(): Promise<WinningAnalysisSummary[]> {
   const { data, error } = await supabaseServer
     .from('analyses')
-    .select('id, comprehensive_analysis, spend_usd')
+    .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category')
     .eq('is_winner', false)
     .not('spend_usd', 'is', null)
     .lt('spend_usd', LOSER_THRESHOLD_USD)
@@ -151,7 +153,7 @@ export async function storeComprehensiveAnalysis(
 export async function getAllWinnersForSynthesis(): Promise<WinningAnalysisSummary[]> {
   const { data, error } = await supabaseServer
     .from('analyses')
-    .select('id, comprehensive_analysis, spend_usd')
+    .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category')
     .eq('is_winner', true)
     .not('comprehensive_analysis', 'is', null)
     .order('spend_usd', { ascending: false })
@@ -161,7 +163,13 @@ export async function getAllWinnersForSynthesis(): Promise<WinningAnalysisSummar
 }
 
 export async function upsertPatterns(
-  patterns: { category: string; rule_text: string; confidence: number }[],
+  patterns: {
+    category: string
+    rule_text: string
+    confidence: number
+    scope_ad_format?: string | null
+    scope_vertical?: string | null
+  }[],
 ): Promise<void> {
   for (const p of patterns) {
     const { data: existing } = await supabaseServer
@@ -178,6 +186,8 @@ export async function upsertPatterns(
         .update({
           winner_count: (existing.winner_count ?? 1) + 1,
           updated_at: new Date().toISOString(),
+          scope_ad_format: p.scope_ad_format ?? null,
+          scope_vertical: p.scope_vertical ?? null,
           // confidence intentionally NOT updated — preserve original value
         })
         .eq('id', existing.id)
@@ -187,6 +197,8 @@ export async function upsertPatterns(
         rule_text: p.rule_text,
         confidence: p.confidence,
         winner_count: 1,
+        scope_ad_format: p.scope_ad_format ?? null,
+        scope_vertical: p.scope_vertical ?? null,
       })
     }
   }
@@ -345,7 +357,7 @@ export async function hasPendingSynthesisJobs(): Promise<boolean> {
 export async function getAnalysisById(analysisId: string): Promise<WinningAnalysisSummary | null> {
   const { data } = await supabaseServer
     .from('analyses')
-    .select('id, comprehensive_analysis, spend_usd')
+    .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category')
     .eq('id', analysisId)
     .maybeSingle()
   return (data as WinningAnalysisSummary | null) ?? null
@@ -360,7 +372,14 @@ export async function setAnalysisVerticalCategory(analysisId: string, vertical: 
 }
 
 export async function upsertAntiPatterns(
-  patterns: { category: string; rule_text: string; confidence: number }[],
+  patterns: {
+    category: string
+    rule_text: string
+    confidence: number
+    loss_reason?: string | null
+    scope_ad_format?: string | null
+    scope_vertical?: string | null
+  }[],
 ): Promise<void> {
   for (const p of patterns) {
     const { data: existing } = await supabaseServer
@@ -376,6 +395,9 @@ export async function upsertAntiPatterns(
         .update({
           loser_count: (existing.loser_count ?? 1) + 1,
           updated_at: new Date().toISOString(),
+          loss_reason: p.loss_reason ?? null,
+          scope_ad_format: p.scope_ad_format ?? null,
+          scope_vertical: p.scope_vertical ?? null,
         })
         .eq('id', existing.id)
     } else {
@@ -384,6 +406,9 @@ export async function upsertAntiPatterns(
         rule_text: p.rule_text,
         confidence: p.confidence,
         loser_count: 1,
+        loss_reason: p.loss_reason ?? null,
+        scope_ad_format: p.scope_ad_format ?? null,
+        scope_vertical: p.scope_vertical ?? null,
       })
     }
   }

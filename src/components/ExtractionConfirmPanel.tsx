@@ -507,6 +507,19 @@ export function ExtractionConfirmPanel({ fileName, previewUrl, extracted, onConf
               ))}
             </select>
           </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Vertical / category (D2C)</label>
+            <select
+              value={fields.vertical_category ?? 'other'}
+              onChange={e => set('vertical_category', e.target.value as ExtractedElements['vertical_category'])}
+              className="w-full bg-gray-950 border border-gray-800 rounded px-2.5 py-1.5 text-xs text-gray-200 focus:border-[#ff2a2b] focus:outline-none"
+            >
+              {['health', 'beauty_skincare', 'apparel', 'food_beverage', 'home_lifestyle', 'fitness', 'supplements', 'pet', 'accessories', 'wellness', 'other'].map(v => (
+                <option key={v} value={v}>{v.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-gray-600">Used to surface same-vertical patterns first; cross-vertical patterns still apply.</p>
+          </div>
         </div>
 
         {/* Actions */}
