@@ -84,12 +84,47 @@ export async function GET(req: NextRequest) {
   const nextMilestoneAt = Math.ceil((stats.total + 1) / NEXT_MILESTONE) * NEXT_MILESTONE
   const adsUntilNextMilestone = Math.max(0, nextMilestoneAt - stats.total)
 
+  // Pattern unlock thresholds — these mirror the conditions in
+  // synthesize-patterns/route.ts. Each threshold is the number of ads
+  // required before a synthesis pass starts producing rules. Surfacing
+  // these lets the UI tell the user exactly how many more ads they
+  // need rather than the unhelpful "analyze more historical ads".
+  const WINNER_PATTERN_THRESHOLD = 2
+  const ANTI_PATTERN_THRESHOLD = 2
+  const FRAMEWORK_THRESHOLD = 10
+  const totalAds = stats.total
+
+  const patternThresholds = {
+    winning_patterns: {
+      threshold: WINNER_PATTERN_THRESHOLD,
+      current: stats.winners,
+      remaining: Math.max(0, WINNER_PATTERN_THRESHOLD - stats.winners),
+      unlocked: stats.winners >= WINNER_PATTERN_THRESHOLD,
+      requires: 'winners',
+    },
+    anti_patterns: {
+      threshold: ANTI_PATTERN_THRESHOLD,
+      current: stats.losers,
+      remaining: Math.max(0, ANTI_PATTERN_THRESHOLD - stats.losers),
+      unlocked: stats.losers >= ANTI_PATTERN_THRESHOLD,
+      requires: 'losers',
+    },
+    framework_guard_rails: {
+      threshold: FRAMEWORK_THRESHOLD,
+      current: totalAds,
+      remaining: Math.max(0, FRAMEWORK_THRESHOLD - totalAds),
+      unlocked: totalAds >= FRAMEWORK_THRESHOLD,
+      requires: 'historical ads',
+    },
+  }
+
   return NextResponse.json({
     stats,
     awareness_breakdown: awarenessBreakdown,
     winning_patterns: winningPatterns,
     losing_patterns: losingPatterns,
     framework_principles: frameworkPrinciples,
+    pattern_thresholds: patternThresholds,
     baseline_evolutions: baselineEvolutions,
     next_milestone: {
       ads_at_last_evolution: lastEvolutionAds,

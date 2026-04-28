@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { History, ChevronDown, ChevronUp } from 'lucide-react'
+import { History, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import type { RecentAnalysis } from '@/app/api/analyses/recent/route'
 
 interface Props {
@@ -27,6 +27,20 @@ export function SessionHistory({ token, onSelect }: Props) {
       }
     } catch { /* non-fatal */ }
     setLoading(false)
+  }, [token])
+
+  const handleDelete = useCallback(async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!token) return
+    // Optimistic remove — even if the server fails the row gets
+    // restored on next load.
+    setAnalyses(prev => prev.filter(a => a.id !== id))
+    try {
+      await fetch(`/api/analyze/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    } catch { /* non-fatal */ }
   }, [token])
 
   useEffect(() => {
@@ -56,11 +70,14 @@ export function SessionHistory({ token, onSelect }: Props) {
           {!loading && analyses.length > 0 && (
             <div className="space-y-1.5 max-h-96 overflow-y-auto">
               {analyses.map(a => (
-                <button
+                <div
                   key={a.id}
-                  onClick={() => onSelect(a.id)}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition-colors text-left"
+                  className="group w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition-colors"
                 >
+                  <button
+                    onClick={() => onSelect(a.id)}
+                    className="flex-1 flex items-center gap-3 text-left min-w-0"
+                  >
                   {a.heatmap_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={a.heatmap_url} alt="" className="w-10 h-10 object-cover rounded shrink-0 border border-gray-800" />
@@ -100,7 +117,15 @@ export function SessionHistory({ token, onSelect }: Props) {
                       )}
                     </div>
                   </div>
-                </button>
+                  </button>
+                  <button
+                    onClick={(e) => handleDelete(a.id, e)}
+                    aria-label="Delete analysis"
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-gray-500 hover:text-[#ff2a2b] hover:bg-gray-900 transition-all shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               ))}
             </div>
           )}

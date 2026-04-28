@@ -10,6 +10,14 @@ import type {
   DimensionStat, BergDnaCorrelation, AwarenessBreakdown, TrendPoint,
 } from '@/lib/pattern-library'
 
+export interface PatternThreshold {
+  threshold: number
+  current: number
+  remaining: number
+  unlocked: boolean
+  requires: string
+}
+
 export interface HistoricalPayload {
   stats: {
     total: number
@@ -24,6 +32,11 @@ export interface HistoricalPayload {
   winning_patterns: PatternLibraryRow[]
   losing_patterns: LosingPatternRow[]
   framework_principles: FrameworkPrincipleRow[]
+  pattern_thresholds: {
+    winning_patterns: PatternThreshold
+    anti_patterns: PatternThreshold
+    framework_guard_rails: PatternThreshold
+  }
   baseline_evolutions: BaselineEvolutionEntry[]
   next_milestone: {
     ads_at_last_evolution: number
@@ -51,6 +64,7 @@ export function HistoricalAnalysisDashboard({ data }: Props) {
         winning={data.winning_patterns}
         losing={data.losing_patterns}
         framework={data.framework_principles}
+        thresholds={data.pattern_thresholds}
       />
       <BaselineEvolutionSection
         evolutions={data.baseline_evolutions}
@@ -140,13 +154,24 @@ function AwarenessSection({ rows }: { rows: AwarenessBreakdown[] }) {
 }
 
 function PatternsSection({
-  winning, losing, framework,
+  winning, losing, framework, thresholds,
 }: {
   winning: PatternLibraryRow[]
   losing: LosingPatternRow[]
   framework: FrameworkPrincipleRow[]
+  thresholds: HistoricalPayload['pattern_thresholds']
 }) {
   const [tab, setTab] = useState<'winning' | 'losing' | 'framework'>('winning')
+
+  const activeThreshold =
+    tab === 'winning' ? thresholds.winning_patterns :
+    tab === 'losing' ? thresholds.anti_patterns :
+    thresholds.framework_guard_rails
+
+  const activeCount =
+    tab === 'winning' ? winning.length :
+    tab === 'losing' ? losing.length :
+    framework.length
 
   return (
     <Section
@@ -164,6 +189,10 @@ function PatternsSection({
           Framework guard rails ({framework.length})
         </TabButton>
       </div>
+
+      {!activeThreshold.unlocked && activeCount === 0 && (
+        <UnlockProgress threshold={activeThreshold} />
+      )}
 
       {tab === 'winning' && (
         <PatternList
@@ -209,6 +238,28 @@ function PatternsSection({
         />
       )}
     </Section>
+  )
+}
+
+function UnlockProgress({ threshold }: { threshold: PatternThreshold }) {
+  const pct = Math.min(100, (threshold.current / threshold.threshold) * 100)
+  return (
+    <div className="bg-gray-950 border border-amber-900/40 rounded-lg px-3 py-2.5 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-amber-400">
+          Need <span className="text-white font-mono tabular-nums">{threshold.remaining}</span> more {threshold.requires} before this synthesis pass runs.
+        </p>
+        <p className="text-[11px] text-gray-500 tabular-nums">
+          {threshold.current} / {threshold.threshold}
+        </p>
+      </div>
+      <div className="w-full bg-gray-800 rounded-full h-1 overflow-hidden">
+        <div className="h-1 rounded-full bg-amber-500" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-[10px] text-gray-600 leading-snug">
+        Synthesis runs automatically when the threshold is crossed; no action needed beyond uploading more historical ads.
+      </p>
+    </div>
   )
 }
 

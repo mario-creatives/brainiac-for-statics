@@ -1177,32 +1177,43 @@ async function runComprehensiveVisionAnalysis(
   mode?: string,
   spendUsd?: number,
   evolvedBaseline?: BaselineEvolutionEntry | null,
-): Promise<Omit<ComprehensiveAnalysis, 'berg_recommendations'> | null> {
-  try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 16384,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-              data: imageBase64,
-            },
+): Promise<Omit<ComprehensiveAnalysis, 'berg_recommendations'>> {
+  // Throw on any failure rather than silently returning null. The
+  // previous null-fallback caused emptyComprehensive() to render with
+  // every score=0 and every text field blank, making it look like the
+  // analysis "worked" but produced no insights. Errors now propagate
+  // up to the keepAliveStream catch handler and surface as a real
+  // error message in the UI.
+  const message = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    // Historical winner/loser schemas grew large after adding
+    // proof_signals and alternative_combination; bump headroom so
+    // Claude doesn't hit max_tokens mid-JSON and produce truncated
+    // unparseable output.
+    max_tokens: 32000,
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+            data: imageBase64,
           },
-          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline) },
-        ],
-      }],
-    })
-    const textBlock = message.content.find(b => b.type === 'text')
-    const raw = textBlock?.type === 'text' ? textBlock.text : ''
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+        },
+        { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline) },
+      ],
+    }],
+  })
+  const textBlock = message.content.find(b => b.type === 'text')
+  const raw = textBlock?.type === 'text' ? textBlock.text : ''
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+  if (!cleaned) throw new Error('Comprehensive vision analysis returned empty output')
+  try {
     return JSON.parse(cleaned)
   } catch {
-    return null
+    throw new Error('Comprehensive vision analysis returned malformed JSON (likely hit max_tokens mid-output)')
   }
 }
 
