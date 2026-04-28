@@ -24,12 +24,6 @@ import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/rout
 export const dynamic = 'force-dynamic'
 export const maxDuration = 180
 
-// Cap inputs to keep Claude prompts focused. Beyond this size, prompts
-// degrade into skim-and-condense rather than careful per-ad analysis.
-// Most-recent ads are kept (they reflect the current creative direction).
-const MAX_WINNERS_IN_PROMPT = 30
-const MAX_LOSERS_IN_PROMPT = 30
-
 const anthropic = new Anthropic({ timeout: 120000 })
 
 // Loss-reason enum — every loser is classified into ONE of these.
@@ -141,16 +135,24 @@ export async function POST(_req: NextRequest) {
   let baselineEvolved = false
 
   try {
-    const [allWinners, allLosers] = await Promise.all([
+    const [allWinners, allLosers, latestBaseline] = await Promise.all([
       getAllWinnersForSynthesis(),
       getAllLosersForSynthesis(),
+      getLatestBaselineEvolution(),
     ])
 
-    // Trim inputs so Claude can do careful per-ad analysis instead of
-    // skimming. Order is already most-recent-first (or highest-spend
-    // first via the pattern-library helpers).
-    const winners = allWinners.slice(0, MAX_WINNERS_IN_PROMPT)
-    const losers = allLosers.slice(0, MAX_LOSERS_IN_PROMPT)
+    // Baseline+delta: when a feedback baseline exists, only synthesize the
+    // delta ads (created after the baseline snapshot). The baseline already
+    // encodes the patterns from all earlier ads, so re-synthesizing them
+    // would produce duplicate rules and degrade signal quality.
+    // When no baseline exists, synthesize all ads.
+    const cutoff = latestBaseline?.created_at ?? null
+    const winners = cutoff
+      ? allWinners.filter(w => w.created_at > cutoff)
+      : allWinners
+    const losers = cutoff
+      ? allLosers.filter(l => l.created_at > cutoff)
+      : allLosers
 
     // Backfill loss_reason on any losers in this batch missing one. This
     // keeps the anti-pattern bucket coherent — "weak hook" losers don't
@@ -173,9 +175,13 @@ export async function POST(_req: NextRequest) {
       .map((s, i) => `Winner ${i + 1}: ${s}`)
       .join('\n')
 
+    const baselineNote = latestBaseline
+      ? `IMPORTANT: A feedback baseline (v${latestBaseline.version}) already encodes patterns from the first ${latestBaseline.ads_analyzed} historical ads. The ${winners.length} winner(s) below are NEW since then. Update existing rules (reinforce or add nuance) rather than recreating rules the baseline already captures.\n\n`
+      : ''
+
     const prompt = `You are analyzing ${winners.length} winning ads (each with $${WINNER_THRESHOLD_USD}+ spend) to extract transferable creative principles.
 
-CRITICAL RULES FOR PATTERN EXTRACTION:
+${baselineNote}CRITICAL RULES FOR PATTERN EXTRACTION:
 - If some winners use benefits and some do not — BOTH can work. Generate a conditional rule, e.g. "Benefits help when the audience needs to justify the decision; test without benefits first for impulse purchases."
 - Never generate a rule that negates what another winner proves. If one winner succeeded with 3 benefits and another with zero, do NOT write "benefits are required."
 - Capture variation explicitly: note when different structural choices all led to success. This variation IS the insight.
@@ -219,9 +225,13 @@ Return ONLY a JSON array with no markdown fences:
       .map((s, i) => `Loser ${i + 1}: ${s}`)
       .join('\n')
 
+    const loserBaselineNote = latestBaseline
+      ? `IMPORTANT: A feedback baseline (v${latestBaseline.version}) already encodes anti-patterns from the first ${latestBaseline.ads_analyzed} historical ads. The ${losers.length} loser(s) below are NEW since then. Derive incremental anti-patterns — reinforce or add nuance to existing patterns rather than restating what is already captured.\n\n`
+      : ''
+
     const loserPrompt = `You are analyzing ${losers.length} losing ads (each with <$${WINNER_THRESHOLD_USD} spend) to extract anti-patterns — creative choices that consistently underperform.
 
-Each loser is tagged with a single reason for failure: ${LOSS_REASONS.join(' | ')}. Group your anti-patterns BY reason — do not mix losers from different failure modes when deriving a rule. A "weak_hook" pattern should not be contaminated by "no_offer" losers.
+${loserBaselineNote}Each loser is tagged with a single reason for failure: ${LOSS_REASONS.join(' | ')}. Group your anti-patterns BY reason — do not mix losers from different failure modes when deriving a rule. A "weak_hook" pattern should not be contaminated by "no_offer" losers.
 
 CRITICAL RULES:
 - Frame every rule as "avoid X" or "X consistently underperforms when Y" — these are warnings, not absolute prohibitions.
@@ -326,17 +336,20 @@ Return ONLY a JSON array, no markdown fences:
   }
 
   // 4th pass — Feedback Baseline Evolution at every 50-ad milestone.
+  // Uses allWinners/allLosers (not the delta slice) so the milestone check
+  // counts the full historical pool, and the evolution prompt uses the delta
+  // winners/losers (since latestBaseline already encodes everything before).
   // Requires migration 007_feedback_baseline.sql to be applied to Supabase.
   try {
-    const [totalHistoricalAds, latestEvolution] = await Promise.all([
-      getHistoricalAdCount(),
-      getLatestBaselineEvolution(),
-    ])
+    const totalHistoricalAds = await getHistoricalAdCount()
+    const latestEvolution = latestBaseline  // already fetched above — avoid duplicate query
 
     const currentMilestone = Math.floor(totalHistoricalAds / 50)
     const lastMilestone = latestEvolution ? Math.floor(latestEvolution.ads_analyzed / 50) : 0
 
     if (currentMilestone > lastMilestone && currentMilestone >= 1) {
+      // Use delta ads (winners/losers) for the evolution — the existing
+      // principles already encode the earlier ads.
       const winnerSummaries = winners
         .map((w, i) => `Winner W${i + 1}: ${buildAdSummary(w.comprehensive_analysis as unknown as ComprehensiveAnalysis, w.spend_usd)}`)
         .join('\n')

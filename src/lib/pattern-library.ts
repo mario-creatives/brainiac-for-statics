@@ -63,6 +63,7 @@ export interface WinningAnalysisSummary {
   spend_usd: number
   loss_reason?: string | null
   vertical_category?: string | null
+  created_at: string
 }
 
 export async function getWinningPatterns(): Promise<PatternLibraryRow[]> {
@@ -113,7 +114,7 @@ export async function getLosingPatterns(): Promise<LosingPatternRow[]> {
 export async function getAllWinningAnalyses(): Promise<WinningAnalysisSummary[]> {
   const { data, error } = await supabaseServer
     .from('analyses')
-    .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category')
+    .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category, created_at')
     .eq('is_winner', true)
     .not('comprehensive_analysis', 'is', null)
     .order('spend_usd', { ascending: false })
@@ -125,7 +126,7 @@ export async function getAllWinningAnalyses(): Promise<WinningAnalysisSummary[]>
 export async function getAllLosersForSynthesis(): Promise<WinningAnalysisSummary[]> {
   const { data, error } = await supabaseServer
     .from('analyses')
-    .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category')
+    .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category, created_at')
     .eq('is_winner', false)
     .not('spend_usd', 'is', null)
     .lt('spend_usd', LOSER_THRESHOLD_USD)
@@ -153,7 +154,7 @@ export async function storeComprehensiveAnalysis(
 export async function getAllWinnersForSynthesis(): Promise<WinningAnalysisSummary[]> {
   const { data, error } = await supabaseServer
     .from('analyses')
-    .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category')
+    .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category, created_at')
     .eq('is_winner', true)
     .not('comprehensive_analysis', 'is', null)
     .order('spend_usd', { ascending: false })

@@ -10,7 +10,7 @@ import { AttributionFooter } from '@/components/AttributionFooter'
 import { ImageBatchTab } from '@/components/ImageBatchTab'
 import { SessionHistory } from '@/components/SessionHistory'
 import { AdAnalysisModal } from '@/components/AdAnalysisModal'
-import { LogOut, BarChart3 } from 'lucide-react'
+import { LogOut, BarChart3, RefreshCw } from 'lucide-react'
 import type { UsageInfo, ConsentType, AnalysisResult } from '@/types'
 import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
 
@@ -163,6 +163,14 @@ export default function DashboardPage() {
           <span className="text-xs text-gray-500 hidden sm:block">Static ad intelligence</span>
         </div>
         <div className="flex items-center gap-6">
+          <button
+            onClick={() => window.location.reload()}
+            aria-label="Refresh page"
+            title="Refresh page"
+            className="text-gray-400 hover:text-white transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
           <Link href="/dashboard/historical-analysis" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
             <BarChart3 className="w-3.5 h-3.5" />
             Historical analysis

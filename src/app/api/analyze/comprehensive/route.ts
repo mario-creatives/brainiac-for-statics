@@ -293,8 +293,20 @@ export function buildPatternContext(
   losingPatterns: LosingPatternRow[] = [],
   losingExamples: WinningAnalysisSummary[] = [],
   frameworkPrinciples: FrameworkPrincipleRow[] = [],
+  baselineCutoff?: string | null,
 ): string {
   if (patterns.length === 0 && winningExamples.length === 0 && losingPatterns.length === 0 && losingExamples.length === 0 && frameworkPrinciples.length === 0) return ''
+
+  // When a baseline exists, only show delta examples (ads analyzed after the
+  // baseline snapshot). The evolved baseline principles block already encodes
+  // everything before the snapshot — sending the full history would bloat the
+  // prompt without adding signal.
+  const effectiveWinners = baselineCutoff
+    ? winningExamples.filter(ex => ex.created_at > baselineCutoff)
+    : winningExamples
+  const effectiveLosers = baselineCutoff
+    ? losingExamples.filter(ex => ex.created_at > baselineCutoff)
+    : losingExamples
 
   const lines: string[] = []
 
@@ -338,39 +350,48 @@ export function buildPatternContext(
     lines.push('')
   }
 
-  // Block 3 — Winners by awareness level
-  if (winningExamples.length > 0) {
+  // Baseline coverage note — shown when a cutoff is active so Claude knows
+  // the earlier ads are encoded in the evolved baseline principles above.
+  if (baselineCutoff) {
+    const baselineWinners = winningExamples.length - effectiveWinners.length
+    const baseLosers = losingExamples.length - effectiveLosers.length
+    if (baselineWinners > 0 || baseLosers > 0) {
+      lines.push(`NOTE: The evolved baseline principles above already encode ${baselineWinners} earlier winner(s) and ${baseLosers} earlier loser(s). Only the ${effectiveWinners.length} new winner(s) and ${effectiveLosers.length} new loser(s) below are shown as fresh examples.`)
+      lines.push('')
+    }
+  }
+
+  // Block 3 — Winners by awareness level (delta only when baseline active)
+  if (effectiveWinners.length > 0) {
     lines.push('--- WINNING AD EXAMPLES — grouped by audience awareness level ---')
     AWARENESS_BUCKETS.forEach(awareness => {
-      const bucket = winningExamples.filter(ex => {
+      const bucket = effectiveWinners.filter(ex => {
         const ca = ex.comprehensive_analysis as unknown as ComprehensiveAnalysis | null
         return ca?.market_context?.awareness_level === awareness
       })
       if (bucket.length === 0) return
-      const compact = bucket.length > 30
       lines.push('')
       lines.push(`▶ ${awareness.toUpperCase()} winners (${bucket.length} total):`)
       bucket.forEach((ex, i) => {
-        lines.push(...fingerprintAd('Example W', i + 1, ex, compact))
+        lines.push(...fingerprintAd('Example W', i + 1, ex, false))
       })
     })
     lines.push('')
   }
 
-  // Block 4 — Losers by awareness level
-  if (losingExamples.length > 0) {
+  // Block 4 — Losers by awareness level (delta only when baseline active)
+  if (effectiveLosers.length > 0) {
     lines.push(`--- LOSING AD EXAMPLES — grouped by audience awareness level (<$${WINNER_THRESHOLD_USD} spend) ---`)
     AWARENESS_BUCKETS.forEach(awareness => {
-      const bucket = losingExamples.filter(ex => {
+      const bucket = effectiveLosers.filter(ex => {
         const ca = ex.comprehensive_analysis as unknown as ComprehensiveAnalysis | null
         return ca?.market_context?.awareness_level === awareness
       })
       if (bucket.length === 0) return
-      const compact = bucket.length > 30
       lines.push('')
       lines.push(`▶ ${awareness.toUpperCase()} losers (${bucket.length} total):`)
       bucket.forEach((ex, i) => {
-        lines.push(...fingerprintAd('Example L', i + 1, ex, compact))
+        lines.push(...fingerprintAd('Example L', i + 1, ex, false))
       })
     })
     lines.push('')
@@ -1327,7 +1348,7 @@ export async function POST(req: NextRequest) {
       getLatestBaselineEvolution(),
     ])
 
-    const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples)
+    const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, evolvedBaseline?.created_at ?? null)
     const visualDescription = confirmed_elements?.visual_description
 
     const [bergText, visionResult] = await Promise.all([

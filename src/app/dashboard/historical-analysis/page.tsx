@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { LogOut, ArrowLeft } from 'lucide-react'
+import { LogOut, ArrowLeft, RefreshCw } from 'lucide-react'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import { HistoricalAnalysisDashboard, type HistoricalPayload } from '@/components/HistoricalAnalysisDashboard'
 
@@ -53,6 +53,14 @@ export default function HistoricalAnalysisPage() {
             <ArrowLeft className="w-3.5 h-3.5" />
             Analyze ads
           </Link>
+          <button
+            onClick={() => window.location.reload()}
+            aria-label="Refresh page"
+            title="Refresh page"
+            className="text-gray-400 hover:text-white transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
           <button onClick={handleSignOut} aria-label="Sign out" className="text-gray-400 hover:text-white transition-colors">
             <LogOut className="w-4 h-4" />
           </button>

@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
       getLatestBaselineEvolution(),
     ])
 
-    const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples)
+    const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, evolvedBaseline?.created_at ?? null)
 
     // Determine mode from spend_usd (same logic as the main comprehensive route).
     const mode = spendUsd !== undefined
