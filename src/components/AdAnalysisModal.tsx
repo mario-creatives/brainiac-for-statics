@@ -230,6 +230,69 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+type RewriteLike = {
+  proposed_text?: string | null
+  proposed_action?: string | null
+  proposed_change?: string | null
+  proposed_pattern_interrupt?: string | null
+  proposed_offer_text?: string | null
+  proposed_benefits?: string[] | null
+  proposed_signals?: string[] | null
+  rationale: string
+  expected_lift: string
+  dna_changes?: Record<string, unknown> | null
+} | null | undefined
+
+function RewriteCard({ rewrite, label = 'Proposed Rewrite' }: { rewrite: RewriteLike; label?: string }) {
+  if (!rewrite) return null
+  const proposedDisplay =
+    rewrite.proposed_text ||
+    rewrite.proposed_change ||
+    rewrite.proposed_pattern_interrupt ||
+    rewrite.proposed_offer_text ||
+    (rewrite.proposed_benefits ? rewrite.proposed_benefits.join(' • ') : null) ||
+    (rewrite.proposed_signals ? rewrite.proposed_signals.join(' • ') : null) ||
+    rewrite.proposed_action ||
+    null
+  return (
+    <div className="bg-gray-950 border border-amber-900/50 rounded-lg px-3 py-2.5 space-y-1.5 mt-2">
+      <p className="text-[10px] uppercase tracking-wide text-amber-400 font-semibold">{label}</p>
+      {proposedDisplay && <p className="text-xs text-white font-medium leading-snug">{proposedDisplay}</p>}
+      {rewrite.rationale && <p className="text-[11px] text-gray-300 leading-snug">{rewrite.rationale}</p>}
+      {rewrite.expected_lift && (
+        <p className="text-[11px] text-amber-300/90 leading-snug">Expected lift: {rewrite.expected_lift}</p>
+      )}
+    </div>
+  )
+}
+
+function LibraryAlignmentChips({ alignment }: { alignment?: ComprehensiveAnalysis['copy']['headline']['library_alignment'] | null }) {
+  if (!alignment) return null
+  const winners = alignment.winner_matches ?? []
+  const losers = alignment.loser_matches ?? []
+  if (winners.length === 0 && losers.length === 0) return null
+  return (
+    <div className="flex items-center gap-1 flex-wrap text-[10px]">
+      {winners.length > 0 && (
+        <>
+          <span className="text-gray-500">Winner matches:</span>
+          {winners.map((w, i) => (
+            <span key={`w-${i}`} className="text-emerald-400 font-mono bg-gray-900 px-1.5 py-0.5 rounded border border-emerald-900/40">{w}</span>
+          ))}
+        </>
+      )}
+      {losers.length > 0 && (
+        <>
+          <span className="text-gray-500 ml-2">Loser matches:</span>
+          {losers.map((l, i) => (
+            <span key={`l-${i}`} className="text-[#ff2a2b] font-mono bg-gray-900 px-1.5 py-0.5 rounded border border-red-900/40">{l}</span>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
 function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnalysis; isHistorical?: boolean }) {
   return (
     <>
@@ -312,10 +375,24 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
 
       {/* Copy Analysis */}
       <Section title="Copy Analysis">
-        <CopyRow label="Headline" text={data.copy?.headline?.text} feedback={data.copy?.headline?.feedback}>
+        <CopyRow
+          label="Headline"
+          text={data.copy?.headline?.text}
+          feedback={data.copy?.headline?.feedback}
+          dnaChips={headlineChips(data.copy?.headline?.dna)}
+          alignment={data.copy?.headline?.library_alignment}
+          rewrite={data.copy?.headline?.rewrite}
+        >
           <ScoreBadge score={data.copy?.headline?.clarity ?? 0} />
         </CopyRow>
-        <CopyRow label="Subheadline" text={data.copy?.subheadline?.text} feedback={data.copy?.subheadline?.feedback}>
+        <CopyRow
+          label="Subheadline"
+          text={data.copy?.subheadline?.text}
+          feedback={data.copy?.subheadline?.feedback}
+          dnaChips={subheadlineChips(data.copy?.subheadline?.dna)}
+          alignment={data.copy?.subheadline?.library_alignment}
+          rewrite={data.copy?.subheadline?.rewrite}
+        >
           <ScoreBadge score={data.copy?.subheadline?.clarity ?? 0} />
         </CopyRow>
         <CopyList
@@ -323,20 +400,35 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
           items={data.copy?.benefits_features?.identified ?? []}
           feedback={data.copy?.benefits_features?.feedback}
           score={data.copy?.benefits_features?.clarity ?? 0}
+          dnaChips={benefitsChips(data.copy?.benefits_features?.dna)}
+          alignment={data.copy?.benefits_features?.library_alignment}
+          rewrite={data.copy?.benefits_features?.rewrite}
         />
         <CopyList
           label="Trust Signals"
           items={data.copy?.trust_signals?.identified ?? []}
           feedback={data.copy?.trust_signals?.feedback}
           score={data.copy?.trust_signals?.strength ?? 0}
+          dnaChips={trustChips(data.copy?.trust_signals?.dna)}
+          alignment={data.copy?.trust_signals?.library_alignment}
+          rewrite={data.copy?.trust_signals?.rewrite}
         />
         <CopyList
           label="Safety Signals"
           items={data.copy?.safety_signals?.identified ?? []}
           feedback={data.copy?.safety_signals?.feedback}
           score={data.copy?.safety_signals?.strength ?? 0}
+          alignment={data.copy?.safety_signals?.library_alignment}
+          rewrite={data.copy?.safety_signals?.rewrite}
         />
-        <CopyRow label="CTA" text={data.copy?.cta?.text} feedback={data.copy?.cta?.feedback}>
+        <CopyRow
+          label="CTA"
+          text={data.copy?.cta?.text}
+          feedback={data.copy?.cta?.feedback}
+          dnaChips={ctaChips(data.copy?.cta?.dna)}
+          alignment={data.copy?.cta?.library_alignment}
+          rewrite={data.copy?.cta?.rewrite}
+        >
           <ScoreBadge score={data.copy?.cta?.clarity ?? 0} />
         </CopyRow>
       </Section>
@@ -484,41 +576,6 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
         </Section>
       )}
 
-      {/* Platform Fit */}
-      {data.platform_fit && (
-        <Section title="Platform Fit">
-          {data.platform_fit.optimised_for?.length > 0 && (
-            <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Optimised for</p>
-              <div className="flex flex-wrap gap-1.5">
-                {data.platform_fit.optimised_for.map(p => (
-                  <span key={p} className="text-[10px] text-emerald-400 border border-emerald-900/50 px-1.5 py-0.5 rounded">{p}</span>
-                ))}
-              </div>
-            </div>
-          )}
-          {data.platform_fit.weak_for?.length > 0 && (
-            <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Weak for</p>
-              <div className="flex flex-wrap gap-1.5">
-                {data.platform_fit.weak_for.map(p => (
-                  <span key={p} className="text-[10px] text-[#ff2a2b] border border-red-900/50 px-1.5 py-0.5 rounded">{p}</span>
-                ))}
-              </div>
-            </div>
-          )}
-          {data.platform_fit.reasoning && (
-            <p className="text-[11px] text-gray-400 leading-snug">{data.platform_fit.reasoning}</p>
-          )}
-          {data.platform_fit.adaptation_notes && (
-            <div className="bg-gray-950 border border-gray-800 rounded-lg px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-0.5">Adaptation</p>
-              <p className="text-xs text-gray-300 leading-snug">{data.platform_fit.adaptation_notes}</p>
-            </div>
-          )}
-        </Section>
-      )}
-
       {/* Pattern Matches */}
       {data.pattern_matches && data.pattern_matches.length > 0 && (
         <Section title="Winning Pattern Matches">
@@ -593,6 +650,114 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
             <p className={`text-[11px] leading-snug ${data.congruence.overall_score < 7 ? 'text-[#ff2a2b]' : 'text-gray-400'}`}>
               {isHistorical ? 'Insight' : 'Fix'}: {data.congruence.fix}
             </p>
+          )}
+        </Section>
+      )}
+
+      {/* Combination Analysis — frames everything in the structural light of "should this ad have these elements together?" */}
+      {data.combination_analysis && data.combination_analysis.current_combination && (
+        <Section title="Combination Analysis">
+          <div className="bg-gray-950 border border-indigo-900/40 rounded-lg px-3 py-2.5 space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold">Current Combination</span>
+              <span className="text-xs text-white font-mono bg-gray-900 border border-gray-800 rounded px-2 py-0.5">
+                {data.combination_analysis.current_combination}
+              </span>
+            </div>
+            {data.combination_analysis.combination_assessment && (
+              <p className="text-xs text-gray-300 leading-snug">
+                {data.combination_analysis.combination_assessment}
+              </p>
+            )}
+          </div>
+
+          {data.combination_analysis.historical_match && (
+            <div className="bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 space-y-1.5">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Historical Match (this segment)</p>
+              <div className="flex items-center gap-3 flex-wrap text-[11px]">
+                <span className="text-emerald-400">
+                  Winners: {data.combination_analysis.historical_match.winners_with_same_combo_in_segment}
+                </span>
+                <span className="text-[#ff2a2b]">
+                  Losers: {data.combination_analysis.historical_match.losers_with_same_combo_in_segment}
+                </span>
+                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
+                  data.combination_analysis.historical_match.verdict === 'strong_winner_pattern'
+                    ? 'text-emerald-400 border-emerald-800/60'
+                    : data.combination_analysis.historical_match.verdict === 'mostly_loser_pattern'
+                      ? 'text-[#ff2a2b] border-red-900/60'
+                      : data.combination_analysis.historical_match.verdict === 'mixed_record'
+                        ? 'text-amber-400 border-amber-800/60'
+                        : 'text-gray-400 border-gray-700'
+                }`}>
+                  {data.combination_analysis.historical_match.verdict.replace(/_/g, ' ')}
+                </span>
+              </div>
+              {data.combination_analysis.historical_match.winner_examples?.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-[10px] text-gray-500">Winners:</span>
+                  {data.combination_analysis.historical_match.winner_examples.map((w, i) => (
+                    <span key={i} className="text-[10px] text-emerald-400 font-mono bg-gray-900 px-1.5 py-0.5 rounded border border-emerald-900/40">{w}</span>
+                  ))}
+                </div>
+              )}
+              {data.combination_analysis.historical_match.loser_examples?.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-[10px] text-gray-500">Losers:</span>
+                  {data.combination_analysis.historical_match.loser_examples.map((l, i) => (
+                    <span key={i} className="text-[10px] text-[#ff2a2b] font-mono bg-gray-900 px-1.5 py-0.5 rounded border border-red-900/40">{l}</span>
+                  ))}
+                </div>
+              )}
+              {data.combination_analysis.historical_match.verdict_reasoning && (
+                <p className="text-[11px] text-gray-400 leading-snug">{data.combination_analysis.historical_match.verdict_reasoning}</p>
+              )}
+            </div>
+          )}
+
+          {data.combination_analysis.alternative_combination && (
+            <div className="bg-gray-950 border border-amber-900/50 rounded-lg px-3 py-2.5 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[10px] uppercase tracking-wide text-amber-400 font-semibold">
+                  {data.combination_analysis.alternative_combination.intent === 'replacement'
+                    ? 'Recommended Replacement'
+                    : data.combination_analysis.alternative_combination.intent === 'test_variant'
+                      ? 'Recommended Test Variant'
+                      : 'Alternative'}
+                </span>
+                {data.combination_analysis.alternative_combination.recommended && (
+                  <span className="text-xs text-white font-mono bg-gray-900 border border-amber-900/40 rounded px-2 py-0.5">
+                    {data.combination_analysis.alternative_combination.recommended}
+                  </span>
+                )}
+              </div>
+              {data.combination_analysis.alternative_combination.rationale && (
+                <p className="text-xs text-gray-300 leading-snug">{data.combination_analysis.alternative_combination.rationale}</p>
+              )}
+              {data.combination_analysis.alternative_combination.element_changes && (
+                <div className="space-y-1 pt-1 border-t border-gray-800">
+                  <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Element Changes</p>
+                  {Object.entries(data.combination_analysis.alternative_combination.element_changes).map(([key, value]) => {
+                    const display = Array.isArray(value) ? value.join(' • ') : value
+                    if (!display || display === 'unchanged') return null
+                    const isRemove = display === 'remove' || display === 'remove_or_replace'
+                    return (
+                      <div key={key} className="flex items-start gap-2 text-[11px]">
+                        <span className="text-gray-500 uppercase font-mono w-20 shrink-0">{key}:</span>
+                        <span className={isRemove ? 'text-[#ff2a2b] font-semibold' : 'text-gray-200'}>
+                          {display}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {data.combination_analysis.alternative_combination.predicted_impact && (
+                <p className="text-[11px] text-amber-300/90 leading-snug pt-1 border-t border-gray-800">
+                  Impact: {data.combination_analysis.alternative_combination.predicted_impact}
+                </p>
+              )}
+            </div>
           )}
         </Section>
       )}
@@ -691,8 +856,16 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
 }
 
 function CopyRow({
-  label, text, feedback, children,
-}: { label: string; text?: string; feedback?: string; children?: React.ReactNode }) {
+  label, text, feedback, children, dnaChips, alignment, rewrite,
+}: {
+  label: string
+  text?: string
+  feedback?: string
+  children?: React.ReactNode
+  dnaChips?: string[]
+  alignment?: ComprehensiveAnalysis['copy']['headline']['library_alignment'] | null
+  rewrite?: RewriteLike
+}) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-2">
@@ -700,14 +873,31 @@ function CopyRow({
         {children}
       </div>
       {text && <p className="text-xs text-gray-200 italic">&ldquo;{text}&rdquo;</p>}
+      {dnaChips && dnaChips.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {dnaChips.map((chip, i) => (
+            <span key={i} className="text-[9px] text-gray-400 bg-gray-900 border border-gray-800 rounded px-1.5 py-0.5 font-mono">{chip}</span>
+          ))}
+        </div>
+      )}
       {feedback && <p className="text-[11px] text-gray-400 leading-snug">{feedback}</p>}
+      <LibraryAlignmentChips alignment={alignment} />
+      <RewriteCard rewrite={rewrite} />
     </div>
   )
 }
 
 function CopyList({
-  label, items, feedback, score,
-}: { label: string; items: string[]; feedback?: string; score: number }) {
+  label, items, feedback, score, dnaChips, alignment, rewrite,
+}: {
+  label: string
+  items: string[]
+  feedback?: string
+  score: number
+  dnaChips?: string[]
+  alignment?: ComprehensiveAnalysis['copy']['headline']['library_alignment'] | null
+  rewrite?: RewriteLike
+}) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-2">
@@ -719,9 +909,71 @@ function CopyList({
       ) : (
         <p className="text-xs text-gray-600 italic">None identified</p>
       )}
+      {dnaChips && dnaChips.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {dnaChips.map((chip, i) => (
+            <span key={i} className="text-[9px] text-gray-400 bg-gray-900 border border-gray-800 rounded px-1.5 py-0.5 font-mono">{chip}</span>
+          ))}
+        </div>
+      )}
       {feedback && <p className="text-[11px] text-gray-400 leading-snug">{feedback}</p>}
+      <LibraryAlignmentChips alignment={alignment} />
+      <RewriteCard rewrite={rewrite} />
     </div>
   )
+}
+
+function headlineChips(dna: ComprehensiveAnalysis['copy']['headline']['dna']): string[] {
+  if (!dna) return []
+  const chips: string[] = []
+  if (dna.word_count != null) chips.push(`${dna.word_count}w`)
+  if (dna.char_count != null) chips.push(`${dna.char_count}c`)
+  if (dna.structure_type) chips.push(`structure: ${dna.structure_type}`)
+  if (dna.voice) chips.push(`voice: ${dna.voice}`)
+  if (dna.emotional_register) chips.push(`reg: ${dna.emotional_register}`)
+  if (dna.specificity_level) chips.push(`spec: ${dna.specificity_level}`)
+  if (dna.time_bound) chips.push('time-bound')
+  if (dna.uses_negation) chips.push('negation')
+  if (dna.uses_contrast) chips.push('contrast')
+  return chips
+}
+
+function subheadlineChips(dna: ComprehensiveAnalysis['copy']['subheadline']['dna']): string[] {
+  if (!dna || dna.role === 'absent') return []
+  const chips: string[] = []
+  if (dna.role) chips.push(`role: ${dna.role}`)
+  if (dna.length_relative_to_headline) chips.push(`length: ${dna.length_relative_to_headline}`)
+  if (dna.tonal_shift && dna.tonal_shift !== 'absent') chips.push(`tonal: ${dna.tonal_shift}`)
+  return chips
+}
+
+function benefitsChips(dna: ComprehensiveAnalysis['copy']['benefits_features']['dna']): string[] {
+  if (!dna || !dna.count) return []
+  const chips: string[] = [`count: ${dna.count}`]
+  if (dna.pattern_uniformity) chips.push(dna.pattern_uniformity)
+  if (dna.outcome_vs_feature_split) chips.push(dna.outcome_vs_feature_split.replace('mostly_', ''))
+  if (dna.specificity) chips.push(`spec: ${dna.specificity}`)
+  return chips
+}
+
+function trustChips(dna: ComprehensiveAnalysis['copy']['trust_signals']['dna']): string[] {
+  if (!dna || !dna.count) return []
+  const chips: string[] = [`count: ${dna.count}`]
+  if (dna.types_present?.length) chips.push(`types: ${dna.types_present.join(', ')}`)
+  if (dna.has_specific_quantifiers === true) chips.push('quantified')
+  if (dna.source_attribution && dna.source_attribution !== 'absent') chips.push(dna.source_attribution)
+  return chips
+}
+
+function ctaChips(dna: ComprehensiveAnalysis['copy']['cta']['dna']): string[] {
+  if (!dna) return []
+  const chips: string[] = []
+  if (dna.verb) chips.push(`verb: ${dna.verb}`)
+  if (dna.framing && dna.framing !== 'absent') chips.push(dna.framing)
+  if (dna.friction_level && dna.friction_level !== 'absent') chips.push(`friction: ${dna.friction_level}`)
+  if (dna.has_value_anchor) chips.push('value-anchor')
+  if (dna.has_urgency_signal) chips.push('urgency')
+  return chips
 }
 
 function NeuroRow({ label, text }: { label: string; text?: string }) {

@@ -69,11 +69,14 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
   const intervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map())
 
   async function fetchAdCount() {
+    // Historical-mode only — the feedback-mode lock and the dashboard
+    // counters both need to reflect only ads with confirmed spend.
     const { data } = await supabase
       .from('analyses')
       .select('spend_usd')
       .eq('type', 'thumbnail')
       .eq('status', 'complete')
+      .not('spend_usd', 'is', null)
     const rows = data ?? []
     const count = rows.length
     const totalSpend = rows.reduce((sum, r) => sum + (Number(r.spend_usd) || 0), 0)
@@ -319,49 +322,33 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     }
 
     const completedCards = cardsRef.current.filter(c => c.status === 'complete')
-    if (mode === 'historical') {
-      // Historical: run extraction first, wait for user to confirm before comprehensive
-      await Promise.all(completedCards.map(c => runExtraction(c, freshToken)))
-    } else {
-      // Feedback: run comprehensive automatically, pass concept topic for Reddit research
-      const topic = conceptTopic.trim() || undefined
-      await Promise.all(completedCards.map(c => runComprehensive(c, freshToken, undefined, topic)))
-    }
+    // Both modes now run extraction first and gate on user confirmation before
+    // the comprehensive analysis. Feedback mode's concept topic is applied at
+    // confirm-time, not before, so the user can correct extraction first.
+    await Promise.all(completedCards.map(c => runExtraction(c, freshToken)))
 
     setAnalyzing(false)
     fetchAdCount()
   }
 
   async function handleCardClick(card: ImageCard) {
-    if (mode === 'historical') {
-      // Historical: show extraction panel if awaiting confirmation
-      if (awaitingConfirmation[card.id] && extractedElements[card.id]) {
-        setSelectedCard(card)
-        setShowExtractionPanel(true)
-        return
-      }
-      // If extraction is still loading, do nothing
-      if (extractionLoading[card.id]) return
-      // If already confirmed and comprehensive is ready/loading, open modal
-      if (confirmedElements[card.id] || cardComprehensive[card.id] || cardLoading[card.id]) {
-        setSelectedCard(card)
-        setShowExtractionPanel(false)
-        return
-      }
-      // BERG complete but extraction not started yet — start it
-      if (card.status === 'complete' && card.result?.roi_data) {
-        setSelectedCard(card)
-        setShowExtractionPanel(false)
-        const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-        runExtraction(card, freshToken)
-      }
-    } else {
+    // Both modes use the same flow: extraction → confirm → comprehensive.
+    if (awaitingConfirmation[card.id] && extractedElements[card.id]) {
+      setSelectedCard(card)
+      setShowExtractionPanel(true)
+      return
+    }
+    if (extractionLoading[card.id]) return
+    if (confirmedElements[card.id] || cardComprehensive[card.id] || cardLoading[card.id]) {
       setSelectedCard(card)
       setShowExtractionPanel(false)
-      if (cardComprehensive[card.id] || cardLoading[card.id]) return
-      if (!card.result?.roi_data) return
+      return
+    }
+    if (card.status === 'complete' && card.result?.roi_data) {
+      setSelectedCard(card)
+      setShowExtractionPanel(false)
       const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-      runComprehensive(card, freshToken, undefined, conceptTopic.trim() || undefined)
+      runExtraction(card, freshToken)
     }
   }
 
@@ -372,7 +359,8 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     setAwaitingConfirmation(prev => ({ ...prev, [card.id]: false }))
     setShowExtractionPanel(false)
     const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-    runComprehensive(card, freshToken, confirmed)
+    const topic = mode === 'feedback' ? (conceptTopic.trim() || undefined) : undefined
+    runComprehensive(card, freshToken, confirmed, topic)
   }
 
   function handleExtractionSkip() {
@@ -382,7 +370,8 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     setShowExtractionPanel(false)
     supabase.auth.getSession().then(({ data: { session } }) => {
       const freshToken = session?.access_token ?? token
-      runComprehensive(card, freshToken)
+      const topic = mode === 'feedback' ? (conceptTopic.trim() || undefined) : undefined
+      runComprehensive(card, freshToken, undefined, topic)
     })
   }
 

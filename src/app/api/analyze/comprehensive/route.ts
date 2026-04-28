@@ -4,15 +4,26 @@ import Anthropic from '@anthropic-ai/sdk'
 import {
   getWinningPatterns,
   getAllWinningAnalyses,
+  getAllLosersForSynthesis,
   getLosingPatterns,
+  getFrameworkPrinciples,
   storeComprehensiveAnalysis,
   WINNER_THRESHOLD_USD,
   type PatternLibraryRow,
   type LosingPatternRow,
   type WinningAnalysisSummary,
+  type FrameworkPrincipleRow,
 } from '@/lib/pattern-library'
 import { fetchRedditPosts, type RedditPost } from '@/lib/reddit'
-import type { ExtractedElements } from '@/app/api/analyze/extract-elements/route'
+import type {
+  ExtractedElements,
+  HeadlineDNA,
+  SubheadlineDNA,
+  BodyDNA,
+  BenefitsDNA,
+  TrustDNA,
+  CtaDNA,
+} from '@/app/api/analyze/extract-elements/route'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -24,23 +35,75 @@ interface ROIAverage {
   activation: number
 }
 
+export interface LibraryAlignment {
+  winner_matches: string[]
+  loser_matches: string[]
+  verdict: 'aligned_with_winners' | 'aligned_with_losers' | 'mixed' | 'no_analog'
+  winning_dna_dimensions: string[]
+  losing_dna_dimensions: string[]
+}
+
+export interface ElementRewrite {
+  proposed_text?: string | null
+  proposed_action?: string | null
+  proposed_benefits?: string[] | null
+  proposed_signals?: string[] | null
+  proposed_change?: string | null
+  proposed_pattern_interrupt?: string | null
+  proposed_offer_text?: string | null
+  rationale: string
+  expected_lift: string
+  dna_changes?: Record<string, unknown> | null
+}
+
 export interface ComprehensiveAnalysis {
   copy: {
-    headline: { text: string; clarity: number; urgency: number; relevance: number; feedback: string }
-    subheadline: { text: string; supports_headline: boolean; clarity: number; feedback: string }
-    benefits_features: { identified: string[]; clarity: number; prominence: number; feedback: string }
-    trust_signals: { identified: string[]; strength: number; feedback: string }
-    safety_signals: { identified: string[]; strength: number; feedback: string }
-    cta: { text: string; clarity: number; placement: string; contrast: number; feedback: string }
+    headline: {
+      text: string; clarity: number; urgency: number; relevance: number; feedback: string
+      dna?: HeadlineDNA | null
+      library_alignment?: LibraryAlignment | null
+      rewrite?: ElementRewrite | null
+    }
+    subheadline: {
+      text: string; supports_headline: boolean; clarity: number; feedback: string
+      dna?: SubheadlineDNA | null
+      library_alignment?: LibraryAlignment | null
+      rewrite?: ElementRewrite | null
+    }
+    benefits_features: {
+      identified: string[]; clarity: number; prominence: number; feedback: string
+      dna?: BenefitsDNA | null
+      library_alignment?: LibraryAlignment | null
+      rewrite?: ElementRewrite | null
+    }
+    trust_signals: {
+      identified: string[]; strength: number; feedback: string
+      dna?: TrustDNA | null
+      library_alignment?: LibraryAlignment | null
+      rewrite?: ElementRewrite | null
+    }
+    safety_signals: {
+      identified: string[]; strength: number; feedback: string
+      library_alignment?: LibraryAlignment | null
+      rewrite?: ElementRewrite | null
+    }
+    cta: {
+      text: string; clarity: number; placement: string; contrast: number; feedback: string
+      dna?: CtaDNA | null
+      library_alignment?: LibraryAlignment | null
+      rewrite?: ElementRewrite | null
+    }
   }
+  body_dna?: BodyDNA | null
+  composition_tag: string
   behavioral_economics: {
-    scarcity: { present: boolean; strength: number; note: string }
-    urgency: { present: boolean; strength: number; note: string }
-    social_proof: { present: boolean; strength: number; note: string }
-    anchoring: { present: boolean; strength: number; note: string }
-    loss_aversion: { present: boolean; strength: number; note: string }
-    authority: { present: boolean; strength: number; note: string }
-    reciprocity: { present: boolean; strength: number; note: string }
+    scarcity: { present: boolean; strength: number; note: string; rewrite?: ElementRewrite | null }
+    urgency: { present: boolean; strength: number; note: string; rewrite?: ElementRewrite | null }
+    social_proof: { present: boolean; strength: number; note: string; rewrite?: ElementRewrite | null }
+    anchoring: { present: boolean; strength: number; note: string; rewrite?: ElementRewrite | null }
+    loss_aversion: { present: boolean; strength: number; note: string; rewrite?: ElementRewrite | null }
+    authority: { present: boolean; strength: number; note: string; rewrite?: ElementRewrite | null }
+    reciprocity: { present: boolean; strength: number; note: string; rewrite?: ElementRewrite | null }
     overall_feedback: string
   }
   neuroscience: {
@@ -50,10 +113,10 @@ export interface ComprehensiveAnalysis {
     feedback: string
   }
   visual_dimensions: {
-    cta_strength: { score: number; feedback: string }
-    emotional_appeal: { score: number; feedback: string }
-    brand_clarity: { score: number; feedback: string }
-    visual_hierarchy: { score: number; feedback: string }
+    cta_strength: { score: number; feedback: string; rewrite?: ElementRewrite | null }
+    emotional_appeal: { score: number; feedback: string; rewrite?: ElementRewrite | null }
+    brand_clarity: { score: number; feedback: string; rewrite?: ElementRewrite | null }
+    visual_hierarchy: { score: number; feedback: string; rewrite?: ElementRewrite | null }
   }
   berg_recommendations: string[]
   pattern_matches: string[]
@@ -89,6 +152,8 @@ export interface ComprehensiveAnalysis {
     pattern_interrupt: string
     first_half_second: string
     hook_feedback: string
+    library_alignment?: LibraryAlignment | null
+    rewrite?: ElementRewrite | null
   }
   offer_architecture: {
     offer_present: boolean
@@ -100,18 +165,15 @@ export interface ComprehensiveAnalysis {
     perceived_value_score: number
     offer_clarity_score: number
     offer_feedback: string
+    library_alignment?: LibraryAlignment | null
+    rewrite?: ElementRewrite | null
   }
   cognitive_load: {
     score: number
     density: 'minimal' | 'moderate' | 'heavy'
     overload_risk: string
     simplification: string
-  }
-  platform_fit: {
-    optimised_for: string[]
-    weak_for: string[]
-    reasoning: string
-    adaptation_notes: string
+    rewrite?: ElementRewrite | null
   }
   framework_score: {
     minimum_viable_test: 'pass' | 'fail'
@@ -133,6 +195,34 @@ export interface ComprehensiveAnalysis {
     trust_signals_to_claim: { aligned: boolean; note: string }
     incoherence_summary: string
     fix: string
+    library_alignment?: LibraryAlignment | null
+    rewrite?: ElementRewrite | null
+  }
+  combination_analysis: {
+    current_combination: string
+    combination_assessment: string
+    historical_match: {
+      winners_with_same_combo_in_segment: number
+      losers_with_same_combo_in_segment: number
+      winner_examples: string[]
+      loser_examples: string[]
+      verdict: 'strong_winner_pattern' | 'mixed_record' | 'mostly_loser_pattern' | 'no_segment_data'
+      verdict_reasoning: string
+    }
+    alternative_combination: {
+      recommended: string | null
+      intent: 'replacement' | 'test_variant' | 'none'
+      rationale: string
+      element_changes: {
+        headline: string
+        subheadline: string
+        benefits: string[] | string
+        trust_signals: string[] | string
+        cta: string
+        offer: string
+      }
+      predicted_impact: string
+    } | null
   }
   reddit_research?: {
     topic: string
@@ -145,53 +235,142 @@ export interface ComprehensiveAnalysis {
 
 const anthropic = new Anthropic({ timeout: 120000 })
 
+const AWARENESS_BUCKETS: Array<'unaware' | 'problem_aware' | 'solution_aware' | 'product_aware' | 'most_aware'> = [
+  'unaware', 'problem_aware', 'solution_aware', 'product_aware', 'most_aware',
+]
+
+function fingerprintAd(prefix: string, idx: number, ex: WinningAnalysisSummary, compact: boolean): string[] {
+  const ca = ex.comprehensive_analysis as unknown as ComprehensiveAnalysis | null
+  if (!ca) return []
+  const headline = ca.copy?.headline?.text ?? 'n/a'
+  const hd = ca.copy?.headline?.dna ?? null
+  const sd = ca.copy?.subheadline?.dna ?? null
+  const bd = ca.copy?.benefits_features?.dna ?? null
+  const td = ca.copy?.trust_signals?.dna ?? null
+  const cd = ca.copy?.cta?.dna ?? null
+  const cta = ca.copy?.cta?.text ?? 'n/a'
+  const grade = ca.framework_score?.overall_framework_grade ?? '?'
+  const soph = ca.market_context?.sophistication_level ?? '?'
+  const format = ca.ad_format?.type ?? '?'
+  const scrollStop = ca.hook_analysis?.scroll_stop_score ?? 0
+  const cogLoad = ca.cognitive_load?.score ?? 0
+  const congruence = ca.congruence?.overall_score ?? '?'
+  const combo = ca.composition_tag ?? '?'
+  const topBE = Object.entries(ca.behavioral_economics ?? {})
+    .filter(([k, v]) => k !== 'overall_feedback' && (v as { present?: boolean })?.present)
+    .map(([k]) => k).join(', ') || 'none'
+
+  const lines: string[] = []
+  lines.push(`${prefix}${idx} ($${ex.spend_usd} spend, soph=${soph}, format=${format}):`)
+  lines.push(`  combo=${combo} | grade=${grade} | scroll_stop=${scrollStop} | cog_load=${cogLoad} | congruence=${congruence} | BE=[${topBE}]`)
+  if (compact) return lines
+  if (hd) {
+    lines.push(`  HL="${headline}" (${hd.word_count}w/${hd.char_count}c) | ${hd.voice}/${hd.person}/${hd.tense}/${hd.sentence_type} | structure=${hd.structure_type} | spec=${hd.specificity_level} | mech=${hd.mechanism_present} audience=${hd.audience_explicit} outcome=${hd.outcome_explicit} time=${hd.time_bound} | reg=${hd.emotional_register}/${hd.tone_register} | metaphor=${hd.uses_metaphor} neg=${hd.uses_negation} contrast=${hd.uses_contrast} punct=[${hd.punctuation_signals.join(',')}]`)
+  } else {
+    lines.push(`  HL="${headline}"`)
+  }
+  if (sd && sd.role !== 'absent') {
+    lines.push(`  SUB="${ca.copy?.subheadline?.text ?? ''}" | role=${sd.role} | ${sd.length_relative_to_headline} | mech=${sd.introduces_mechanism} proof=${sd.introduces_proof} spec=${sd.introduces_specificity} | continuity=${sd.person_continuity} | tonal=${sd.tonal_shift} | reg=${sd.emotional_register}`)
+  }
+  if (bd && bd.count > 0) {
+    lines.push(`  BEN(${bd.count}): avg=${bd.avg_word_count}w | ${bd.pattern_uniformity} | ${bd.outcome_vs_feature_split} | spec=${bd.specificity}`)
+  }
+  if (td && td.count > 0) {
+    lines.push(`  TRU(${td.count}): [${td.types_present.join(', ')}] | quant=${td.has_specific_quantifiers} | ${td.source_attribution}`)
+  }
+  if (cd) {
+    lines.push(`  CTA="${cta}" verb=${cd.verb} | ${cd.word_count}w | ${cd.framing} | ${cd.friction_level}_friction | value=${cd.has_value_anchor} urgency=${cd.has_urgency_signal}`)
+  }
+  return lines
+}
+
 function buildPatternContext(
   patterns: PatternLibraryRow[],
   winningExamples: WinningAnalysisSummary[],
   losingPatterns: LosingPatternRow[] = [],
+  losingExamples: WinningAnalysisSummary[] = [],
+  frameworkPrinciples: FrameworkPrincipleRow[] = [],
 ): string {
-  if (patterns.length === 0 && winningExamples.length === 0 && losingPatterns.length === 0) return ''
+  if (patterns.length === 0 && winningExamples.length === 0 && losingPatterns.length === 0 && losingExamples.length === 0 && frameworkPrinciples.length === 0) return ''
 
   const lines: string[] = []
+
+  // Anti-skimming header
+  lines.push(`PATTERN LIBRARY USE RULES — non-negotiable:
+1. EXPLICIT REFERENCE: When you make a claim about what works/fails in this ad's segment, cite the example number(s): "(matches W3, W7)" or "(seen in 4 of 6 problem_aware winners: W1, W3, W7, W11)".
+2. NO PARAPHRASING THE LIBRARY: Do not write "the data shows..." or "winners typically...". Quote the structural fingerprint verbatim from the relevant example.
+3. NO GENERALIZATION ACROSS AWARENESS LEVELS: Use only the bucket that matches this ad's awareness classification.
+4. COUNT-BASED CLAIMS REQUIRE COUNTS: "in 5 of 6 PROBLEM_AWARE winners (W1, W3, W7, W9, W11)". A claim without a count is invalid.
+5. NO EXAMPLE = NO CLAIM: If no example in the relevant bucket supports a claim, do not make it.
+`)
+
+  // Block 0 — Learned Guard Rails
+  if (frameworkPrinciples.length > 0) {
+    lines.push('═══════════════════════════════════════════════════════════════')
+    lines.push('LEARNED GUARD RAILS — derived from accumulated historical data')
+    lines.push('These supplement and OVERRIDE the static framework where they conflict.')
+    lines.push('Each rule cites the winner/loser examples that produced it.')
+    lines.push('═══════════════════════════════════════════════════════════════')
+    frameworkPrinciples.forEach((g, i) => {
+      const scope = `scope=${g.scope_awareness ?? 'global'}/${g.scope_sophistication !== null ? `soph=${g.scope_sophistication}` : 'any-soph'}`
+      lines.push(`G${i + 1}. [framework, conf=${g.confidence}, ${scope}]`)
+      lines.push(`    "${g.rule_text}"`)
+    })
+    lines.push('')
+  }
 
   if (patterns.length > 0) {
     lines.push(`--- Winning Ad Patterns (derived from ads with $${WINNER_THRESHOLD_USD}+ spend) ---`)
     patterns.forEach((p, i) => {
       lines.push(`${i + 1}. [${p.category}] ${p.rule_text}`)
     })
+    lines.push('')
   }
 
   if (losingPatterns.length > 0) {
-    lines.push('')
-    lines.push(`--- Anti-Patterns (from ads that failed <$${WINNER_THRESHOLD_USD} spend — treat as warnings, not rules) ---`)
+    lines.push(`--- Anti-Patterns (from ads <$${WINNER_THRESHOLD_USD} spend — treat as warnings, not rules) ---`)
     losingPatterns.forEach((p, i) => {
       lines.push(`${i + 1}. [${p.category}] ${p.rule_text} (seen in ${p.loser_count} losers, confidence: ${p.confidence})`)
     })
+    lines.push('')
   }
 
+  // Block 3 — Winners by awareness level
   if (winningExamples.length > 0) {
-    lines.push('')
-    lines.push('--- All Winning Ad Examples (every ad above spend threshold) ---')
-    winningExamples.forEach((ex, i) => {
-      const ca = ex.comprehensive_analysis as unknown as ComprehensiveAnalysis | null
-      if (!ca) return
-      const headline = ca.copy?.headline?.text ?? 'n/a'
-      const headlineWords = headline !== 'n/a' ? headline.trim().split(/\s+/).length : 0
-      const hasSubheadline = !!ca.copy?.subheadline?.text
-      const benefits = ca.copy?.benefits_features?.identified ?? []
-      const hasTrust = (ca.copy?.trust_signals?.identified?.length ?? 0) > 0
-      const cta = ca.copy?.cta?.text ?? 'n/a'
-      const offer = ca.offer_architecture?.offer_present ?? false
-      const grade = ca.framework_score?.overall_framework_grade ?? '?'
-      const awareness = ca.market_context?.awareness_level ?? 'unknown'
-      const scrollStop = ca.hook_analysis?.scroll_stop_score ?? 0
-      const cogLoad = ca.cognitive_load?.score ?? 0
-      const congruenceScore = ca.congruence?.overall_score ?? 'n/a'
-      const topBE = Object.entries(ca.behavioral_economics ?? {})
-        .filter(([k, v]) => k !== 'overall_feedback' && (v as { present: boolean }).present)
-        .map(([k]) => k).join(', ') || 'none'
-      lines.push(`Example ${i + 1} ($${ex.spend_usd} spend): headline="${headline}" (${headlineWords}w) | subheadline=${hasSubheadline} | benefits=${benefits.length} | trust=${hasTrust} | cta="${cta}" | offer=${offer} | grade=${grade} | awareness=${awareness} | scroll_stop=${scrollStop}/10 | cog_load=${cogLoad}/10 | congruence=${congruenceScore}/10 | BE=[${topBE}]`)
+    lines.push('--- WINNING AD EXAMPLES — grouped by audience awareness level ---')
+    AWARENESS_BUCKETS.forEach(awareness => {
+      const bucket = winningExamples.filter(ex => {
+        const ca = ex.comprehensive_analysis as unknown as ComprehensiveAnalysis | null
+        return ca?.market_context?.awareness_level === awareness
+      })
+      if (bucket.length === 0) return
+      const compact = bucket.length > 30
+      lines.push('')
+      lines.push(`▶ ${awareness.toUpperCase()} winners (${bucket.length} total):`)
+      bucket.forEach((ex, i) => {
+        lines.push(...fingerprintAd('Example W', i + 1, ex, compact))
+      })
     })
+    lines.push('')
+  }
+
+  // Block 4 — Losers by awareness level
+  if (losingExamples.length > 0) {
+    lines.push(`--- LOSING AD EXAMPLES — grouped by audience awareness level (<$${WINNER_THRESHOLD_USD} spend) ---`)
+    AWARENESS_BUCKETS.forEach(awareness => {
+      const bucket = losingExamples.filter(ex => {
+        const ca = ex.comprehensive_analysis as unknown as ComprehensiveAnalysis | null
+        return ca?.market_context?.awareness_level === awareness
+      })
+      if (bucket.length === 0) return
+      const compact = bucket.length > 30
+      lines.push('')
+      lines.push(`▶ ${awareness.toUpperCase()} losers (${bucket.length} total):`)
+      bucket.forEach((ex, i) => {
+        lines.push(...fingerprintAd('Example L', i + 1, ex, compact))
+      })
+    })
+    lines.push('')
   }
 
   return lines.join('\n')
@@ -213,9 +392,11 @@ const ROI_AD_CONTEXT_HISTORICAL = `ROI signals (descriptive only):
 - PPA (Scene Recognition): High = environment/context readable; lifestyle positioning. Low = no scene context; isolated subject framing.
 - VWFA (Text Processing): High = text is legible and competing for visual attention. Low = text is minimal or de-prioritized; visual carries the message.`
 
-const FRAMEWORK_CONTEXT = `Copywriting framework (minimum-viable-copy principle — apply strictly):
+const STATIC_FRAMEWORK_BASELINE = `STATIC FRAMEWORK BASELINE (apply when no LEARNED GUARD RAIL in Block 0 supersedes):
+
+Copywriting framework (minimum-viable-copy principle — apply strictly):
 - Start with the minimum. Add an element ONLY when the previous one leaves something unresolved.
-- Headline: Should communicate the core feeling with the visual in 5 words or fewer. Does it?
+- Headline: Aim for maximum impact with minimum words. If an 11-word headline can say the same thing in 5 words without losing meaning, emotional specificity, identity, or audience fit — it should. Length is justified only when every word is load-bearing. Rhythm, flavor, or repetition of the visual do not justify extra words. Headlines longer than 5 words ARE acceptable when each word carries unique weight that cannot be cut.
 - Subheadline: Justified ONLY if headline leaves "so what?" unanswered. If headline is complete, subheadline is clutter.
 - Benefits: Justified ONLY if the audience needs to justify the decision (not just desire it). Each benefit should answer a specific objection — not restate the headline.
 - Trust signal: Default ON for health, money, significant life changes. Otherwise start without and test.
@@ -295,37 +476,136 @@ ${ending}`
 
 function buildConfirmedElementsBlock(confirmed: ExtractedElements): string {
   const lines = ['--- Confirmed ad element extraction (user-verified — use as ground truth, do not re-extract) ---']
-  if (confirmed.headline) lines.push(`Headline: "${confirmed.headline}"`)
-  if (confirmed.subheadline) lines.push(`Subheadline: "${confirmed.subheadline}"`)
-  if (confirmed.body_copy) lines.push(`Body copy: "${confirmed.body_copy}"`)
-  if (confirmed.benefits.length) lines.push(`Benefits: ${confirmed.benefits.map(b => `"${b}"`).join(', ')}`)
-  if (confirmed.trust_signals.length) lines.push(`Trust signals: ${confirmed.trust_signals.join(', ')}`)
+
+  if (confirmed.headline) {
+    lines.push(`Headline: "${confirmed.headline}"`)
+    const h = confirmed.headline_dna
+    if (h) {
+      lines.push(`  - words=${h.word_count ?? '?'}, chars=${h.char_count ?? '?'}, reading_level=${h.reading_level ?? '?'}`)
+      lines.push(`  - voice=${h.voice ?? '?'}, person=${h.person ?? '?'}, tense=${h.tense ?? '?'}, sentence_type=${h.sentence_type ?? '?'}`)
+      lines.push(`  - structure=${h.structure_type ?? '?'}, specificity=${h.specificity_level ?? '?'}, mechanism=${h.mechanism_present}, audience_explicit=${h.audience_explicit}`)
+      lines.push(`  - outcome=${h.outcome_explicit}, time_bound=${h.time_bound}, number=${h.number_present}, power_words=[${h.power_words.join(', ')}]`)
+      lines.push(`  - emotional_register=${h.emotional_register ?? '?'}, tone=${h.tone_register ?? '?'}`)
+      lines.push(`  - metaphor=${h.uses_metaphor}, negation=${h.uses_negation}, contrast=${h.uses_contrast}, punctuation=[${h.punctuation_signals.join(', ')}]`)
+    }
+  }
+
+  if (confirmed.subheadline) {
+    lines.push(`Subheadline: "${confirmed.subheadline}"`)
+    const s = confirmed.subheadline_dna
+    if (s) {
+      lines.push(`  - words=${s.word_count ?? '?'}, chars=${s.char_count ?? '?'}, length_relative=${s.length_relative_to_headline ?? '?'}`)
+      lines.push(`  - role=${s.role ?? '?'}, introduces_mechanism=${s.introduces_mechanism}, introduces_proof=${s.introduces_proof}, introduces_specificity=${s.introduces_specificity}, introduces_audience=${s.introduces_audience}`)
+      lines.push(`  - person_continuity=${s.person_continuity ?? '?'}, tonal_shift=${s.tonal_shift ?? '?'}, register=${s.emotional_register ?? '?'}, tense=${s.tense ?? '?'}`)
+    }
+  } else {
+    lines.push(`Subheadline: absent`)
+  }
+
+  if (confirmed.body_copy) {
+    lines.push(`Body copy: "${confirmed.body_copy}"`)
+    const b = confirmed.body_dna
+    if (b) {
+      lines.push(`  - words=${b.word_count ?? '?'}, paragraphs=${b.paragraph_count ?? '?'}, sentences=${b.sentence_count ?? '?'}, avg_sentence_length=${b.avg_sentence_length ?? '?'}`)
+      lines.push(`  - frame=${b.frame ?? '?'}, personal_pronoun_density=${b.personal_pronoun_density ?? '?'}`)
+    }
+  }
+
+  if (confirmed.benefits.length) {
+    lines.push(`Benefits (${confirmed.benefits.length}): ${confirmed.benefits.map(b => `"${b}"`).join(', ')}`)
+    const bd = confirmed.benefits_dna
+    if (bd) {
+      lines.push(`  - avg_words=${bd.avg_word_count ?? '?'}, pattern_uniformity=${bd.pattern_uniformity ?? '?'}, outcome_vs_feature=${bd.outcome_vs_feature_split ?? '?'}, specificity=${bd.specificity ?? '?'}`)
+    }
+  }
+
+  if (confirmed.trust_signals.length) {
+    lines.push(`Trust signals (${confirmed.trust_signals.length}): ${confirmed.trust_signals.join(', ')}`)
+    const t = confirmed.trust_dna
+    if (t) {
+      lines.push(`  - types=[${t.types_present.join(', ')}], specific_quantifiers=${t.has_specific_quantifiers}, attribution=${t.source_attribution ?? '?'}`)
+    }
+  }
+
   if (confirmed.safety_signals.length) lines.push(`Safety signals: ${confirmed.safety_signals.join(', ')}`)
   if (confirmed.proof_signals.length) lines.push(`Proof signals: ${confirmed.proof_signals.join(', ')}`)
-  if (confirmed.cta) lines.push(`CTA: "${confirmed.cta}"`)
+
+  if (confirmed.cta) {
+    lines.push(`CTA: "${confirmed.cta}"`)
+    const c = confirmed.cta_dna
+    if (c) {
+      lines.push(`  - verb=${c.verb ?? '?'}, words=${c.word_count ?? '?'}, framing=${c.framing ?? '?'}, friction=${c.friction_level ?? '?'}, value_anchor=${c.has_value_anchor}, urgency=${c.has_urgency_signal}`)
+    }
+  }
+
   if (confirmed.offer_details) lines.push(`Offer: "${confirmed.offer_details}"`)
+
+  lines.push(`Composition: ${confirmed.composition_tag}`)
   lines.push(`Visual: ${confirmed.visual_description}`)
   lines.push(`Format type (user estimate): ${confirmed.ad_format_guess}`)
   return lines.join('\n')
 }
 
+const REWRITE_FEEDBACK_BLOCK = `"<null when score >= 7. When score < 7, an object: { 'proposed_text': '<ship-ready copy>', 'rationale': '<DNA dimensions changed and why this lifts the score>', 'expected_lift': '<projected score change + library citation or honest no-analog note>', 'dna_changes': { '<dimension>': '<new value>' } }>"`
+
+const LIBRARY_ALIGNMENT_BLOCK = `{ "winner_matches": ["<W1>","<W3>"], "loser_matches": ["<L2>"], "verdict": "<aligned_with_winners | aligned_with_losers | mixed | no_analog>", "winning_dna_dimensions": ["<dim>"], "losing_dna_dimensions": ["<dim>"] }`
+
 const COMPREHENSIVE_JSON_SCHEMA = `{
   "copy": {
-    "headline": { "text": "<exact text or null>", "clarity": <1-10>, "urgency": <1-10>, "relevance": <1-10>, "feedback": "<two sentences>" },
-    "subheadline": { "text": "<exact text or null>", "supports_headline": <true/false>, "clarity": <1-10>, "feedback": "<one sentence>" },
-    "benefits_features": { "identified": ["<benefit 1>"], "clarity": <1-10>, "prominence": <1-10>, "feedback": "<two sentences>" },
-    "trust_signals": { "identified": ["<signal>"], "strength": <1-10>, "feedback": "<two sentences>" },
-    "safety_signals": { "identified": ["<signal>"], "strength": <1-10>, "feedback": "<two sentences>" },
-    "cta": { "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>, "feedback": "<two sentences>" }
+    "headline": {
+      "text": "<exact text or null>",
+      "clarity": <1-10>, "urgency": <1-10>, "relevance": <1-10>,
+      "feedback": "<two sentences — MUST agree with the scores above; do not name a flaw if min(clarity,urgency,relevance) >= 7>",
+      "dna": "<HeadlineDNA object — mirror confirmed_elements.headline_dna; only override a field if the visual clearly contradicts it>",
+      "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
+      "rewrite": ${REWRITE_FEEDBACK_BLOCK}
+    },
+    "subheadline": {
+      "text": "<exact text or null>", "supports_headline": <true/false>, "clarity": <1-10>,
+      "feedback": "<one sentence — must agree with score>",
+      "dna": "<SubheadlineDNA object>",
+      "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
+      "rewrite": "<null when clarity >= 7 AND supports_headline=true. Otherwise object with proposed_text OR proposed_action ('remove'), rationale, expected_lift, dna_changes>"
+    },
+    "benefits_features": {
+      "identified": ["<benefit 1>"],
+      "clarity": <1-10>, "prominence": <1-10>,
+      "feedback": "<two sentences — must agree with min(clarity,prominence)>",
+      "dna": "<BenefitsDNA object>",
+      "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
+      "rewrite": "<null when min(clarity,prominence) >= 7. Otherwise object with proposed_benefits (string[]), proposed_count, rationale, expected_lift>"
+    },
+    "trust_signals": {
+      "identified": ["<signal>"], "strength": <1-10>,
+      "feedback": "<two sentences — must agree with strength>",
+      "dna": "<TrustDNA object>",
+      "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
+      "rewrite": "<null when strength >= 7. Otherwise object with proposed_signals (string[]) OR proposed_action ('remove_or_replace'), rationale, expected_lift>"
+    },
+    "safety_signals": {
+      "identified": ["<signal>"], "strength": <1-10>,
+      "feedback": "<two sentences — must agree with strength>",
+      "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
+      "rewrite": "<null when strength >= 7. Otherwise object same shape as trust_signals.rewrite>"
+    },
+    "cta": {
+      "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>,
+      "feedback": "<two sentences — must agree with min(clarity,contrast)>",
+      "dna": "<CtaDNA object>",
+      "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
+      "rewrite": "<null when min(clarity,contrast) >= 7. Otherwise object with proposed_text, dna_changes (verb/framing/friction), rationale, expected_lift>"
+    }
   },
+  "body_dna": "<BodyDNA object or null — mirror confirmed_elements.body_dna>",
+  "composition_tag": "<canonical composition tag from confirmed_elements.composition_tag>",
   "behavioral_economics": {
-    "scarcity":      { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
-    "urgency":       { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
-    "social_proof":  { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
-    "anchoring":     { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
-    "loss_aversion": { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
-    "authority":     { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
-    "reciprocity":   { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
+    "scarcity":      { "present": <true/false>, "strength": <0-10>, "note": "<one sentence — must agree with strength>", "rewrite": "<null when present=false OR strength >= 7. Otherwise object: { 'proposed_change': '<one specific structural change>', 'rationale': '<DNA dimensions changed>', 'expected_lift': '<projected strength change + library citation>' }>" },
+    "urgency":       { "present": <true/false>, "strength": <0-10>, "note": "<one sentence — must agree with strength>", "rewrite": "<same shape as scarcity.rewrite>" },
+    "social_proof":  { "present": <true/false>, "strength": <0-10>, "note": "<one sentence — must agree with strength>", "rewrite": "<same shape as scarcity.rewrite>" },
+    "anchoring":     { "present": <true/false>, "strength": <0-10>, "note": "<one sentence — must agree with strength>", "rewrite": "<same shape as scarcity.rewrite>" },
+    "loss_aversion": { "present": <true/false>, "strength": <0-10>, "note": "<one sentence — must agree with strength>", "rewrite": "<same shape as scarcity.rewrite>" },
+    "authority":     { "present": <true/false>, "strength": <0-10>, "note": "<one sentence — must agree with strength>", "rewrite": "<same shape as scarcity.rewrite>" },
+    "reciprocity":   { "present": <true/false>, "strength": <0-10>, "note": "<one sentence — must agree with strength>", "rewrite": "<same shape as scarcity.rewrite>" },
     "overall_feedback": "<two sentences>"
   },
   "neuroscience": {
@@ -335,10 +615,10 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "feedback":             "<two sentences: top neuroscience recommendation>"
   },
   "visual_dimensions": {
-    "cta_strength":     { "score": <1-10>, "feedback": "<two sentences>" },
-    "emotional_appeal": { "score": <1-10>, "feedback": "<two sentences>" },
-    "brand_clarity":    { "score": <1-10>, "feedback": "<two sentences>" },
-    "visual_hierarchy": { "score": <1-10>, "feedback": "<two sentences>" }
+    "cta_strength":     { "score": <1-10>, "feedback": "<two sentences — must agree with score>", "rewrite": "<null when score >= 7. Otherwise object: { 'proposed_change': '<structural visual fix>', 'rationale': '<why>', 'expected_lift': '<projected score change>' }>" },
+    "emotional_appeal": { "score": <1-10>, "feedback": "<two sentences — must agree with score>", "rewrite": "<same shape>" },
+    "brand_clarity":    { "score": <1-10>, "feedback": "<two sentences — must agree with score>", "rewrite": "<same shape>" },
+    "visual_hierarchy": { "score": <1-10>, "feedback": "<two sentences — must agree with score>", "rewrite": "<same shape>" }
   },
   "pattern_matches": ["<winning rule this ad satisfies or violates, verbatim from the patterns>"],
   "overall": {
@@ -372,7 +652,9 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "scroll_stop_score": <1-10>,
     "pattern_interrupt": "<what specific element(s) would stop the scroll>",
     "first_half_second": "<what the eye hits first and why it works or doesn't for this audience>",
-    "hook_feedback": "<one specific change to strengthen the hook>"
+    "hook_feedback": "<one sentence — if scroll_stop_score >= 7 describe the working pattern interrupt; if <7 propose a specific change>",
+    "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
+    "rewrite": "<null when scroll_stop_score >= 7. Otherwise object: { 'proposed_pattern_interrupt': '<change to first half-second>', 'rationale': '<why>', 'expected_lift': '<projected score + library citation>' }>"
   },
   "offer_architecture": {
     "offer_present": <true/false>,
@@ -383,29 +665,26 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "has_trial_or_free": <true/false>,
     "perceived_value_score": <1-10>,
     "offer_clarity_score": <1-10>,
-    "offer_feedback": "<two sentences: offer strength and what to improve>"
+    "offer_feedback": "<two sentences — must agree with min(perceived_value_score, offer_clarity_score)>",
+    "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
+    "rewrite": "<null when min(perceived_value_score, offer_clarity_score) >= 7. Otherwise object: { 'proposed_offer_text': '<ship-ready offer>', 'rationale': '<dimensions changed: anchor/guarantee/urgency/trial>', 'expected_lift': '<projected scores + library citation>' }>"
   },
   "cognitive_load": {
-    "score": <1-10, where 1=effortless and 10=overwhelming>,
+    "score": <1-10, where 1=effortless and 10=overwhelming — INVERTED scale: low score = effective; high score = failure>,
     "density": "<one of: minimal | moderate | heavy>",
-    "overload_risk": "<what specific element(s) are contributing to overload, or 'none'>",
-    "simplification": "<one specific change to reduce cognitive load>"
-  },
-  "platform_fit": {
-    "optimised_for": ["<platform 1>"],
-    "weak_for": ["<platform 1>"],
-    "reasoning": "<two sentences: why this format fits or doesn't fit each platform>",
-    "adaptation_notes": "<one-two sentences: specific changes for the weakest platform>"
+    "overload_risk": "<what specific element(s) are contributing to overload, or 'none' — must agree with score: praise simplicity when score <= 3, name overload sources when score >= 7>",
+    "simplification": "<one specific change to reduce cognitive load — or 'none required' when score <= 3>",
+    "rewrite": "<null when score <= 6. When score > 6 (high load = bad), object: { 'proposed_action': '<one of: remove_subheadline | trim_benefits | shorten_headline | remove_trust_block>', 'rationale': '<which element creates overload>', 'expected_lift': '<projected score after subtraction>' }>"
   },
   "framework_score": {
-    "minimum_viable_test": "<pass or fail: does visual + 5 words communicate the core feeling?>",
+    "minimum_viable_test": "<pass or fail: does every word in the headline earn its place — could any word be cut without losing meaning, impact, emotional specificity, or audience fit?>",
     "headline_leaves_gap": <true/false>,
     "subheadline_justified": <true/false>,
     "benefits_justified": <true/false>,
     "trust_signal_justified": <true/false>,
     "cta_justified": <true/false>,
-    "overall_framework_grade": "<A | B | C | D>",
-    "framework_feedback": "<two sentences: where the framework is violated or over-built>"
+    "overall_framework_grade": "<A | B | C | D — A=9-10, B=7-8, C=4-6, D=1-3>",
+    "framework_feedback": "<two sentences — must agree with grade; do not flag a flaw if grade is A>"
   },
   "congruence": {
     "overall_score": <1-10, where 10=fully congruent>,
@@ -416,19 +695,59 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "cta_to_offer":             { "aligned": <true/false>, "note": "<one sentence>" },
     "trust_signals_to_claim":   { "aligned": <true/false>, "note": "<one sentence>" },
     "incoherence_summary": "<one sentence: primary mismatch, or 'No incoherence detected'>",
-    "fix": "<single most important change to improve congruence>"
+    "fix": "<single most important change to improve congruence>",
+    "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
+    "rewrite": "<null when overall_score >= 7. Otherwise object: { 'proposed_action': '<which alignment to fix and proposed reword>', 'rationale': '<why>', 'expected_lift': '<projected score change>' }>"
+  },
+  "combination_analysis": {
+    "current_combination": "<copy from composition_tag>",
+    "combination_assessment": "<two sentences: is this combination appropriate for this ad's awareness/sophistication and creative intent?>",
+    "historical_match": {
+      "winners_with_same_combo_in_segment": <integer count>,
+      "losers_with_same_combo_in_segment": <integer count>,
+      "winner_examples": ["<W1>", "<W7>"],
+      "loser_examples": ["<L2>"],
+      "verdict": "<one of: strong_winner_pattern | mixed_record | mostly_loser_pattern | no_segment_data>",
+      "verdict_reasoning": "<one sentence: what the counts and examples show>"
+    },
+    "alternative_combination": "<null when current is optimal. Otherwise object: { 'recommended': '<composition_tag>', 'intent': '<replacement | test_variant>', 'rationale': '<two sentences citing Block 0 learned rules and/or specific winner examples>', 'element_changes': { 'headline': '<new text or unchanged or remove>', 'subheadline': '<new text or unchanged or remove>', 'benefits': ['<benefit>'] | 'unchanged' | 'remove' | 'trim_to_2', 'trust_signals': ['<signal>'] | 'unchanged' | 'remove', 'cta': '<new text or unchanged>', 'offer': '<new text or unchanged or remove>' }, 'predicted_impact': '<one sentence: which scores improve and which segment-pattern this matches>' }>"
   }
 }`
 
 const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
   "copy": {
-    "headline": { "text": "<exact text or null>", "clarity": <1-10>, "urgency": <1-10>, "relevance": <1-10>, "feedback": "<two sentences: what this headline reveals about the audience and structural choice>" },
-    "subheadline": { "text": "<exact text or null>", "supports_headline": <true/false>, "clarity": <1-10>, "feedback": "<one sentence: what the subheadline's presence or absence reveals>" },
-    "benefits_features": { "identified": ["<benefit 1>"], "clarity": <1-10>, "prominence": <1-10>, "feedback": "<two sentences: what the benefit structure reveals about audience justification needs>" },
-    "trust_signals": { "identified": ["<signal>"], "strength": <1-10>, "feedback": "<two sentences: what the trust signal level reveals about category trust requirements>" },
-    "safety_signals": { "identified": ["<signal>"], "strength": <1-10>, "feedback": "<two sentences: what safety signal handling reveals about category compliance posture>" },
-    "cta": { "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>, "feedback": "<two sentences: what the CTA presence/absence reveals about audience readiness>" }
+    "headline": {
+      "text": "<exact text or null>", "clarity": <1-10>, "urgency": <1-10>, "relevance": <1-10>,
+      "feedback": "<two sentences — must agree with scores; describe what this headline reveals about WHY this winning ad worked>",
+      "dna": "<HeadlineDNA object — mirror confirmed_elements.headline_dna; only override if visual contradicts>"
+    },
+    "subheadline": {
+      "text": "<exact text or null>", "supports_headline": <true/false>, "clarity": <1-10>,
+      "feedback": "<one sentence — must agree with score; describe what the subheadline's presence or absence reveals>",
+      "dna": "<SubheadlineDNA object>"
+    },
+    "benefits_features": {
+      "identified": ["<benefit 1>"], "clarity": <1-10>, "prominence": <1-10>,
+      "feedback": "<two sentences — must agree with min(clarity,prominence); describe benefit structure relative to audience>",
+      "dna": "<BenefitsDNA object>"
+    },
+    "trust_signals": {
+      "identified": ["<signal>"], "strength": <1-10>,
+      "feedback": "<two sentences — must agree with strength>",
+      "dna": "<TrustDNA object>"
+    },
+    "safety_signals": {
+      "identified": ["<signal>"], "strength": <1-10>,
+      "feedback": "<two sentences — must agree with strength>"
+    },
+    "cta": {
+      "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>,
+      "feedback": "<two sentences — must agree with min(clarity,contrast)>",
+      "dna": "<CtaDNA object>"
+    }
   },
+  "body_dna": "<BodyDNA object or null>",
+  "composition_tag": "<canonical composition tag from confirmed_elements.composition_tag>",
   "behavioral_economics": {
     "scarcity":      { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
     "urgency":       { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
@@ -497,26 +816,20 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "offer_feedback": "<two sentences: what the offer architecture reveals about decision pathway here>"
   },
   "cognitive_load": {
-    "score": <1-10, where 1=effortless and 10=overwhelming>,
+    "score": <1-10, where 1=effortless and 10=overwhelming — INVERTED scale>,
     "density": "<one of: minimal | moderate | heavy>",
-    "overload_risk": "<what specific element(s) are contributing to overload, or 'none'>",
+    "overload_risk": "<what specific element(s) are contributing to overload, or 'none' — must agree with score>",
     "simplification": "<one sentence: what this load level reveals about minimum-viable copy in this category>"
   },
-  "platform_fit": {
-    "optimised_for": ["<platform 1>"],
-    "weak_for": ["<platform 1>"],
-    "reasoning": "<two sentences: why this format fits or doesn't fit each platform>",
-    "adaptation_notes": "<one-two sentences: what platform fit reveals about audience-format match and category native placement>"
-  },
   "framework_score": {
-    "minimum_viable_test": "<pass or fail: does visual + 5 words communicate the core feeling?>",
+    "minimum_viable_test": "<pass or fail: does every word in the headline earn its place — could any word be cut without losing meaning, impact, emotional specificity, or audience fit?>",
     "headline_leaves_gap": <true/false>,
     "subheadline_justified": <true/false>,
     "benefits_justified": <true/false>,
     "trust_signal_justified": <true/false>,
     "cta_justified": <true/false>,
-    "overall_framework_grade": "<A | B | C | D>",
-    "framework_feedback": "<two sentences: what this grade reveals about minimum-viable-copy norms in this vertical>"
+    "overall_framework_grade": "<A | B | C | D — A=9-10, B=7-8, C=4-6, D=1-3>",
+    "framework_feedback": "<two sentences — must agree with grade>"
   },
   "congruence": {
     "overall_score": <1-10, where 10=fully congruent>,
@@ -528,19 +841,57 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "trust_signals_to_claim":   { "aligned": <true/false>, "note": "<one sentence>" },
     "incoherence_summary": "<one sentence: primary mismatch, or 'No incoherence detected'>",
     "fix": "<one sentence: what the congruence pattern reveals about effective creative architecture here>"
+  },
+  "combination_analysis": {
+    "current_combination": "<copy from composition_tag>",
+    "combination_assessment": "<two sentences: what this combination reveals about effective creative architecture for this segment>",
+    "historical_match": {
+      "winners_with_same_combo_in_segment": <integer count>,
+      "losers_with_same_combo_in_segment": <integer count>,
+      "winner_examples": ["<W1>"],
+      "loser_examples": ["<L2>"],
+      "verdict": "<strong_winner_pattern | mixed_record | mostly_loser_pattern | no_segment_data>",
+      "verdict_reasoning": "<one sentence>"
+    },
+    "alternative_combination": null
   }
 }`
 
 
 const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
   "copy": {
-    "headline": { "text": "<exact text or null>", "clarity": <1-10>, "urgency": <1-10>, "relevance": <1-10>, "feedback": "<two sentences: what this headline reveals about why the audience did not convert>" },
-    "subheadline": { "text": "<exact text or null>", "supports_headline": <true/false>, "clarity": <1-10>, "feedback": "<one sentence: what the subheadline's presence or absence reveals about the structural failure>" },
-    "benefits_features": { "identified": ["<benefit 1>"], "clarity": <1-10>, "prominence": <1-10>, "feedback": "<two sentences: what the benefit structure reveals about the conversion gap>" },
-    "trust_signals": { "identified": ["<signal>"], "strength": <1-10>, "feedback": "<two sentences: what the trust signal level reveals about why credibility did not land>" },
-    "safety_signals": { "identified": ["<signal>"], "strength": <1-10>, "feedback": "<two sentences: what safety signal handling reveals about compliance or friction failures>" },
-    "cta": { "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>, "feedback": "<two sentences: what the CTA reveals about why the next step failed to convert>" }
+    "headline": {
+      "text": "<exact text or null>", "clarity": <1-10>, "urgency": <1-10>, "relevance": <1-10>,
+      "feedback": "<two sentences — must agree with scores; describe what this headline reveals about WHY this losing ad failed>",
+      "dna": "<HeadlineDNA object — mirror confirmed_elements.headline_dna>"
+    },
+    "subheadline": {
+      "text": "<exact text or null>", "supports_headline": <true/false>, "clarity": <1-10>,
+      "feedback": "<one sentence — must agree with score; describe structural failure>",
+      "dna": "<SubheadlineDNA object>"
+    },
+    "benefits_features": {
+      "identified": ["<benefit 1>"], "clarity": <1-10>, "prominence": <1-10>,
+      "feedback": "<two sentences — must agree with min(clarity,prominence)>",
+      "dna": "<BenefitsDNA object>"
+    },
+    "trust_signals": {
+      "identified": ["<signal>"], "strength": <1-10>,
+      "feedback": "<two sentences — must agree with strength>",
+      "dna": "<TrustDNA object>"
+    },
+    "safety_signals": {
+      "identified": ["<signal>"], "strength": <1-10>,
+      "feedback": "<two sentences — must agree with strength>"
+    },
+    "cta": {
+      "text": "<exact text or null>", "clarity": <1-10>, "placement": "<location>", "contrast": <1-10>,
+      "feedback": "<two sentences — must agree with min(clarity,contrast)>",
+      "dna": "<CtaDNA object>"
+    }
   },
+  "body_dna": "<BodyDNA object or null>",
+  "composition_tag": "<canonical composition tag from confirmed_elements.composition_tag>",
   "behavioral_economics": {
     "scarcity":      { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
     "urgency":       { "present": <true/false>, "strength": <0-10>, "note": "<one sentence>" },
@@ -609,26 +960,20 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "offer_feedback": "<two sentences: what the offer architecture reveals about why the decision pathway broke down>"
   },
   "cognitive_load": {
-    "score": <1-10, where 1=effortless and 10=overwhelming>,
+    "score": <1-10, where 1=effortless and 10=overwhelming — INVERTED scale>,
     "density": "<one of: minimal | moderate | heavy>",
-    "overload_risk": "<what specific element(s) caused friction, or 'none'>",
+    "overload_risk": "<what specific element(s) caused friction, or 'none' — must agree with score>",
     "simplification": "<one sentence: what this load level reveals about copy failure in this category>"
   },
-  "platform_fit": {
-    "optimised_for": ["<platform 1>"],
-    "weak_for": ["<platform 1>"],
-    "reasoning": "<two sentences: why this format failed or fit each platform>",
-    "adaptation_notes": "<one-two sentences: what platform mismatch reveals about why this ad did not find its audience>"
-  },
   "framework_score": {
-    "minimum_viable_test": "<pass or fail: does visual + 5 words communicate the core feeling?>",
+    "minimum_viable_test": "<pass or fail: does every word in the headline earn its place — could any word be cut without losing meaning, impact, emotional specificity, or audience fit?>",
     "headline_leaves_gap": <true/false>,
     "subheadline_justified": <true/false>,
     "benefits_justified": <true/false>,
     "trust_signal_justified": <true/false>,
     "cta_justified": <true/false>,
-    "overall_framework_grade": "<A | B | C | D>",
-    "framework_feedback": "<two sentences: what framework violations or over-building reveals about why this ad underperformed>"
+    "overall_framework_grade": "<A | B | C | D — A=9-10, B=7-8, C=4-6, D=1-3>",
+    "framework_feedback": "<two sentences — must agree with grade; describe how violations explain the failure>"
   },
   "congruence": {
     "overall_score": <1-10, where 10=fully congruent>,
@@ -640,6 +985,19 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "trust_signals_to_claim":   { "aligned": <true/false>, "note": "<one sentence>" },
     "incoherence_summary": "<one sentence: primary mismatch that contributed to failure, or 'No incoherence detected'>",
     "fix": "<one sentence: what the congruence failure reveals about creative architecture mistakes in this category>"
+  },
+  "combination_analysis": {
+    "current_combination": "<copy from composition_tag>",
+    "combination_assessment": "<two sentences: what this combination reveals about WHY the failure mode emerged in this segment>",
+    "historical_match": {
+      "winners_with_same_combo_in_segment": <integer count>,
+      "losers_with_same_combo_in_segment": <integer count>,
+      "winner_examples": ["<W1>"],
+      "loser_examples": ["<L2>"],
+      "verdict": "<strong_winner_pattern | mixed_record | mostly_loser_pattern | no_segment_data>",
+      "verdict_reasoning": "<one sentence>"
+    },
+    "alternative_combination": null
   }
 }`
 
@@ -715,7 +1073,10 @@ GOOD (observation — write like this):
 BAD (directive — never write this):
 "The headline is short. Consider adding a mechanism or benefit statement to increase specificity and improve conversion rate."
 
-Every field that normally asks 'what to fix' now asks 'what does this reveal'. If you find yourself wanting to write 'add X', rewrite it as 'the absence of X reveals…'.`
+Every field that normally asks 'what to fix' now asks 'what does this reveal'. If you find yourself wanting to write 'add X', rewrite it as 'the absence of X reveals…'.
+
+SCORING CONSISTENCY — MANDATORY:
+Every numeric score must agree with its paired feedback string. Score 8+ = feedback describes WHY this worked; score 4-5 = feedback names the specific gap; score 1-3 = feedback names what failed. Inverted scale on cognitive_load: low score = effective. Do not return score-feedback contradictions.`
   } else if (isLoser) {
     preamble = `You are a senior advertising strategist analyzing a confirmed underperforming ad ($${spendUsd} spend). This ad did not achieve meaningful distribution. Your task is to understand WHY it failed — what structural choices limited its reach, where the creative architecture broke down, and what the audience did not respond to.
 
@@ -728,9 +1089,62 @@ GOOD (observation of failure — write like this):
 BAD (directive — never write this):
 "The headline jumps to the mechanism. Add a problem-statement line above it to establish pain before introducing the solution."
 
-Every field describes what IS present and what it reveals about why this ad failed to generate meaningful spend. If you find yourself wanting to write 'add X', rewrite it as 'the absence of X reveals why conversion stalled'.`
+Every field describes what IS present and what it reveals about why this ad failed to generate meaningful spend. If you find yourself wanting to write 'add X', rewrite it as 'the absence of X reveals why conversion stalled'.
+
+SCORING CONSISTENCY — MANDATORY:
+Every numeric score must agree with its paired feedback string. Score 8+ = feedback describes WHY this still worked here; score 4-5 = feedback names the specific gap that broke conversion; score 1-3 = feedback names what failed. Inverted scale on cognitive_load: low score = effective; high score = breakage. Do not return score-feedback contradictions.`
   } else {
-    preamble = `You are a senior advertising strategist, media buyer, and neuroscience analyst reviewing a static ad image.`
+    preamble = `You are a senior advertising strategist, media buyer, and neuroscience analyst reviewing a static ad image.
+
+SCORING CONSISTENCY — MANDATORY ACROSS EVERY SCORED FIELD:
+Every numeric score in this schema is paired with a feedback string. The score and the feedback MUST be internally consistent. Score-to-feedback contract:
+- Score 8–10 (or grade A): the element is effective. Feedback MUST explain WHY it works — never name a structural flaw.
+- Score 6–7 (or grade B): solid but improvable. Feedback names the specific marginal lift available.
+- Score 4–5 (or grade C): mediocre. Feedback identifies the specific gap.
+- Score 1–3 (or grade D): fails. Feedback names what is broken and why.
+
+INVERTED SCALES — apply the contract correctly:
+- cognitive_load.score: 1=effortless (good), 10=overwhelming (bad). Score 2 means LOW load = EFFECTIVE; score 9 means HIGH load = FAILURE. Feedback for cognitive_load=2 MUST praise the simplicity, not flag overload.
+
+CROSS-FIELD CONSISTENCY:
+- If congruence.overall_score is 9, field-level alignment booleans should mostly be true. If most are false, the score is wrong.
+- If framework_score.overall_framework_grade is A, *_justified booleans should mostly be true and minimum_viable_test should be "pass".
+- If hook_analysis.scroll_stop_score is 8+, hook_feedback must describe the working pattern interrupt — not propose a new one.
+
+VIOLATION CHECK BEFORE OUTPUT: verify every score-feedback pair satisfies the contract. Do not return contradictions.
+
+PRINCIPLE PRECEDENCE — non-negotiable:
+When a LEARNED GUARD RAIL (Block 0) contradicts the STATIC FRAMEWORK BASELINE, follow the learned guard rail. The baseline is a default for when historical evidence is silent on this segment. Cite guard rail rule indices (G1, G2, ...) when they drive a recommendation.
+
+DUAL CROSS-REFERENCE — winner AND loser patterns per scored variable:
+For each scored variable (headline, subheadline, each benefit, trust signals, CTA, offer, hook, congruence), perform two checks:
+- WINNER CHECK: Does this variable's DNA match a pattern in winners (≥$${WINNER_THRESHOLD_USD} spend) within this ad's awareness/sophistication segment? If YES, populate library_alignment.winner_matches with the example numbers.
+- LOSER CHECK: Does this variable's DNA match a pattern in losers (<$${WINNER_THRESHOLD_USD} spend) within this segment? If YES, populate library_alignment.loser_matches.
+- If matches BOTH: verdict='mixed', name both citations, weight the score by the count balance.
+- If matches NEITHER: verdict='no_analog'. Do not invent a pattern reference.
+
+REWRITE QUALITY RULES — non-negotiable:
+1. proposed_text must be SHIP-READY copy. No placeholders, no meta-commentary. Just the literal new copy as if it would appear in the ad.
+2. proposed_text must differ from the original on AT LEAST one DNA dimension listed in dna_changes. If no structural change is identifiable, leave rewrite as null and let the score stand.
+3. Never propose a rewrite that violates a Block 0 LEARNED GUARD RAIL applicable to this ad's segment.
+4. Rewrites must be evidence-grounded (winner-bucket analog) or principle-grounded (static framework) — not creative invention. If no winner analog exists, expected_lift uses the honest "no analog" note.
+5. For cognitive_load rewrites: the projected score must be the consequence of REMOVING elements, not adding more. The fix for high cog_load is subtraction.
+
+COMBINATION ANALYSIS PROTOCOL:
+Step 1: Identify the current combination from confirmed_elements.composition_tag.
+Step 2: Query the pattern context for winner/loser examples in this ad's awareness/sophistication segment that share the same composition_tag. Report counts and example numbers in combination_analysis.historical_match.
+Step 3: Apply the decision tree to determine intent:
+  - mostly_loser_pattern AND winners ≤ 1 AND losers ≥ 3 → intent='replacement'
+  - strong_winner_pattern AND all elements 7+ → intent='none', recommended=null
+  - strong_winner_pattern BUT one element <7 AND alternative has equal/stronger winner support → intent='test_variant'
+  - mixed_record AND all elements 7+ → intent='test_variant' (exploratory)
+  - mixed_record AND any element <7 → intent='replacement'
+  - no_segment_data → intent='test_variant' with low conviction explicitly flagged
+Step 4: If 'replacement' or 'test_variant', construct alternative with ship-ready element_changes (each respecting the rewrite rules above and Block 0 guard rails).
+Step 5: predicted_impact must cite the specific winner examples whose combination + DNA inspired the alternative.
+
+FORBIDDEN PHRASES IN FEEDBACK-MODE OUTPUT:
+"the data shows", "historical patterns suggest", "research indicates", "winners typically", "in general", "as a rule", "broadly speaking", "the library indicates", "patterns reveal". These are skimming markers — replace with specific example citations or do not make the claim.`
   }
 
   const analysisInstruction = isWinner
@@ -743,7 +1157,7 @@ Every field describes what IS present and what it reveals about why this ad fail
 ${confirmedElements ? `\n${buildConfirmedElementsBlock(confirmedElements)}\n` : ''}
 Writing style: specific and direct — every word earns its place. No filler phrases. Detailed explanations in minimal words.
 
-${FRAMEWORK_CONTEXT}
+${STATIC_FRAMEWORK_BASELINE}
 ${patternContext ? `\n${patternContext}\n` : ''}
 ${redditSection}BERG brain activation scores:
 ${scoreLines}
@@ -860,7 +1274,6 @@ function emptyComprehensive(bergBullets: string[]): ComprehensiveAnalysis {
       perceived_value_score: 0, offer_clarity_score: 0, offer_feedback: '',
     },
     cognitive_load: { score: 0, density: 'minimal', overload_risk: '', simplification: '' },
-    platform_fit: { optimised_for: [], weak_for: [], reasoning: '', adaptation_notes: '' },
     framework_score: {
       minimum_viable_test: 'fail',
       headline_leaves_gap: false, subheadline_justified: false, benefits_justified: false,
@@ -877,6 +1290,21 @@ function emptyComprehensive(bergBullets: string[]): ComprehensiveAnalysis {
       trust_signals_to_claim: { aligned: false, note: '' },
       incoherence_summary: '',
       fix: '',
+    },
+    body_dna: null,
+    composition_tag: '',
+    combination_analysis: {
+      current_combination: '',
+      combination_assessment: '',
+      historical_match: {
+        winners_with_same_combo_in_segment: 0,
+        losers_with_same_combo_in_segment: 0,
+        winner_examples: [],
+        loser_examples: [],
+        verdict: 'no_segment_data',
+        verdict_reasoning: '',
+      },
+      alternative_combination: null,
     },
   }
 }
@@ -900,14 +1328,16 @@ export async function POST(req: NextRequest) {
   const concept_topic: string | undefined = body.concept_topic
   const mode: string | undefined = body.mode
 
-  const [patterns, winningExamples, losingPatterns, redditPosts] = await Promise.all([
+  const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, redditPosts] = await Promise.all([
     getWinningPatterns(),
     getAllWinningAnalyses(),
     getLosingPatterns(),
+    getAllLosersForSynthesis(),
+    getFrameworkPrinciples(),
     concept_topic ? fetchRedditPosts(concept_topic) : Promise.resolve(null),
   ])
 
-  const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns)
+  const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples)
   const visualDescription = confirmed_elements?.visual_description
 
   let bergText: string

@@ -23,11 +23,14 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null)
 
   const fetchStats = useCallback(async () => {
+    // Historical-mode only: feedback mode never sets spend_usd, so this filter
+    // separates the two cleanly without needing a dedicated mode column.
     const { data } = await supabase
       .from('analyses')
       .select('spend_usd')
       .eq('type', 'thumbnail')
       .eq('status', 'complete')
+      .not('spend_usd', 'is', null)
     const rows = data ?? []
     const count = rows.length
     const totalSpend = rows.reduce((sum, r) => sum + (Number(r.spend_usd) || 0), 0)

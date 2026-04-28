@@ -50,6 +50,20 @@ function Field({
   )
 }
 
+function DnaPreview({ chips }: { chips: (string | null)[] }) {
+  const visible = chips.filter((c): c is string => Boolean(c))
+  if (visible.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1 -mt-0.5 pl-0.5">
+      {visible.map((chip, i) => (
+        <span key={i} className="text-[9px] text-gray-400 bg-gray-950 border border-gray-800 rounded px-1.5 py-0.5 font-mono">
+          {chip}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function ListField({
   label,
   items,
@@ -107,15 +121,53 @@ export function ExtractionConfirmPanel({ fileName, previewUrl, extracted, onConf
         <div className="px-5 py-3 border-b border-gray-800 shrink-0 flex gap-4 items-start">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={previewUrl} alt={fileName} className="w-20 h-20 object-cover rounded-lg shrink-0 border border-gray-800" />
-          <p className="text-xs text-gray-400 leading-relaxed">
-            Claude extracted these elements from the ad. Correct anything it got wrong — especially the headline and CTA, which are used as ground truth in the full analysis. Leave a field blank if the element is not present.
-          </p>
+          <div className="flex-1 space-y-2 min-w-0">
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Claude extracted these elements from the ad. Correct anything it got wrong — especially the headline and CTA, which are used as ground truth in the full analysis. Leave a field blank if the element is not present.
+            </p>
+            {fields.composition_tag && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Composition</span>
+                <span className="text-[10px] text-white font-mono bg-gray-950 border border-gray-700 rounded px-2 py-0.5">
+                  {fields.composition_tag}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Editable fields */}
         <div className="p-5 space-y-3 overflow-y-auto flex-1 min-h-0">
           <Field label="Headline" value={fields.headline ?? ''} onChange={v => set('headline', v || null)} />
+          {fields.headline_dna && (
+            <DnaPreview
+              chips={[
+                fields.headline_dna.word_count != null ? `${fields.headline_dna.word_count}w` : null,
+                fields.headline_dna.char_count != null ? `${fields.headline_dna.char_count}c` : null,
+                fields.headline_dna.structure_type ? `structure: ${fields.headline_dna.structure_type}` : null,
+                fields.headline_dna.voice ? `voice: ${fields.headline_dna.voice}` : null,
+                fields.headline_dna.specificity_level ? `spec: ${fields.headline_dna.specificity_level}` : null,
+                fields.headline_dna.emotional_register ? `reg: ${fields.headline_dna.emotional_register}` : null,
+                fields.headline_dna.tone_register ? `tone: ${fields.headline_dna.tone_register}` : null,
+                fields.headline_dna.time_bound ? 'time-bound' : null,
+                fields.headline_dna.uses_negation ? 'negation' : null,
+                fields.headline_dna.uses_contrast ? 'contrast' : null,
+                fields.headline_dna.power_words.length > 0 ? `power: ${fields.headline_dna.power_words.join(', ')}` : null,
+              ]}
+            />
+          )}
           <Field label="Subheadline" value={fields.subheadline ?? ''} onChange={v => set('subheadline', v || null)} />
+          {fields.subheadline_dna && fields.subheadline_dna.role !== 'absent' && (
+            <DnaPreview
+              chips={[
+                fields.subheadline_dna.role ? `role: ${fields.subheadline_dna.role}` : null,
+                fields.subheadline_dna.length_relative_to_headline ? `length: ${fields.subheadline_dna.length_relative_to_headline}` : null,
+                fields.subheadline_dna.tonal_shift && fields.subheadline_dna.tonal_shift !== 'absent' ? `tonal: ${fields.subheadline_dna.tonal_shift}` : null,
+                fields.subheadline_dna.introduces_mechanism ? 'introduces mechanism' : null,
+                fields.subheadline_dna.introduces_proof ? 'introduces proof' : null,
+              ]}
+            />
+          )}
           <Field label="Body copy" value={fields.body_copy ?? ''} onChange={v => set('body_copy', v || null)} multiline />
           <Field label="CTA" value={fields.cta ?? ''} onChange={v => set('cta', v || null)} />
           <Field label="Offer / price" value={fields.offer_details ?? ''} onChange={v => set('offer_details', v || null)} />

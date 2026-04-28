@@ -5,7 +5,7 @@ export const LOSER_THRESHOLD_USD = 1000
 
 export interface PatternLibraryRow {
   id: string
-  category: 'visual' | 'copy' | 'behavioral' | 'neuroscience'
+  category: 'visual' | 'copy' | 'behavioral' | 'neuroscience' | 'framework'
   rule_text: string
   confidence: number
   winner_count: number
@@ -15,10 +15,24 @@ export interface PatternLibraryRow {
 
 export interface LosingPatternRow {
   id: string
-  category: 'visual' | 'copy' | 'behavioral' | 'neuroscience'
+  category: 'visual' | 'copy' | 'behavioral' | 'neuroscience' | 'framework'
   rule_text: string
   confidence: number
   loser_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface FrameworkPrincipleRow {
+  id: string
+  category: 'framework'
+  rule_text: string
+  confidence: number
+  winner_count: number
+  scope_awareness: 'unaware' | 'problem_aware' | 'solution_aware' | 'product_aware' | 'most_aware' | null
+  scope_sophistication: 1 | 2 | 3 | 4 | 5 | null
+  supporting_winner_ids: string[] | null
+  supporting_loser_ids: string[] | null
   created_at: string
   updated_at: string
 }
@@ -33,11 +47,34 @@ export async function getWinningPatterns(): Promise<PatternLibraryRow[]> {
   const { data, error } = await supabaseServer
     .from('pattern_library')
     .select('*')
+    .neq('category', 'framework')
     .order('winner_count', { ascending: false })
     .order('confidence', { ascending: false })
 
   if (error) return []
   return (data ?? []) as PatternLibraryRow[]
+}
+
+export async function getFrameworkPrinciples(
+  awareness?: string | null,
+  sophistication?: number | null,
+): Promise<FrameworkPrincipleRow[]> {
+  let query = supabaseServer
+    .from('pattern_library')
+    .select('*')
+    .eq('category', 'framework')
+
+  // Surface rules whose scope is null (global) OR matches the current ad's segment
+  if (awareness) {
+    query = query.or(`scope_awareness.is.null,scope_awareness.eq.${awareness}`)
+  }
+  if (sophistication !== undefined && sophistication !== null) {
+    query = query.or(`scope_sophistication.is.null,scope_sophistication.eq.${sophistication}`)
+  }
+
+  const { data, error } = await query.order('confidence', { ascending: false })
+  if (error) return []
+  return (data ?? []) as FrameworkPrincipleRow[]
 }
 
 export async function getLosingPatterns(): Promise<LosingPatternRow[]> {
@@ -110,6 +147,7 @@ export async function upsertPatterns(
     const { data: existing } = await supabaseServer
       .from('pattern_library')
       .select('id, winner_count')
+      .neq('category', 'framework')
       .ilike('rule_text', p.rule_text.slice(0, 60) + '%')
       .limit(1)
       .maybeSingle()
@@ -129,6 +167,53 @@ export async function upsertPatterns(
         rule_text: p.rule_text,
         confidence: p.confidence,
         winner_count: 1,
+      })
+    }
+  }
+}
+
+export async function upsertFrameworkPrinciples(
+  principles: {
+    rule_text: string
+    confidence: number
+    scope_awareness: string | null
+    scope_sophistication: number | null
+    supporting_winner_ids: string[]
+    supporting_loser_ids: string[]
+  }[],
+): Promise<void> {
+  for (const p of principles) {
+    const { data: existing } = await supabaseServer
+      .from('pattern_library')
+      .select('id, winner_count')
+      .eq('category', 'framework')
+      .ilike('rule_text', p.rule_text.slice(0, 60) + '%')
+      .limit(1)
+      .maybeSingle()
+
+    if (existing) {
+      await supabaseServer
+        .from('pattern_library')
+        .update({
+          winner_count: (existing.winner_count ?? 1) + 1,
+          confidence: p.confidence,
+          scope_awareness: p.scope_awareness,
+          scope_sophistication: p.scope_sophistication,
+          supporting_winner_ids: p.supporting_winner_ids,
+          supporting_loser_ids: p.supporting_loser_ids,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id)
+    } else {
+      await supabaseServer.from('pattern_library').insert({
+        category: 'framework',
+        rule_text: p.rule_text,
+        confidence: p.confidence,
+        winner_count: 1,
+        scope_awareness: p.scope_awareness,
+        scope_sophistication: p.scope_sophistication,
+        supporting_winner_ids: p.supporting_winner_ids,
+        supporting_loser_ids: p.supporting_loser_ids,
       })
     }
   }
