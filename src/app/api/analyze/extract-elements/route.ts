@@ -5,7 +5,7 @@ import { keepAliveStream } from '@/lib/streaming'
 import { parseClaudeJson } from '@/lib/parseClaudeJson'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 120
 
 export interface HeadlineDNA {
   word_count: number | null

@@ -31,7 +31,7 @@ import type {
 } from '@/app/api/analyze/extract-elements/route'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 300
 
 interface ROIAverage {
   region_key: string
@@ -236,7 +236,7 @@ export interface ComprehensiveAnalysis {
   }
 }
 
-const anthropic = new Anthropic({ timeout: 120000 })
+const anthropic = new Anthropic({ timeout: 280000 })
 
 const AWARENESS_BUCKETS: Array<'unaware' | 'problem_aware' | 'solution_aware' | 'product_aware' | 'most_aware'> = [
   'unaware', 'problem_aware', 'solution_aware', 'product_aware', 'most_aware',
