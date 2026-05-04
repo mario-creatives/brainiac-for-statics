@@ -18,9 +18,9 @@ import type { ExtractedElements, HeadlineDNA, SubheadlineDNA, TrustDNA, CtaDNA }
 import { parseClaudeJson } from '@/lib/parseClaudeJson'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 300
 
-const anthropic = new Anthropic({ timeout: 120000 })
+const anthropic = new Anthropic({ timeout: 280000 })
 
 /** Derive a composition_tag from which elements are actually present. */
 function deriveCompositionTag(ca: ComprehensiveAnalysis): string {

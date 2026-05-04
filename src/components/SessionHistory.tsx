@@ -15,6 +15,7 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
   const [loading, setLoading] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [reanalyzingId, setReanalyzingId] = useState<string | null>(null)
+  const [reanalyzeError, setReanalyzeError] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     if (!token) return
@@ -47,13 +48,16 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
     e.stopPropagation()
     if (!token || reanalyzingId) return
     setReanalyzingId(id)
+    setReanalyzeError(prev => { const n = { ...prev }; delete n[id]; return n })
     try {
       const res = await fetch('/api/analyze/reanalyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ analysis_id: id }),
       })
-      if (res.ok) {
+      if (!res.ok) {
+        setReanalyzeError(prev => ({ ...prev, [id]: `Re-analysis failed (${res.status})` }))
+      } else {
         const reader = res.body?.getReader()
         const decoder = new TextDecoder()
         let text = ''
@@ -66,23 +70,27 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
         }
         const last = text.split('\n').filter(l => l.trim()).pop() ?? '{}'
         const data = JSON.parse(last) as Record<string, unknown>
-        if (!data.error && data.comprehensive) {
+        if (data.error) {
+          setReanalyzeError(prev => ({ ...prev, [id]: data.error as string }))
+        } else if (data.comprehensive) {
           const ca = data.comprehensive as Record<string, unknown>
           const fwk = ca?.framework_score as Record<string, unknown> | undefined
           const copy = ca?.copy as Record<string, unknown> | undefined
           const headline = copy?.headline as Record<string, unknown> | undefined
-          // Update just this row in place — no full list reload, no loading flash.
           setAnalyses(prev => prev.map(a => a.id !== id ? a : {
             ...a,
             framework_grade: (fwk?.overall_framework_grade as string) ?? a.framework_grade,
             composition_tag: (ca?.composition_tag as string) ?? a.composition_tag,
             headline_text: (headline?.text as string) ?? a.headline_text,
           }))
-          // Reopen the modal with the freshly analyzed data.
           onReanalyze?.(id)
+        } else {
+          setReanalyzeError(prev => ({ ...prev, [id]: 'Re-analysis returned no data' }))
         }
       }
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      setReanalyzeError(prev => ({ ...prev, [id]: err instanceof Error ? err.message : 'Network error' }))
+    }
     setReanalyzingId(null)
   }, [token, reanalyzingId, onReanalyze])
 
@@ -160,6 +168,11 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
                       )}
                       {reanalyzingId === a.id && (
                         <span className="text-[9px] text-indigo-300 animate-pulse">re-analyzing…</span>
+                      )}
+                      {reanalyzeError[a.id] && (
+                        <span className="text-[9px] text-red-400" title={reanalyzeError[a.id]}>
+                          re-analysis failed: {reanalyzeError[a.id].slice(0, 60)}
+                        </span>
                       )}
                     </div>
                   </div>
