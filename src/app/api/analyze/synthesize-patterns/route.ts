@@ -101,7 +101,7 @@ export function buildAdSummary(ca: ComprehensiveAnalysis, spendUsd: number, loss
   lines.push(`($${spendUsd} spend, ${awareness}, soph=${soph}, format=${format}${reasonTag})`)
   lines.push(`  combo=${combo} | grade=${grade} | scroll_stop=${scrollStop} | cog_load=${cogLoad} | congruence=${congruence} | BE=[${activeBE}]`)
   if (hd) {
-    lines.push(`  HL="${headline}" (${hd.word_count}w/${hd.char_count}c) | ${hd.voice}/${hd.person}/${hd.tense}/${hd.sentence_type} | structure=${hd.structure_type} | spec=${hd.specificity_level} | mech=${hd.mechanism_present} aud=${hd.audience_explicit} out=${hd.outcome_explicit} time=${hd.time_bound} | reg=${hd.emotional_register}/${hd.tone_register} | metaphor=${hd.uses_metaphor} neg=${hd.uses_negation} contrast=${hd.uses_contrast} punct=[${hd.punctuation_signals.join(',')}]`)
+    lines.push(`  HL="${headline}" (${hd.word_count}w/${hd.char_count}c) | ${hd.voice}/${hd.person}/${hd.tense}/${hd.sentence_type} | structure=${hd.structure_type} | spec=${hd.specificity_level} | mech=${hd.mechanism_present} aud=${hd.audience_explicit} out=${hd.outcome_explicit} time=${hd.time_bound} | reg=${hd.emotional_register}/${hd.tone_register} | metaphor=${hd.uses_metaphor} neg=${hd.uses_negation} contrast=${hd.uses_contrast} punct=[${(hd.punctuation_signals ?? []).join(',')}]`)
   } else {
     lines.push(`  HL="${headline}"`)
   }
@@ -112,7 +112,7 @@ export function buildAdSummary(ca: ComprehensiveAnalysis, spendUsd: number, loss
     lines.push(`  BEN(${bd.count}): avg=${bd.avg_word_count}w | ${bd.pattern_uniformity} | ${bd.outcome_vs_feature_split} | spec=${bd.specificity}`)
   }
   if (td && td.count > 0) {
-    lines.push(`  TRU(${td.count}): [${td.types_present.join(', ')}] | quant=${td.has_specific_quantifiers} | ${td.source_attribution}`)
+    lines.push(`  TRU(${td.count}): [${(td.types_present ?? []).join(', ')}] | quant=${td.has_specific_quantifiers} | ${td.source_attribution}`)
   }
   if (cd) {
     lines.push(`  CTA="${cta}" verb=${cd.verb} | ${cd.word_count}w | ${cd.framing} | ${cd.friction_level}_friction | value=${cd.has_value_anchor} urgency=${cd.has_urgency_signal}`)
