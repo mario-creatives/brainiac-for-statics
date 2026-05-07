@@ -10,7 +10,7 @@ import { AttributionFooter } from '@/components/AttributionFooter'
 import { ImageBatchTab } from '@/components/ImageBatchTab'
 import { SessionHistory } from '@/components/SessionHistory'
 import { AdAnalysisModal } from '@/components/AdAnalysisModal'
-import { LogOut, BarChart3, RefreshCw } from 'lucide-react'
+import { LogOut, BarChart3, RefreshCw, Sparkles } from 'lucide-react'
 import type { UsageInfo, ConsentType, AnalysisResult } from '@/types'
 import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
 
@@ -174,6 +174,10 @@ export default function DashboardPage() {
           <Link href="/dashboard/historical-analysis" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
             <BarChart3 className="w-3.5 h-3.5" />
             Historical analysis
+          </Link>
+          <Link href="/dashboard/copy-intelligence" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
+            <Sparkles className="w-3.5 h-3.5" />
+            Copy Intelligence
           </Link>
           {usage && <UsageMeter usage={usage} />}
           <a href="/account" className="text-xs text-gray-400 hover:text-white transition-colors">Settings</a>

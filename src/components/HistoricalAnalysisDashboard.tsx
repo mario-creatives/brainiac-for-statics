@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts'
@@ -46,6 +46,12 @@ export interface HistoricalPayload {
   dimension_stats: DimensionStat[]
   berg_dna_correlations: BergDnaCorrelation[]
   trends: TrendPoint[]
+  synthesis_status?: {
+    ever_run: boolean
+    pending: boolean
+    failed: boolean
+    job_count: number
+  }
 }
 
 interface Props {
@@ -55,7 +61,7 @@ interface Props {
 
 const GRADE_TO_NUM: Record<string, number> = { A: 4, B: 3, C: 2, D: 1 }
 
-export function HistoricalAnalysisDashboard({ data }: Props) {
+export function HistoricalAnalysisDashboard({ data, token }: Props) {
   return (
     <div className="space-y-8">
       <StatsStrip stats={data.stats} />
@@ -65,6 +71,8 @@ export function HistoricalAnalysisDashboard({ data }: Props) {
         losing={data.losing_patterns}
         framework={data.framework_principles}
         thresholds={data.pattern_thresholds}
+        synthesisStatus={data.synthesis_status}
+        token={token}
       />
       <BaselineEvolutionSection
         evolutions={data.baseline_evolutions}
@@ -154,14 +162,38 @@ function AwarenessSection({ rows }: { rows: AwarenessBreakdown[] }) {
 }
 
 function PatternsSection({
-  winning, losing, framework, thresholds,
+  winning, losing, framework, thresholds, synthesisStatus, token,
 }: {
   winning: PatternLibraryRow[]
   losing: LosingPatternRow[]
   framework: FrameworkPrincipleRow[]
   thresholds: HistoricalPayload['pattern_thresholds']
+  synthesisStatus?: HistoricalPayload['synthesis_status']
+  token: string
 }) {
   const [tab, setTab] = useState<'winning' | 'losing' | 'framework'>('winning')
+  const [triggerLoading, setTriggerLoading] = useState(false)
+  const [triggerMsg, setTriggerMsg] = useState<string | null>(null)
+
+  const handleTriggerSynthesis = useCallback(async () => {
+    if (triggerLoading) return
+    setTriggerLoading(true)
+    setTriggerMsg(null)
+    try {
+      const res = await fetch('/api/analyze/synthesize-patterns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        setTriggerMsg('Synthesis started — reload the page in ~30 seconds to see patterns.')
+      } else {
+        setTriggerMsg('Trigger failed — try again or upload another historical ad.')
+      }
+    } catch {
+      setTriggerMsg('Network error — try again.')
+    }
+    setTriggerLoading(false)
+  }, [token, triggerLoading])
 
   const activeThreshold =
     tab === 'winning' ? thresholds.winning_patterns :
@@ -172,6 +204,9 @@ function PatternsSection({
     tab === 'winning' ? winning.length :
     tab === 'losing' ? losing.length :
     framework.length
+
+  // Show trigger banner when threshold is met but patterns haven't populated yet.
+  const showTriggerBanner = activeThreshold.unlocked && activeCount === 0
 
   return (
     <Section
@@ -192,6 +227,28 @@ function PatternsSection({
 
       {!activeThreshold.unlocked && activeCount === 0 && (
         <UnlockProgress threshold={activeThreshold} />
+      )}
+
+      {showTriggerBanner && (
+        <div className="bg-gray-950 border border-amber-900/40 rounded-lg px-3 py-3 space-y-2">
+          <p className="text-xs text-amber-400">
+            {synthesisStatus?.ever_run
+              ? 'Synthesis has run but no patterns were produced yet — this can happen if the ads in this tab haven\'t been processed for this pattern type. Click below to retry.'
+              : 'You have enough ads to generate patterns, but synthesis hasn\'t run for this pattern type yet. Click below to trigger it now.'}
+          </p>
+          {triggerMsg ? (
+            <p className="text-[11px] text-gray-400">{triggerMsg}</p>
+          ) : (
+            <button
+              onClick={handleTriggerSynthesis}
+              disabled={triggerLoading}
+              className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border border-amber-700/60 bg-amber-900/20 text-amber-300 hover:bg-amber-900/40 transition-colors disabled:opacity-40"
+            >
+              <RefreshCw className={`w-3 h-3 ${triggerLoading ? 'animate-spin' : ''}`} />
+              {triggerLoading ? 'Running synthesis…' : 'Run synthesis now'}
+            </button>
+          )}
+        </div>
       )}
 
       {tab === 'winning' && (

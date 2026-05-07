@@ -67,6 +67,7 @@ export async function GET(req: NextRequest) {
     dimensionStats,
     bergDnaCorrelations,
     trends,
+    queueResult,
   ] = await Promise.all([
     getWinningPatterns(),
     getLosingPatterns(),
@@ -76,7 +77,19 @@ export async function GET(req: NextRequest) {
     getDimensionStats(),
     getBergDnaCorrelations(),
     getTrendPoints(),
+    supabaseServer
+      .from('synthesis_queue')
+      .select('status')
+      .in('status', ['pending', 'processing', 'done', 'failed']),
   ])
+
+  const queueRows = (queueResult.data ?? []) as { status: string }[]
+  const synthesisStatus = {
+    ever_run: queueRows.some(j => j.status === 'done'),
+    pending: queueRows.some(j => j.status === 'pending' || j.status === 'processing'),
+    failed: queueRows.some(j => j.status === 'failed'),
+    job_count: queueRows.length,
+  }
 
   // Compute next baseline evolution milestone
   const NEXT_MILESTONE = 50
@@ -134,5 +147,6 @@ export async function GET(req: NextRequest) {
     dimension_stats: dimensionStats,
     berg_dna_correlations: bergDnaCorrelations,
     trends,
+    synthesis_status: synthesisStatus,
   })
 }
