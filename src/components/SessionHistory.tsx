@@ -21,7 +21,7 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
     if (!token) return
     setLoading(true)
     try {
-      const res = await fetch('/api/analyses/recent?limit=20', {
+      const res = await fetch('/api/analyses/recent', {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) {

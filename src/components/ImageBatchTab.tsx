@@ -196,6 +196,23 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     e.target.value = ''
   }
 
+  function handleAddMore(e: React.ChangeEvent<HTMLInputElement>) {
+    const existing = cardsRef.current
+    const existingIds = new Set(existing.map(c => c.id))
+    const newFiles = Array.from(e.target.files ?? [])
+    const toAdd: ImageCard[] = []
+    for (const file of newFiles) {
+      const id = `${file.name}-${file.size}-${file.lastModified}`
+      if (!existingIds.has(id)) {
+        toAdd.push({ id, file, previewUrl: URL.createObjectURL(file), analysisId: null, status: 'pending', result: null, spend: undefined })
+        existingIds.add(id)
+      }
+    }
+    const merged = [...existing, ...toAdd].slice(0, 25)
+    setCards(merged)
+    e.target.value = ''
+  }
+
   function handleClear() {
     stoppedRef.current = true
     intervalsRef.current.forEach(clearInterval)
@@ -586,6 +603,12 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
         <div className="flex items-center justify-between">
           <p className="text-sm text-gray-400">{cards.length} image{cards.length > 1 ? 's' : ''} selected</p>
           <div className="flex gap-2">
+            {!analyzing && cards.length < 25 && (
+              <label className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs text-gray-300 hover:text-white border border-gray-700 cursor-pointer transition-colors">
+                Add more
+                <input type="file" accept="image/*" multiple className="hidden" onChange={handleAddMore} />
+              </label>
+            )}
             {!analyzing && (
               <label className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs text-gray-300 hover:text-white border border-gray-700 cursor-pointer transition-colors">
                 Change
