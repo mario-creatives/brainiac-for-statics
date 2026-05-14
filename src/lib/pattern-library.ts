@@ -153,7 +153,32 @@ export async function storeComprehensiveAnalysis(
   spendUsd?: number,
 ): Promise<void> {
   const update: Record<string, unknown> = { comprehensive_analysis: data }
-  if (spendUsd !== undefined) update.spend_usd = spendUsd
+  if (spendUsd !== undefined) {
+    update.spend_usd = spendUsd
+    // Keep quadrant in sync with the new spend. If the ad lives under a
+    // product, the product's target_cpa_usd is part of the calc; otherwise
+    // we fall back to the spend-only quadrant (legacy historical-mode
+    // behaviour). Done here so synthesis selection (which now reads
+    // quadrant) sees the new ad immediately, not on the next metrics PATCH.
+    const { computeQuadrant } = await import('@/lib/quadrant')
+    const { data: existing } = await supabaseServer
+      .from('analyses')
+      .select('cpa_usd, product_id')
+      .eq('id', analysisId)
+      .maybeSingle()
+    const productId = existing?.product_id as string | null | undefined
+    const cpa = (existing?.cpa_usd as number | null | undefined) ?? null
+    let targetCpa: number | null = null
+    if (productId) {
+      const { data: p } = await supabaseServer
+        .from('products')
+        .select('target_cpa_usd')
+        .eq('id', productId)
+        .maybeSingle()
+      targetCpa = (p?.target_cpa_usd as number | null | undefined) ?? null
+    }
+    update.quadrant = computeQuadrant(spendUsd, cpa, targetCpa)
+  }
 
   await supabaseServer
     .from('analyses')
@@ -355,6 +380,35 @@ export async function markSynthesisFailed(jobId: string, errorMessage: string): 
     .from('synthesis_queue')
     .update({ status: 'failed', completed_at: new Date().toISOString(), error_message: errorMessage })
     .eq('id', jobId)
+}
+
+// Record a synthesis pass failure so the Historical Analysis page can warn
+// the user that the pattern library has silently stalled. See migration 010.
+export async function recordSynthesisError(
+  pass: 'winner_patterns' | 'anti_patterns' | 'framework_principles' | 'baseline_evolution',
+  err: unknown,
+): Promise<void> {
+  const msg = err instanceof Error ? err.message : String(err)
+  await supabaseServer.from('synthesis_errors').insert({
+    pass,
+    error_message: msg.slice(0, 2000),
+  })
+}
+
+export interface SynthesisErrorRow {
+  id: string
+  pass: 'winner_patterns' | 'anti_patterns' | 'framework_principles' | 'baseline_evolution'
+  error_message: string
+  occurred_at: string
+}
+
+export async function getRecentSynthesisErrors(limit = 20): Promise<SynthesisErrorRow[]> {
+  const { data } = await supabaseServer
+    .from('synthesis_errors')
+    .select('id, pass, error_message, occurred_at')
+    .order('occurred_at', { ascending: false })
+    .limit(limit)
+  return (data ?? []) as SynthesisErrorRow[]
 }
 
 export async function hasPendingSynthesisJobs(): Promise<boolean> {

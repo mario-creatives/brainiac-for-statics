@@ -378,42 +378,47 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
     const { data: { session } } = await supabase.auth.getSession()
     const freshToken = session?.access_token ?? token
 
-    const dispatched = await Promise.all(
-      cardsRef.current.map(async card => {
-        setCards(prev => prev.map(c => c.id === card.id ? { ...c, status: 'uploading' } : c))
+    // Sequential per-card pipeline: BERG upload → wait for BERG result → next
+    // card. The user wants waterfall processing — no parallel Claude calls,
+    // no parallel BERG polling — so each ad is processed to completion before
+    // the next starts. Visible progress is the explicit goal here.
+    for (const card of cardsRef.current) {
+      if (stoppedRef.current) break
 
-        const form = new FormData()
-        form.append('image', card.file)
-        if (productId) form.append('product_id', productId)
+      setCards(prev => prev.map(c => c.id === card.id ? { ...c, status: 'uploading' } : c))
 
-        try {
-          const res = await fetch('/api/analyze/thumbnail', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${freshToken}` },
-            body: form,
-          })
-          const data = await res.json()
-          if (!res.ok || !data.analysis_id) {
-            setCards(prev => prev.map(c =>
-              c.id === card.id ? { ...c, status: 'failed', error: data.error ?? 'Upload failed' } : c
-            ))
-            return null
-          }
+      const form = new FormData()
+      form.append('image', card.file)
+      if (productId) form.append('product_id', productId)
+
+      let analysisId: string | null = null
+      try {
+        const res = await fetch('/api/analyze/thumbnail', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${freshToken}` },
+          body: form,
+        })
+        const data = await res.json()
+        if (!res.ok || !data.analysis_id) {
           setCards(prev => prev.map(c =>
-            c.id === card.id ? { ...c, analysisId: data.analysis_id, status: 'processing' } : c
+            c.id === card.id ? { ...c, status: 'failed', error: data.error ?? 'Upload failed' } : c
           ))
-          return { cardId: card.id, analysisId: data.analysis_id as string }
-        } catch {
-          setCards(prev => prev.map(c =>
-            c.id === card.id ? { ...c, status: 'failed', error: 'Network error' } : c
-          ))
-          return null
+          continue
         }
-      })
-    )
+        analysisId = data.analysis_id as string
+        setCards(prev => prev.map(c =>
+          c.id === card.id ? { ...c, analysisId, status: 'processing' } : c
+        ))
+      } catch {
+        setCards(prev => prev.map(c =>
+          c.id === card.id ? { ...c, status: 'failed', error: 'Network error' } : c
+        ))
+        continue
+      }
 
-    const valid = dispatched.filter((d): d is { cardId: string; analysisId: string } => d !== null)
-    await Promise.all(valid.map(({ analysisId, cardId }) => pollOne(analysisId, cardId, freshToken)))
+      // Wait for this card's BERG result before moving on.
+      await pollOne(analysisId, card.id, freshToken)
+    }
 
     if (stoppedRef.current) return
 
@@ -439,8 +444,14 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
       setRoiAverages(averages)
     }
 
+    // Sequential extraction across every completed card. Each Claude
+    // extraction call must finish before the next starts so the model
+    // never sees concurrent load. (See plan §8B.)
     const completedCards = cardsRef.current.filter(c => c.status === 'complete')
-    await Promise.all(completedCards.map(c => runExtraction(c, freshToken)))
+    for (const c of completedCards) {
+      if (stoppedRef.current) break
+      await runExtraction(c, freshToken)
+    }
 
     setAnalyzing(false)
     fetchAdCount()

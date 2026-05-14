@@ -52,6 +52,12 @@ export interface HistoricalPayload {
     failed: boolean
     job_count: number
   }
+  synthesis_errors?: {
+    id: string
+    pass: 'winner_patterns' | 'anti_patterns' | 'framework_principles' | 'baseline_evolution'
+    error_message: string
+    occurred_at: string
+  }[]
 }
 
 interface Props {
@@ -64,6 +70,7 @@ const GRADE_TO_NUM: Record<string, number> = { A: 4, B: 3, C: 2, D: 1 }
 export function HistoricalAnalysisDashboard({ data, token }: Props) {
   return (
     <div className="space-y-8">
+      <SynthesisErrorBanner errors={data.synthesis_errors ?? []} />
       <StatsStrip stats={data.stats} />
       <AwarenessSection rows={data.awareness_breakdown} />
       <PatternsSection
@@ -621,6 +628,42 @@ function TrendChart({ title, data, dataKey, color, domain }: {
           </LineChart>
         </ResponsiveContainer>
       </div>
+    </div>
+  )
+}
+
+const PASS_LABELS: Record<string, string> = {
+  winner_patterns: 'Winning patterns',
+  anti_patterns: 'Anti-patterns',
+  framework_principles: 'Framework guard rails',
+  baseline_evolution: 'Baseline evolution',
+}
+
+function SynthesisErrorBanner({ errors }: { errors: HistoricalPayload['synthesis_errors'] }) {
+  if (!errors || errors.length === 0) return null
+  // Surface the most recent failure per pass — older entries get a count.
+  const byPass = new Map<string, { error_message: string; occurred_at: string; total: number }>()
+  for (const e of errors) {
+    const cur = byPass.get(e.pass)
+    if (cur) cur.total++
+    else byPass.set(e.pass, { error_message: e.error_message, occurred_at: e.occurred_at, total: 1 })
+  }
+  return (
+    <div className="bg-red-950/30 border border-red-900/60 rounded-2xl p-4 space-y-1.5">
+      <p className="text-xs font-semibold text-[#ff2a2b]">Pattern library synthesis is silently failing</p>
+      <p className="text-[11px] text-gray-400 leading-relaxed">
+        The library has stopped growing. Recent Claude calls in these passes errored out:
+      </p>
+      <ul className="space-y-1 mt-2">
+        {Array.from(byPass.entries()).map(([pass, info]) => (
+          <li key={pass} className="text-[11px] text-gray-300 font-mono">
+            <span className="text-red-300">{PASS_LABELS[pass] ?? pass}</span>
+            <span className="text-gray-600"> · {new Date(info.occurred_at).toLocaleString()}</span>
+            {info.total > 1 && <span className="text-gray-600"> · {info.total} failures</span>}
+            <p className="text-[10px] text-gray-500 ml-2 mt-0.5 leading-snug">{info.error_message.slice(0, 240)}</p>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
