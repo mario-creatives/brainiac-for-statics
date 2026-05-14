@@ -43,6 +43,8 @@ interface ROIAverage extends ROIRegion { /* activation is already the average */
 interface Props {
   token: string
   onStatsUpdate?: () => void
+  productId?: string
+  forceMode?: Mode
 }
 
 async function fileToBase64(file: File): Promise<{ base64: string; mime_type: string }> {
@@ -59,8 +61,8 @@ async function fileToBase64(file: File): Promise<{ base64: string; mime_type: st
   })
 }
 
-export function ImageBatchTab({ token, onStatsUpdate }: Props) {
-  const [mode, setMode] = useState<Mode>('feedback')
+export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Props) {
+  const [mode, setMode] = useState<Mode>(forceMode ?? 'feedback')
   const [cards, setCards] = useState<ImageCard[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [selectedCard, setSelectedCard] = useState<ImageCard | null>(null)
@@ -382,6 +384,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
 
         const form = new FormData()
         form.append('image', card.file)
+        if (productId) form.append('product_id', productId)
 
         try {
           const res = await fetch('/api/analyze/thumbnail', {

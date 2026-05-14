@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { LogOut, ArrowLeft, RefreshCw, Sparkles, CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { LogOut, ArrowLeft, RefreshCw, Sparkles, CheckCircle, XCircle, ChevronDown, ChevronUp, Boxes } from 'lucide-react'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import type { CopyIntelligenceReport, CopyIntelligenceSection } from '@/app/api/analyze/copy-intelligence/route'
 
@@ -150,6 +150,10 @@ export default function CopyIntelligencePage() {
           <Link href="/dashboard" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" />
             Analyze ads
+          </Link>
+          <Link href="/dashboard/product-tracker" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
+            <Boxes className="w-3.5 h-3.5" />
+            Product Tracker
           </Link>
           <Link href="/dashboard/historical-analysis" className="text-xs text-gray-400 hover:text-white transition-colors">
             Historical analysis

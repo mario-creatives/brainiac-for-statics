@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { LogOut, ArrowLeft, RefreshCw, Sparkles } from 'lucide-react'
+import { LogOut, ArrowLeft, RefreshCw, Sparkles, Boxes } from 'lucide-react'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import { HistoricalAnalysisDashboard, type HistoricalPayload } from '@/components/HistoricalAnalysisDashboard'
 
@@ -52,6 +52,10 @@ export default function HistoricalAnalysisPage() {
           <Link href="/dashboard" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" />
             Analyze ads
+          </Link>
+          <Link href="/dashboard/product-tracker" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
+            <Boxes className="w-3.5 h-3.5" />
+            Product Tracker
           </Link>
           <Link href="/dashboard/copy-intelligence" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
             <Sparkles className="w-3.5 h-3.5" />

@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
   // Parse body — accept multipart file upload or JSON with image_base64
   let imageBuffer: Buffer
   let mimeType: string
+  let productId: string | null = null
 
   const contentType = req.headers.get('content-type') ?? ''
 
@@ -59,6 +60,8 @@ export async function POST(req: NextRequest) {
     }
     imageBuffer = Buffer.from(await file.arrayBuffer())
     mimeType = file.type || 'image/jpeg'
+    const pid = form.get('product_id')
+    if (typeof pid === 'string' && pid.length > 0) productId = pid
   } else {
     const body = await req.json().catch(() => null)
     if (!body?.image_base64) {
@@ -66,6 +69,20 @@ export async function POST(req: NextRequest) {
     }
     imageBuffer = Buffer.from(body.image_base64, 'base64')
     mimeType = body.mime_type ?? 'image/jpeg'
+    if (typeof body.product_id === 'string' && body.product_id.length > 0) productId = body.product_id
+  }
+
+  // If product_id provided, verify ownership before we attach it to the row.
+  if (productId) {
+    const { data: product } = await supabaseServer
+      .from('products')
+      .select('id')
+      .eq('id', productId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (!product) {
+      return NextResponse.json({ error: 'Invalid product_id' }, { status: 400 })
+    }
   }
 
   // Validate size (max 10MB)
@@ -81,6 +98,7 @@ export async function POST(req: NextRequest) {
       type: 'thumbnail',
       status: 'queued',
       source: 'manual_upload',
+      product_id: productId,
     })
     .select('id')
     .single()
