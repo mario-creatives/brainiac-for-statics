@@ -14,6 +14,7 @@ import {
   hasPendingSynthesisJobs,
   setAnalysisLossReason,
   recomputePatternConfidence,
+  recordSynthesisError,
   WINNER_THRESHOLD_USD,
 } from '@/lib/pattern-library'
 import { runBaselineEvolution } from '@/lib/baseline-evolution'
@@ -76,7 +77,22 @@ Return ONLY the enum value as a single string — no JSON, no explanation. Just 
   return 'other'
 }
 
-export function buildAdSummary(ca: ComprehensiveAnalysis, spendUsd: number, lossReason?: LossReason | null): string {
+// BERG / body_dna are passed alongside the comprehensive JSON. They live on
+// the `analyses` row, not inside `comprehensive_analysis`, so the caller
+// supplies them. Both are optional — older ads without DNA / without ROI
+// data still serialize cleanly.
+export interface AdSummaryExtras {
+  roi_data?: Array<{ region_key: string; activation: number }> | null
+  ctr_pct?: number | null
+  cpa_usd?: number | null
+}
+
+export function buildAdSummary(
+  ca: ComprehensiveAnalysis,
+  spendUsd: number,
+  lossReason?: LossReason | null,
+  extras?: AdSummaryExtras,
+): string {
   const headline = ca.copy?.headline?.text ?? 'n/a'
   const cta = ca.copy?.cta?.text ?? 'n/a'
   const hd = ca.copy?.headline?.dna ?? null
@@ -84,6 +100,7 @@ export function buildAdSummary(ca: ComprehensiveAnalysis, spendUsd: number, loss
   const bd = ca.copy?.benefits_features?.dna ?? null
   const td = ca.copy?.trust_signals?.dna ?? null
   const cd = ca.copy?.cta?.dna ?? null
+  const body = (ca as unknown as Record<string, unknown>).body_dna as Record<string, unknown> | undefined
   const grade = ca.framework_score?.overall_framework_grade ?? '?'
   const awareness = ca.market_context?.awareness_level ?? 'unknown'
   const soph = ca.market_context?.sophistication_level ?? '?'
@@ -98,8 +115,25 @@ export function buildAdSummary(ca: ComprehensiveAnalysis, spendUsd: number, loss
 
   const lines: string[] = []
   const reasonTag = lossReason ? ` reason=${lossReason}` : ''
-  lines.push(`($${spendUsd} spend, ${awareness}, soph=${soph}, format=${format}${reasonTag})`)
+  const perfTag = extras
+    ? [
+        extras.ctr_pct != null ? `ctr=${extras.ctr_pct}%` : null,
+        extras.cpa_usd != null ? `cpa=$${extras.cpa_usd}` : null,
+      ].filter(Boolean).join(' ')
+    : ''
+  lines.push(`($${spendUsd} spend, ${awareness}, soph=${soph}, format=${format}${reasonTag}${perfTag ? ' · ' + perfTag : ''})`)
   lines.push(`  combo=${combo} | grade=${grade} | scroll_stop=${scrollStop} | cog_load=${cogLoad} | congruence=${congruence} | BE=[${activeBE}]`)
+
+  // BERG ROI activations — fMRI-derived brain-region attention scores. The
+  // recommendation engine has no other way to reason about which DNA choices
+  // are driving face/text/scene recognition unless it sees these.
+  if (extras?.roi_data && extras.roi_data.length > 0) {
+    const roiLine = extras.roi_data
+      .map(r => `${r.region_key}=${typeof r.activation === 'number' ? r.activation.toFixed(2) : r.activation}`)
+      .join(' ')
+    lines.push(`  BERG: ${roiLine}`)
+  }
+
   if (hd) {
     lines.push(`  HL="${headline}" (${hd.word_count}w/${hd.char_count}c) | ${hd.voice}/${hd.person}/${hd.tense}/${hd.sentence_type} | structure=${hd.structure_type} | spec=${hd.specificity_level} | mech=${hd.mechanism_present} aud=${hd.audience_explicit} out=${hd.outcome_explicit} time=${hd.time_bound} | reg=${hd.emotional_register}/${hd.tone_register} | metaphor=${hd.uses_metaphor} neg=${hd.uses_negation} contrast=${hd.uses_contrast} punct=[${(hd.punctuation_signals ?? []).join(',')}]`)
   } else {
@@ -107,6 +141,9 @@ export function buildAdSummary(ca: ComprehensiveAnalysis, spendUsd: number, loss
   }
   if (sd && sd.role !== 'absent') {
     lines.push(`  SUB role=${sd.role} | ${sd.length_relative_to_headline} | mech=${sd.introduces_mechanism} proof=${sd.introduces_proof} spec=${sd.introduces_specificity} | continuity=${sd.person_continuity} | tonal=${sd.tonal_shift} | reg=${sd.emotional_register}`)
+  }
+  if (body) {
+    lines.push(`  BODY: ${body.word_count ?? '?'}w / ${body.paragraph_count ?? '?'}p / ${body.sentence_count ?? '?'}s | frame=${body.frame ?? '?'} | pronoun_density=${body.personal_pronoun_density ?? '?'}`)
   }
   if (bd && bd.count > 0) {
     lines.push(`  BEN(${bd.count}): avg=${bd.avg_word_count}w | ${bd.pattern_uniformity} | ${bd.outcome_vs_feature_split} | spec=${bd.specificity}`)
@@ -209,7 +246,11 @@ Return ONLY a JSON array with no markdown fences:
       const parsed = parseClaudeJson<{ category: string; rule_text: string; confidence: number; scope_ad_format?: string | null; scope_vertical?: string | null }[]>(raw)
       await upsertPatterns(parsed)
       synthesized = parsed.length
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      // Pattern-library writes are non-fatal to the per-ad analysis, but the
+      // user needs to know the library has stopped growing. See migration 010.
+      await recordSynthesisError('winner_patterns', err).catch(() => {})
+    }
   }
 
   // Loser synthesis — grouped by loss_reason so different failure modes
@@ -259,7 +300,9 @@ Extract 4–8 specific, transferable anti-patterns scoped to their failure reaso
       const parsed = parseClaudeJson<{ category: string; loss_reason?: string; rule_text: string; confidence: number; scope_ad_format?: string | null; scope_vertical?: string | null }[]>(raw)
       await upsertAntiPatterns(parsed)
       antiPatterns = parsed.length
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      await recordSynthesisError('anti_patterns', err).catch(() => {})
+    }
   }
 
   // Framework synthesis — derives conditional segment-scoped guard rails from accumulated history.
@@ -330,7 +373,9 @@ Return ONLY a JSON array, no markdown fences:
         supporting_loser_ids: p.supporting_loser_ids ?? [],
       })))
       frameworkPrinciples = parsed.length
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      await recordSynthesisError('framework_principles', err).catch(() => {})
+    }
   }
 
   // 4th pass — Feedback Baseline Evolution at every 50-ad milestone.

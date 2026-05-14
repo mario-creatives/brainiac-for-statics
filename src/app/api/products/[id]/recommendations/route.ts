@@ -89,12 +89,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   return keepAliveStream(async () => {
     const { data: ads } = await supabaseServer
       .from('analyses')
-      .select('id, comprehensive_analysis, spend_usd, cpa_usd, ctr_pct, age_range, ad_active, quadrant, quadrant_override, loss_reason')
+      .select('id, comprehensive_analysis, roi_data, spend_usd, cpa_usd, ctr_pct, age_range, ad_active, quadrant, quadrant_override, loss_reason')
       .eq('product_id', productId)
       .not('comprehensive_analysis', 'is', null)
 
     const rows = (ads ?? []) as {
       id: string; comprehensive_analysis: Record<string, unknown>
+      roi_data: Array<{ region_key: string; activation: number }> | null
       spend_usd: number | null; cpa_usd: number | null; ctr_pct: number | null
       age_range: string | null; ad_active: boolean | null
       quadrant: Quadrant | null; quadrant_override: Quadrant | null
@@ -128,6 +129,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         r.comprehensive_analysis as unknown as ComprehensiveAnalysis,
         r.spend_usd ?? 0,
         r.loss_reason as Parameters<typeof buildAdSummary>[2],
+        { roi_data: r.roi_data, ctr_pct: r.ctr_pct, cpa_usd: r.cpa_usd },
       )
       return `AD A${i + 1} [id=${r.id}] (quadrant=${effective ?? 'unset'}, spend=$${r.spend_usd ?? '?'}, cpa=$${r.cpa_usd ?? '?'}, ctr=${r.ctr_pct ?? '?'}%, age=${r.age_range ?? '?'}, active=${r.ad_active ?? '?'}, fatigue=${fatigue}):\n${fingerprint}`
     })

@@ -448,12 +448,20 @@ Congruence principle — every element must reinforce the same core message:
 - CTA must match the offer or ask — "Shop now" without a visible product or price is incoherent.
 - Trust signals must validate the specific claim made, not a different dimension entirely.`
 
-function buildBergPrompt(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string, spendUsd?: number): string {
+function buildBergPrompt(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string, spendUsd?: number, quadrant?: string | null): string {
   const scoreLines = roiAverages
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)} — ${r.description}`)
     .join('\n')
 
-  const isLoser = mode === 'historical' && spendUsd !== undefined && spendUsd < WINNER_THRESHOLD_USD
+  // Prefer the effective quadrant when available (CPA-aware classification);
+  // fall back to spend-only when an ad doesn't have CPA data yet.
+  // 'investigate' (high spend but missed CPA) is treated as a loser for BERG
+  // observations — the ad failed at its job even though Meta gave it scale.
+  const isLoser = mode === 'historical' && (
+    quadrant === 'loser' || quadrant === 'investigate'
+      ? true
+      : !quadrant && spendUsd !== undefined && spendUsd < WINNER_THRESHOLD_USD
+  )
   const isWinner = mode === 'historical' && !isLoser
 
   const roiContext = mode === 'historical' ? ROI_AD_CONTEXT_HISTORICAL : ROI_AD_CONTEXT
@@ -1049,12 +1057,19 @@ export function buildComprehensiveVisionPrompt(
   mode?: string,
   spendUsd?: number,
   evolvedBaseline?: BaselineEvolutionEntry | null,
+  quadrant?: string | null,
 ): string {
   const scoreLines = roiAverages
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)}`)
     .join('\n')
 
-  const isLoser = mode === 'historical' && spendUsd !== undefined && spendUsd < WINNER_THRESHOLD_USD
+  // Prefer effective quadrant (CPA-aware) over spend-only threshold. See
+  // buildBergPrompt for the rationale on treating 'investigate' as a loser.
+  const isLoser = mode === 'historical' && (
+    quadrant === 'loser' || quadrant === 'investigate'
+      ? true
+      : !quadrant && spendUsd !== undefined && spendUsd < WINNER_THRESHOLD_USD
+  )
   const isWinner = mode === 'historical' && !isLoser
 
   const schema = isLoser ? COMPREHENSIVE_JSON_SCHEMA_LOSER
@@ -1180,11 +1195,11 @@ ${schema}
 If pattern_matches is empty because no patterns are available, return [].`
 }
 
-export async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string, spendUsd?: number): Promise<string> {
+export async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string, spendUsd?: number, quadrant?: string | null): Promise<string> {
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 8192,
-    messages: [{ role: 'user', content: buildBergPrompt(roiAverages, patternContext, visualDescription, mode, spendUsd) }],
+    messages: [{ role: 'user', content: buildBergPrompt(roiAverages, patternContext, visualDescription, mode, spendUsd, quadrant) }],
   })
   const textBlock = message.content.find(b => b.type === 'text')
   return textBlock?.type === 'text' ? textBlock.text : ''
@@ -1199,6 +1214,7 @@ async function runComprehensiveVisionAnalysis(
   mode?: string,
   spendUsd?: number,
   evolvedBaseline?: BaselineEvolutionEntry | null,
+  quadrant?: string | null,
 ): Promise<Omit<ComprehensiveAnalysis, 'berg_recommendations'>> {
   // Throw on any failure rather than silently returning null. The
   // previous null-fallback caused emptyComprehensive() to render with
@@ -1220,7 +1236,7 @@ async function runComprehensiveVisionAnalysis(
           type: 'image' as const,
           source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: imageBase64 },
         }] : []),
-        { type: 'text' as const, text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline) },
+        { type: 'text' as const, text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline, quadrant) },
       ],
     }],
   })
@@ -1351,10 +1367,25 @@ export async function POST(req: NextRequest) {
     const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, evolvedBaseline?.created_at ?? null)
     const visualDescription = confirmed_elements?.visual_description
 
+    // Look up the effective quadrant (CPA-aware) if this ad already has one.
+    // For a brand-new ImageBatchTab upload, quadrant is NULL — the BERG /
+    // vision branches fall back to spend-only logic. For Product Tracker
+    // re-analyses where the user has entered CPA, quadrant is set and
+    // drives the winner/loser framing of the prompt.
+    let effectiveQuadrant: string | null = null
+    if (analysis_id) {
+      const { data: row } = await supabaseServer
+        .from('analyses')
+        .select('quadrant, quadrant_override')
+        .eq('id', analysis_id)
+        .maybeSingle()
+      effectiveQuadrant = (row?.quadrant_override as string | null) ?? (row?.quadrant as string | null) ?? null
+    }
+
     const [bergText, visionResult] = await Promise.all([
-      runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd),
+      runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd, effectiveQuadrant),
       (image_base64 || confirmed_elements)
-        ? runComprehensiveVisionAnalysis(image_base64 ?? null, mime_type, roi_averages, patternContext, confirmed_elements, mode, spend_usd, evolvedBaseline)
+        ? runComprehensiveVisionAnalysis(image_base64 ?? null, mime_type, roi_averages, patternContext, confirmed_elements, mode, spend_usd, evolvedBaseline, effectiveQuadrant)
         : Promise.resolve(null),
     ])
 

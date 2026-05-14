@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   // Fetch the stored analysis — owned by this user only.
   const { data: row, error: fetchErr } = await supabaseServer
     .from('analyses')
-    .select('id, user_id, comprehensive_analysis, roi_data, spend_usd, is_winner')
+    .select('id, user_id, comprehensive_analysis, roi_data, spend_usd, is_winner, quadrant, quadrant_override')
     .eq('id', analysisId)
     .eq('user_id', user.id)
     .single()
@@ -98,9 +98,36 @@ export async function POST(req: NextRequest) {
 
   const roiAverages = (row.roi_data as unknown as Array<{ region_key: string; label: string; description: string; activation: number }>) ?? []
   const spendUsd: number | undefined = row.spend_usd ?? undefined
+  const effectiveQuadrant = ((row.quadrant_override as string | null) ?? (row.quadrant as string | null)) ?? null
   const confirmedElements = reconstructFromComprehensive(existingCa)
 
+  // Concurrent-run guard. Atomically claim the row by setting
+  // reanalyze_locked_at = NOW() only if it's null or stale (>5 min). Two
+  // tabs hitting bulk re-analyze on the same account end up serialized:
+  // the loser gets a 409 for this analysis and the bulk loop moves on.
+  const STALE_LOCK_THRESHOLD_MS = 5 * 60 * 1000
+  const staleCutoff = new Date(Date.now() - STALE_LOCK_THRESHOLD_MS).toISOString()
+  const { data: claimed } = await supabaseServer
+    .from('analyses')
+    .update({ reanalyze_locked_at: new Date().toISOString() })
+    .eq('id', analysisId)
+    .or(`reanalyze_locked_at.is.null,reanalyze_locked_at.lt.${staleCutoff}`)
+    .select('id')
+    .maybeSingle()
+
+  if (!claimed) {
+    return NextResponse.json({ error: 'Re-analysis already in progress for this ad' }, { status: 409 })
+  }
+
+  async function release() {
+    await supabaseServer
+      .from('analyses')
+      .update({ reanalyze_locked_at: null })
+      .eq('id', analysisId)
+  }
+
   return keepAliveStream(async () => {
+    try {
     const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, evolvedBaseline] = await Promise.all([
       getWinningPatterns(),
       getAllWinningAnalyses(),
@@ -112,16 +139,19 @@ export async function POST(req: NextRequest) {
 
     const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, evolvedBaseline?.created_at ?? null)
 
-    // Determine mode from spend_usd (same logic as the main comprehensive route).
-    const mode = spendUsd !== undefined
-      ? (spendUsd >= 1000 ? 'historical_winner' : 'historical_loser')
-      : 'feedback'
+    // Mode is just 'historical' or 'feedback' — the prompt builders use
+    // mode === 'historical' as the gate, and pass quadrant + spendUsd
+    // separately to pick the winner/loser branch. The previous
+    // 'historical_winner' / 'historical_loser' values bypassed every
+    // mode === 'historical' check and silently routed all re-analyses
+    // through the feedback path.
+    const mode = spendUsd !== undefined ? 'historical' : 'feedback'
 
     // Run BERG text summary and text-only vision analysis in parallel.
     const [bergText, visionResult] = await Promise.all([
-      runBergAnalysis(roiAverages, patternContext, confirmedElements.visual_description, mode, spendUsd),
+      runBergAnalysis(roiAverages, patternContext, confirmedElements.visual_description, mode, spendUsd, effectiveQuadrant),
       (async () => {
-        const prompt = buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline)
+        const prompt = buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline, effectiveQuadrant)
         const message = await anthropic.messages.create({
           model: 'claude-sonnet-4-6',
           max_tokens: 32000,
@@ -151,6 +181,9 @@ export async function POST(req: NextRequest) {
       }).catch(() => {})
     }
 
-    return { comprehensive }
+      return { comprehensive }
+    } finally {
+      await release()
+    }
   })
 }

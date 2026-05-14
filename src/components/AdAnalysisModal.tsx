@@ -578,14 +578,16 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
         </Section>
       )}
 
-      {/* Cognitive Load */}
+      {/* Cognitive Simplicity — internally stored as cognitive_load.score where
+          low=effortless; we display the inverted form so the convention
+          matches every other score (higher = better). */}
       {data.cognitive_load && (
-        <Section title="Cognitive Load">
+        <Section title="Cognitive Simplicity">
           <div className="flex items-center gap-4">
             <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Load score</p>
-              <ScoreBadge score={data.cognitive_load.score} />
-              <p className="text-[10px] text-gray-600 mt-0.5">lower = easier to process</p>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Simplicity</p>
+              <ScoreBadge score={Math.max(1, Math.min(10, 11 - (data.cognitive_load.score || 0)))} />
+              <p className="text-[10px] text-gray-600 mt-0.5">higher = lighter to process</p>
             </div>
             <div>
               <p className="text-[10px] text-gray-500 uppercase tracking-wide">Density</p>

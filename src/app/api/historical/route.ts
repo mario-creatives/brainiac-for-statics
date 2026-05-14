@@ -9,6 +9,7 @@ import {
   getBergDnaCorrelations,
   getAwarenessBreakdown,
   getTrendPoints,
+  getRecentSynthesisErrors,
 } from '@/lib/pattern-library'
 
 export const dynamic = 'force-dynamic'
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest) {
     bergDnaCorrelations,
     trends,
     queueResult,
+    synthesisErrors,
   ] = await Promise.all([
     getWinningPatterns(),
     getLosingPatterns(),
@@ -81,6 +83,7 @@ export async function GET(req: NextRequest) {
       .from('synthesis_queue')
       .select('status')
       .in('status', ['pending', 'processing', 'done', 'failed']),
+    getRecentSynthesisErrors(10),
   ])
 
   const queueRows = (queueResult.data ?? []) as { status: string }[]
@@ -148,5 +151,6 @@ export async function GET(req: NextRequest) {
     berg_dna_correlations: bergDnaCorrelations,
     trends,
     synthesis_status: synthesisStatus,
+    synthesis_errors: synthesisErrors,
   })
 }
