@@ -1,4 +1,5 @@
 import { supabaseServer } from '@/lib/supabase-server'
+import type { Quadrant } from '@/lib/quadrant'
 
 export const WINNER_THRESHOLD_USD = 1000
 export const LOSER_THRESHOLD_USD = 1000
@@ -111,11 +112,22 @@ export async function getLosingPatterns(): Promise<LosingPatternRow[]> {
   return (data ?? []) as LosingPatternRow[]
 }
 
+// Winners for synthesis: effective quadrant IN ('winner', 'promising').
+// "Effective" = override if set, else quadrant. Promising counts as winner
+// for synthesis because it hits target CPA — only spend volume is missing.
+// 'investigate' is intentionally excluded (spend says winner, CPA says loser
+// — ambiguous signal that would poison the pattern library).
+const WINNER_QUADRANT_FILTER =
+  'quadrant_override.in.(winner,promising),and(quadrant_override.is.null,quadrant.in.(winner,promising))'
+
+const LOSER_QUADRANT_FILTER =
+  'quadrant_override.eq.loser,and(quadrant_override.is.null,quadrant.eq.loser)'
+
 export async function getAllWinningAnalyses(): Promise<WinningAnalysisSummary[]> {
   const { data, error } = await supabaseServer
     .from('analyses')
     .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category, created_at')
-    .eq('is_winner', true)
+    .or(WINNER_QUADRANT_FILTER)
     .not('comprehensive_analysis', 'is', null)
     .order('spend_usd', { ascending: false })
 
@@ -127,9 +139,7 @@ export async function getAllLosersForSynthesis(): Promise<WinningAnalysisSummary
   const { data, error } = await supabaseServer
     .from('analyses')
     .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category, created_at')
-    .eq('is_winner', false)
-    .not('spend_usd', 'is', null)
-    .lt('spend_usd', LOSER_THRESHOLD_USD)
+    .or(LOSER_QUADRANT_FILTER)
     .not('comprehensive_analysis', 'is', null)
     .order('spend_usd', { ascending: true })
 
@@ -155,7 +165,7 @@ export async function getAllWinnersForSynthesis(): Promise<WinningAnalysisSummar
   const { data, error } = await supabaseServer
     .from('analyses')
     .select('id, comprehensive_analysis, spend_usd, loss_reason, vertical_category, created_at')
-    .eq('is_winner', true)
+    .or(WINNER_QUADRANT_FILTER)
     .not('comprehensive_analysis', 'is', null)
     .order('spend_usd', { ascending: false })
 
@@ -472,15 +482,17 @@ function readDnaValue(ca: Record<string, unknown>, path: readonly string[]): str
 export async function getDimensionStats(): Promise<DimensionStat[]> {
   const { data } = await supabaseServer
     .from('analyses')
-    .select('comprehensive_analysis, is_winner, spend_usd')
+    .select('comprehensive_analysis, quadrant, quadrant_override, spend_usd')
     .not('comprehensive_analysis', 'is', null)
-    .not('spend_usd', 'is', null)
+    .not('quadrant', 'is', null)
 
-  const rows = (data ?? []) as { comprehensive_analysis: Record<string, unknown>; is_winner: boolean | null; spend_usd: number | null }[]
+  const rows = (data ?? []) as { comprehensive_analysis: Record<string, unknown>; quadrant: Quadrant | null; quadrant_override: Quadrant | null; spend_usd: number | null }[]
 
   const accum = new Map<string, { winner: number; loser: number }>()
   for (const r of rows) {
-    const isWinner = r.is_winner === true
+    const q = r.quadrant_override ?? r.quadrant
+    if (q !== 'winner' && q !== 'promising' && q !== 'loser') continue
+    const isWinner = q === 'winner' || q === 'promising'
     for (const path of DIMENSION_PATHS) {
       const value = readDnaValue(r.comprehensive_analysis, path)
       if (!value || value === 'absent') continue
@@ -644,16 +656,18 @@ export interface AwarenessBreakdown {
 export async function getAwarenessBreakdown(): Promise<AwarenessBreakdown[]> {
   const { data } = await supabaseServer
     .from('analyses')
-    .select('comprehensive_analysis, is_winner')
+    .select('comprehensive_analysis, quadrant, quadrant_override')
     .not('comprehensive_analysis', 'is', null)
-    .not('spend_usd', 'is', null)
+    .not('quadrant', 'is', null)
 
-  const rows = (data ?? []) as { comprehensive_analysis: Record<string, unknown>; is_winner: boolean | null }[]
+  const rows = (data ?? []) as { comprehensive_analysis: Record<string, unknown>; quadrant: Quadrant | null; quadrant_override: Quadrant | null }[]
   const accum = new Map<string, { winners: number; losers: number }>()
   for (const r of rows) {
+    const q = r.quadrant_override ?? r.quadrant
+    if (q !== 'winner' && q !== 'promising' && q !== 'loser') continue
     const aw = ((r.comprehensive_analysis.market_context as Record<string, unknown>)?.awareness_level as string) ?? 'unknown'
     const cur = accum.get(aw) ?? { winners: 0, losers: 0 }
-    if (r.is_winner === true) cur.winners += 1
+    if (q === 'winner' || q === 'promising') cur.winners += 1
     else cur.losers += 1
     accum.set(aw, cur)
   }
@@ -696,21 +710,22 @@ export interface TrendPoint {
 export async function getTrendPoints(): Promise<TrendPoint[]> {
   const { data } = await supabaseServer
     .from('analyses')
-    .select('comprehensive_analysis, is_winner, spend_usd, created_at')
+    .select('comprehensive_analysis, quadrant, quadrant_override, spend_usd, created_at')
     .not('comprehensive_analysis', 'is', null)
-    .not('spend_usd', 'is', null)
+    .not('quadrant', 'is', null)
     .order('created_at', { ascending: true })
 
-  const rows = (data ?? []) as { comprehensive_analysis: Record<string, unknown>; is_winner: boolean | null; spend_usd: number | null; created_at: string }[]
+  const rows = (data ?? []) as { comprehensive_analysis: Record<string, unknown>; quadrant: Quadrant | null; quadrant_override: Quadrant | null; spend_usd: number | null; created_at: string }[]
   return rows.map(r => {
     const ca = r.comprehensive_analysis
+    const q = r.quadrant_override ?? r.quadrant
     return {
       created_at: r.created_at,
       framework_grade: ((ca.framework_score as Record<string, unknown>)?.overall_framework_grade as string) ?? null,
       scroll_stop_score: num((ca.hook_analysis as Record<string, unknown>)?.scroll_stop_score),
       congruence_score: num((ca.congruence as Record<string, unknown>)?.overall_score),
       cognitive_load: num((ca.cognitive_load as Record<string, unknown>)?.score),
-      is_winner: r.is_winner,
+      is_winner: q === 'winner' || q === 'promising' ? true : q === 'loser' || q === 'investigate' ? false : null,
       spend_usd: r.spend_usd,
     }
   })

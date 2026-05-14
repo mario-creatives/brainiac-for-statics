@@ -23,8 +23,6 @@ export async function GET(req: NextRequest) {
   const { data: { user }, error: authError } = await supabaseServer.auth.getUser(token)
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get('limit') ?? '20'), 1), 50)
-
   const { data, error } = await supabaseServer
     .from('analyses')
     .select('id, created_at, spend_usd, is_winner, mean_top_roi_score, heatmap_url, comprehensive_analysis, status')
@@ -32,7 +30,6 @@ export async function GET(req: NextRequest) {
     .eq('type', 'thumbnail')
     .eq('status', 'complete')
     .order('created_at', { ascending: false })
-    .limit(limit)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
