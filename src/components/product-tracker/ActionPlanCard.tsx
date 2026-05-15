@@ -1,8 +1,60 @@
 'use client'
 
 import { useState } from 'react'
-import { Sparkles, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
+import { Sparkles, RefreshCw, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import type { ProductRecommendationReport } from '@/app/api/products/[id]/recommendations/route'
+
+function csvEscape(s: string): string {
+  if (s == null) return ''
+  const needs = /[",\n]/.test(s)
+  const escaped = s.replace(/"/g, '""')
+  return needs ? `"${escaped}"` : escaped
+}
+
+function exportActionPlanCsv(report: ProductRecommendationReport) {
+  // Strategists asked for a flat row-per-ad export. The breakdown sections
+  // ride along as preamble rows so the file is self-contained when emailed.
+  const rows: string[] = []
+  rows.push('section,key,value')
+  rows.push(`meta,generated_at,${csvEscape(report.generated_at)}`)
+  rows.push(`meta,ads_analyzed,${report.ads_analyzed}`)
+  for (const a of report.summary_actions ?? []) {
+    rows.push(`summary_action,,${csvEscape(a)}`)
+  }
+  const bd = report.breakdown
+  if (bd) {
+    rows.push(`breakdown,winning_formats,${csvEscape(bd.winning_formats?.finding ?? '')}`)
+    rows.push(`breakdown,winning_age_ranges,${csvEscape(bd.winning_age_ranges?.finding ?? '')}`)
+    rows.push(`breakdown,winning_angles_hooks,${csvEscape(bd.winning_angles_hooks?.finding ?? '')}`)
+    rows.push(`breakdown,winning_visuals,${csvEscape(bd.winning_visuals?.finding ?? '')}`)
+    rows.push(`breakdown,winning_headlines,${csvEscape(bd.winning_headlines?.finding ?? '')}`)
+    rows.push(`breakdown,winning_subheadlines,${csvEscape(bd.winning_subheadlines?.finding ?? '')}`)
+    rows.push(`breakdown,winning_body,${csvEscape(bd.winning_body?.finding ?? '')}`)
+    rows.push(`breakdown,cta_verdict,${csvEscape(bd.cta_presence?.verdict ?? '')}`)
+    rows.push(`breakdown,losing_patterns,${csvEscape(bd.losing_patterns?.finding ?? '')}`)
+  }
+  rows.push('')
+  rows.push('analysis_id,quadrant,failure_reason,salvage_test,actions,iteration_ideas')
+  for (const ad of report.per_ad_recommendations ?? []) {
+    rows.push([
+      csvEscape(ad.analysis_id),
+      csvEscape(ad.quadrant),
+      csvEscape(ad.failure_reason ?? ''),
+      csvEscape(ad.salvage_test ?? ''),
+      csvEscape((ad.actions ?? []).join(' | ')),
+      csvEscape((ad.iteration_ideas ?? []).join(' | ')),
+    ].join(','))
+  }
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `action-plan-${new Date(report.generated_at).toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 
 interface Props {
   token: string
@@ -94,14 +146,24 @@ export function ActionPlanCard({ token, productId, report, generatedAt, onRegene
             </p>
           </div>
         </div>
-        <button
-          onClick={handleGenerate}
-          disabled={generating}
-          className="text-[10px] text-gray-400 hover:text-white flex items-center gap-1 disabled:opacity-40"
-        >
-          <RefreshCw className={`w-3 h-3 ${generating ? 'animate-spin' : ''}`} />
-          {generating ? 'Regenerating…' : 'Regenerate'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => exportActionPlanCsv(report)}
+            className="text-[10px] text-gray-400 hover:text-white flex items-center gap-1"
+            title="Download action plan as CSV"
+          >
+            <Download className="w-3 h-3" />
+            CSV
+          </button>
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="text-[10px] text-gray-400 hover:text-white flex items-center gap-1 disabled:opacity-40"
+          >
+            <RefreshCw className={`w-3 h-3 ${generating ? 'animate-spin' : ''}`} />
+            {generating ? 'Regenerating…' : 'Regenerate'}
+          </button>
+        </div>
       </div>
 
       {error && <p className="text-xs text-[#ff2a2b]">{error}</p>}

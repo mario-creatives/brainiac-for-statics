@@ -18,6 +18,7 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
   const [name, setName] = useState('')
   const [vertical, setVertical] = useState('')
   const [targetCpa, setTargetCpa] = useState('')
+  const [winnerThreshold, setWinnerThreshold] = useState('1000')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -35,6 +36,7 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
           name: name.trim(),
           vertical_category: vertical || null,
           target_cpa_usd: targetCpa ? Number(targetCpa) : null,
+          winner_spend_threshold_usd: winnerThreshold ? Number(winnerThreshold) : 1000,
           notes: notes.trim() || null,
         }),
       })
@@ -97,6 +99,20 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
               className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-600 focus:outline-none"
             />
             <p className="text-[10px] text-gray-600 mt-1">Ads with CPA ≤ target hit the winner / promising side of the quadrant.</p>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">Winner spend threshold (USD)</label>
+            <input
+              type="number"
+              step="100"
+              min="100"
+              value={winnerThreshold}
+              onChange={e => setWinnerThreshold(e.target.value)}
+              placeholder="1000"
+              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-600 focus:outline-none"
+            />
+            <p className="text-[10px] text-gray-600 mt-1">Spend at which an ad on-target becomes a confirmed winner. Default $1,000. Raise for high-margin products, lower for tight tests.</p>
           </div>
 
           <div>

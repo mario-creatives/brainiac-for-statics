@@ -47,12 +47,14 @@ export function SpendCpaScatter({ ads, targetCpa }: Props) {
               tick={{ fontSize: 10, fill: '#9ca3af' }}
               tickFormatter={v => `$${v}`}
               stroke="#374151"
+              label={{ value: 'Spend (USD)', position: 'insideBottom', offset: -2, fill: '#9ca3af', fontSize: 10 }}
             />
             <YAxis
               type="number" dataKey="cpa" name="CPA (USD)"
               tick={{ fontSize: 10, fill: '#9ca3af' }}
               tickFormatter={v => `$${v}`}
               stroke="#374151"
+              label={{ value: 'CPA (USD)', angle: -90, position: 'insideLeft', fill: '#9ca3af', fontSize: 10, dy: 24 }}
             />
             <Tooltip
               cursor={{ strokeDasharray: '3 3' }}

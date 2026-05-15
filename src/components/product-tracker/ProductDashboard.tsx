@@ -260,6 +260,9 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
 }) {
   const [name, setName] = useState(product.name)
   const [targetCpa, setTargetCpa] = useState(product.target_cpa_usd?.toString() ?? '')
+  const [winnerThreshold, setWinnerThreshold] = useState(
+    product.winner_spend_threshold_usd?.toString() ?? '1000',
+  )
   const [notes, setNotes] = useState(product.notes ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -275,6 +278,7 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
         body: JSON.stringify({
           name: name.trim(),
           target_cpa_usd: targetCpa === '' ? null : Number(targetCpa),
+          winner_spend_threshold_usd: winnerThreshold === '' ? 1000 : Number(winnerThreshold),
           notes: notes.trim() || null,
         }),
       })
@@ -313,6 +317,10 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
         <div className="p-6 space-y-4">
           <Input label="Name" value={name} onChange={setName} />
           <Input label="Target CPA (USD)" type="number" value={targetCpa} onChange={setTargetCpa} />
+          <div>
+            <Input label="Winner spend threshold (USD)" type="number" value={winnerThreshold} onChange={setWinnerThreshold} />
+            <p className="text-[10px] text-gray-600 mt-1">Spend at which an on-target ad becomes a confirmed winner. Changing this re-classifies every ad in this product.</p>
+          </div>
           <div>
             <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">Notes</label>
             <textarea

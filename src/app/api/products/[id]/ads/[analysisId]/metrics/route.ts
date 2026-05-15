@@ -18,7 +18,7 @@ export async function PATCH(
   // Verify product ownership
   const { data: product } = await supabaseServer
     .from('products')
-    .select('id, target_cpa_usd')
+    .select('id, target_cpa_usd, winner_spend_threshold_usd')
     .eq('id', productId)
     .eq('user_id', user.id)
     .maybeSingle()
@@ -42,18 +42,25 @@ export async function PATCH(
     date_range_start?: string | null
     date_range_end?: string | null
     ad_active?: boolean | null
+    loss_reason?: string | null
   }
 
   // Build update with only provided fields (allow explicit null to clear)
   const update: Record<string, unknown> = {}
-  for (const key of ['spend_usd', 'cpa_usd', 'ctr_pct', 'age_range', 'date_range_start', 'date_range_end', 'ad_active'] as const) {
+  for (const key of ['spend_usd', 'cpa_usd', 'ctr_pct', 'age_range', 'date_range_start', 'date_range_end', 'ad_active', 'loss_reason'] as const) {
     if (key in body) update[key] = body[key]
   }
 
-  // Recompute quadrant from new effective spend + cpa
+  // Recompute quadrant from new effective spend + cpa using the product's
+  // winner threshold (defaults to $1k when unset).
   const nextSpend = 'spend_usd' in body ? body.spend_usd ?? null : ad.spend_usd
   const nextCpa = 'cpa_usd' in body ? body.cpa_usd ?? null : ad.cpa_usd
-  update.quadrant = computeQuadrant(nextSpend, nextCpa, product.target_cpa_usd ?? null)
+  update.quadrant = computeQuadrant(
+    nextSpend,
+    nextCpa,
+    product.target_cpa_usd ?? null,
+    product.winner_spend_threshold_usd ?? 1000,
+  )
 
   const { error: updateError } = await supabaseServer
     .from('analyses')

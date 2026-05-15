@@ -7,25 +7,32 @@ export const QUADRANT_LABELS: Record<Quadrant, string> = {
   loser: 'Loser',
 }
 
+export const DEFAULT_WINNER_SPEND_THRESHOLD_USD = 1000
+
 // Returns the deterministic 4-quadrant classification.
 // With CPA + target available: full 4-way split.
 // Without CPA: spend-only fallback (matches legacy is_winner semantics).
+//
+// winnerSpendThreshold is per-product (L1 of the audit). Pass it in from the
+// product record. When absent, the legacy $1k threshold applies.
 export function computeQuadrant(
   spend: number | null,
   cpa: number | null,
   targetCpa: number | null,
+  winnerSpendThreshold: number = DEFAULT_WINNER_SPEND_THRESHOLD_USD,
 ): Quadrant | null {
   if (spend == null) return null
+  const threshold = winnerSpendThreshold > 0 ? winnerSpendThreshold : DEFAULT_WINNER_SPEND_THRESHOLD_USD
   const hasCpa = cpa != null && targetCpa != null && targetCpa > 0
   if (hasCpa) {
     const hitsCpa = cpa! <= targetCpa!
-    const bigSpend = spend >= 1000
+    const bigSpend = spend >= threshold
     if (bigSpend && hitsCpa) return 'winner'
     if (!bigSpend && hitsCpa) return 'promising'
     if (bigSpend && !hitsCpa) return 'investigate'
     return 'loser'
   }
-  return spend >= 1000 ? 'winner' : 'loser'
+  return spend >= threshold ? 'winner' : 'loser'
 }
 
 export function effectiveQuadrant(row: {

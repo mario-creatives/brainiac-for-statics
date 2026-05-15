@@ -28,7 +28,13 @@ const anthropic = new Anthropic({ timeout: 120000 })
 // Loss-reason enum — every loser is classified into ONE of these.
 // Anti-patterns are derived per reason so a "weak hook" loser doesn't
 // contaminate the "no offer" anti-pattern bucket.
+//
+// L4 audit fix: 70% of paid-media failure is buying/optimization, not
+// creative. Without these categories the anti-pattern library blames
+// creative for media-layer mistakes. Order: creative reasons first,
+// media reasons second, escape-hatch last.
 export const LOSS_REASONS = [
+  // Creative-side failures
   'weak_hook',
   'no_offer',
   'no_proof',
@@ -37,15 +43,42 @@ export const LOSS_REASONS = [
   'congruence_failure',
   'cognitive_overload',
   'weak_cta',
+  'creative_fatigue',
+  // Media / account-side failures
+  'audience_saturation',
+  'targeting_mismatch',
+  'landing_page_failure',
+  'tracking_loss',
+  'paused_too_early',
+  'seasonality',
   'other',
 ] as const
 export type LossReason = typeof LOSS_REASONS[number]
+
+export const LOSS_REASON_LABELS: Record<LossReason, string> = {
+  weak_hook: 'Weak hook',
+  no_offer: 'No / unclear offer',
+  no_proof: 'No proof or trust signal',
+  wrong_audience: 'Wrong audience match',
+  saturated_pattern: 'Saturated pattern',
+  congruence_failure: 'Congruence failure',
+  cognitive_overload: 'Cognitive overload',
+  weak_cta: 'Weak CTA',
+  creative_fatigue: 'Creative fatigue (CTR decay)',
+  audience_saturation: 'Audience saturation',
+  targeting_mismatch: 'Targeting mismatch',
+  landing_page_failure: 'Landing page failure',
+  tracking_loss: 'Tracking / attribution loss',
+  paused_too_early: 'Paused too early',
+  seasonality: 'Seasonality',
+  other: 'Other',
+}
 
 async function classifyLossReason(ca: ComprehensiveAnalysis, spendUsd: number): Promise<LossReason> {
   const fingerprint = buildAdSummary(ca, spendUsd, null)
   const prompt = `Classify why this losing ad ($${spendUsd} spend) failed. Pick EXACTLY ONE reason from the enum.
 
-Enum:
+Creative-side enum:
 - weak_hook: scroll-stop score is low; pattern interrupt absent or generic
 - no_offer: offer architecture missing or unclear; no price anchor / guarantee / urgency
 - no_proof: no trust/proof signals; audience cannot validate the claim
@@ -54,7 +87,18 @@ Enum:
 - congruence_failure: elements contradict each other (headline-visual, headline-CTA, etc.)
 - cognitive_overload: too many elements or words; density "heavy" with score >= 7
 - weak_cta: CTA verb generic, framing weak, friction high
+- creative_fatigue: CTR has decayed over time on a previously working creative
+
+Media / account-side enum (use ONLY when fingerprint shows no creative defect):
+- audience_saturation: ad pattern over-served to the same segment
+- targeting_mismatch: audience overlap or wrong segment selected
+- landing_page_failure: clicks happened but conversion broke after the click
+- tracking_loss: pixel/iOS/attribution-window data loss masking real conversions
+- paused_too_early: insufficient data window to judge
+- seasonality: timing rather than craft caused the underperformance
 - other: failure does not fit the above
+
+Pick a media reason ONLY when the creative fingerprint looks clean. Default to the strongest creative reason when in doubt.
 
 Ad fingerprint:
 ${fingerprint}
