@@ -199,7 +199,7 @@ export default function DashboardPage() {
         {/* Stats strip — historical-only metrics with one-liner captions explaining
             what each number is for. */}
         {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4 animate-fade-up">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4 animate-fade-up enter-stagger">
             <DashStat
               label="Historical ads"
               value={stats.count.toLocaleString()}
@@ -266,7 +266,7 @@ export default function DashboardPage() {
         )}
 
         {token && (
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 shadow-sm animate-fade-up">
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 shadow-sm animate-fade-up glass card-lift">
             <div className="mb-5">
               <h2 className="text-sm font-semibold text-white">Static Ad Intelligence</h2>
               <p className="text-xs text-gray-400 mt-1.5 leading-relaxed max-w-3xl">

@@ -94,7 +94,7 @@ export function HistoricalAnalysisDashboard({ data, token }: Props) {
 
 function Section({ title, caption, children }: { title: string; caption?: string; children: React.ReactNode }) {
   return (
-    <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-4">
+    <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-4 glass card-lift animate-fade-up">
       <div>
         <h2 className="text-base font-semibold text-white">{title}</h2>
         {caption && <p className="text-[11px] text-gray-500 mt-1 leading-snug">{caption}</p>}

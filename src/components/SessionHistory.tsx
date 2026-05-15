@@ -142,7 +142,7 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
   const currentLabel = currentRow?.headline_text?.slice(0, 32) ?? bulkProgress.currentId?.slice(0, 8) ?? ''
 
   return (
-    <div className="bg-gray-900 rounded-2xl border border-gray-800 shadow-sm">
+    <div className="bg-gray-900 rounded-2xl border border-gray-800 shadow-sm glass card-lift">
       <button
         onClick={() => setExpanded(v => !v)}
         className="w-full flex items-center justify-between px-6 py-4 text-left"
