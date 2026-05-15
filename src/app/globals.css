@@ -50,6 +50,12 @@
   --shadow-md:  0 4px 16px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.3);
   --shadow-lg:  0 12px 40px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35);
   --shadow-xl:  0 24px 60px rgba(0, 0, 0, 0.65), 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  /* Glass + accent glow tokens */
+  --accent-glow: rgba(255, 42, 43, 0.25);
+  --glass-bg: rgba(26, 31, 36, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-blur: 20px;
 }
 
 /* ── Tailwind theme overrides ──────────────────────────────────────────── */
@@ -104,6 +110,31 @@
     line-height: 1.5;
     letter-spacing: -0.005em;
   }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    width: 140%;
+    height: 140%;
+    top: -20%;
+    left: -20%;
+    background:
+      radial-gradient(ellipse 600px 420px at 12% 10%, rgba(255, 42, 43, 0.05) 0%, transparent 70%),
+      radial-gradient(ellipse 500px 500px at 88% 78%, rgba(59, 130, 246, 0.03) 0%, transparent 70%),
+      radial-gradient(ellipse 420px 320px at 55% 35%, rgba(139, 92, 246, 0.02) 0%, transparent 70%);
+    animation: mesh-float 30s ease-in-out infinite alternate;
+  }
+
+  @keyframes mesh-float {
+    0%   { transform: translate(0, 0) rotate(0deg); }
+    50%  { transform: translate(2%, -1.5%) rotate(0.8deg); }
+    100% { transform: translate(-1%, 2%) rotate(-0.4deg); }
+  }
+
+  body > * { position: relative; z-index: 1; }
 
   /* Apple-style fluid transitions on common interactive elements */
   button, a, [role="button"] {
@@ -230,6 +261,36 @@
     transform: translateY(-1px);
     box-shadow: var(--shadow-md);
   }
+
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border-color: var(--glass-border);
+  }
+
+  .card-lift {
+    transition: transform 0.25s var(--ease-default), box-shadow 0.25s var(--ease-default), border-color 0.25s var(--ease-default);
+  }
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: var(--graphite-7);
+  }
+
+  .glow-hover:hover {
+    box-shadow: var(--shadow-md), 0 0 0 1px rgba(255, 42, 43, 0.06), 0 4px 24px rgba(255, 42, 43, 0.05);
+  }
+
+  .enter-stagger > * {
+    animation: fade-up 0.5s var(--ease-out) both;
+  }
+  .enter-stagger > *:nth-child(1) { animation-delay: 0.04s; }
+  .enter-stagger > *:nth-child(2) { animation-delay: 0.08s; }
+  .enter-stagger > *:nth-child(3) { animation-delay: 0.12s; }
+  .enter-stagger > *:nth-child(4) { animation-delay: 0.16s; }
+  .enter-stagger > *:nth-child(5) { animation-delay: 0.20s; }
+  .enter-stagger > *:nth-child(6) { animation-delay: 0.24s; }
 }
 
 /* ── Entrance animations ───────────────────────────────────────────────── */
@@ -258,4 +319,36 @@
   .animate-fade-up    { animation: fade-up 0.4s var(--ease-out) both; }
   .animate-scale-in   { animation: scale-in 0.25s var(--ease-out) both; }
   .animate-pulse-soft { animation: pulse-soft 1.6s var(--ease-in-out) infinite; }
+}
+
+/* ── Global-scope refinements (outside @layer so they win against Tailwind utilities) ── */
+[class*="bg-gray-900"][class*="rounded"][class*="border"] {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  transition: border-color 0.25s var(--ease-default), box-shadow 0.25s var(--ease-default), transform 0.25s var(--ease-default);
+}
+
+[class*="border-dashed"] {
+  transition: border-color 0.25s var(--ease-default), background-color 0.25s var(--ease-default);
+}
+[class*="border-dashed"]:hover {
+  border-color: rgba(255, 42, 43, 0.35) !important;
+  background-color: rgba(255, 42, 43, 0.02) !important;
+}
+
+[class*="bg-indigo-600"], [class*="bg-indigo-500"] {
+  box-shadow: 0 2px 12px rgba(255, 42, 43, 0.25);
+}
+[class*="bg-indigo-600"]:hover, [class*="bg-indigo-500"]:hover {
+  box-shadow: 0 4px 20px rgba(255, 42, 43, 0.35);
+}
+
+[class*="bg-indigo-500"][class*="rounded-full"][class*="h-1"],
+[class*="bg-indigo-500"][class*="rounded-full"][class*="h-1.5"] {
+  box-shadow: 0 0 8px rgba(255, 42, 43, 0.3);
+}
+
+table tbody tr {
+  transition: background-color 0.15s var(--ease-default);
 }
