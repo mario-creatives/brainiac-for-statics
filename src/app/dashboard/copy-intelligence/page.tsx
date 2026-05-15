@@ -37,7 +37,7 @@ function SectionCard({ title, section, accent = 'indigo' }: {
   const accentColor = accent === 'emerald' ? 'text-emerald-400' : accent === 'amber' ? 'text-amber-400' : 'text-indigo-400'
   const borderColor = accent === 'emerald' ? 'border-emerald-900/40' : accent === 'amber' ? 'border-amber-900/40' : 'border-indigo-900/40'
   return (
-    <div className={`bg-gray-900 border ${borderColor} rounded-xl overflow-hidden`}>
+    <div className={`bg-gray-900 border ${borderColor} rounded-xl overflow-hidden glass`}>
       <button
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-800/40 transition-colors"
@@ -186,7 +186,7 @@ export default function CopyIntelligencePage() {
 
         {/* Generate / regenerate button — shown when no report yet */}
         {!report && !loading && (
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 flex flex-col items-center gap-4 text-center">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 flex flex-col items-center gap-4 text-center glass card-lift">
             <Sparkles className="w-8 h-8 text-indigo-400" />
             <div>
               <p className="text-base font-semibold text-white">Generate your copy playbook</p>

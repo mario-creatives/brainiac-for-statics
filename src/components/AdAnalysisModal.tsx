@@ -143,7 +143,7 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, isHistori
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 border border-gray-700 sm:rounded-2xl w-full max-w-2xl shadow-2xl h-full sm:h-auto sm:max-h-[90vh] flex flex-col"
+        className="bg-gray-900 border border-gray-700 sm:rounded-2xl w-full max-w-2xl shadow-2xl h-full sm:h-auto sm:max-h-[90vh] flex flex-col glass"
         onClick={e => e.stopPropagation()}
       >
         <div className="relative bg-gray-800 shrink-0 max-h-[25vh] sm:max-h-[35vh] overflow-hidden sm:rounded-t-2xl">

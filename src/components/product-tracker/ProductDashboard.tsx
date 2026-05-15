@@ -130,7 +130,7 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4 enter-stagger">
         <Stat label="Total ads" value={summary.total_ads.toLocaleString()} caption="Ads tracked under this product." />
         <Stat label="Winners" value={summary.winners.toLocaleString()} caption="Spend ≥ $1k AND CPA ≤ target." accent="emerald" />
         <Stat label="Promising" value={summary.promising.toLocaleString()} caption="CPA hits target; needs more spend to confirm." accent="indigo" />
@@ -149,7 +149,7 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
       />
 
       {/* Add ads CTA */}
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex items-center justify-between gap-4">
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex items-center justify-between gap-4 glass card-lift">
         <div>
           <h3 className="text-sm font-semibold text-white">Add ads to this product</h3>
           <p className="text-xs text-gray-400 mt-1">Upload static ads → BERG → extract → confirm → comprehensive analysis. Enter spend / CPA / CTR later via the table.</p>

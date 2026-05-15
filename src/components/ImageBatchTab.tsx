@@ -609,7 +609,7 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
 
       {/* Upload zone */}
       {cards.length === 0 ? (
-        <label className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-gray-700 rounded-xl p-12 cursor-pointer hover:border-indigo-600 transition-colors">
+        <label className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-gray-700 rounded-xl p-12 cursor-pointer hover:border-indigo-600 transition-colors glass">
           <Upload className="w-8 h-8 text-gray-500" />
           <div className="text-center">
             <p className="text-sm text-gray-300">Upload up to 25 static ad images</p>
