@@ -72,7 +72,7 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
     >
       <form
         onSubmit={handleSubmit}
-        className="glass border border-gray-700 rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]"
+        className="bg-gray-950 border border-gray-700 rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[90vh]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}

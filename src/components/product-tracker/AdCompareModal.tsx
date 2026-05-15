@@ -105,7 +105,7 @@ export function AdCompareModal({ adA, adB, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-3xl shadow-2xl max-h-[90vh] flex flex-col"
+        className="bg-gray-950 border border-gray-700 rounded-2xl w-full max-w-3xl shadow-xl max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
