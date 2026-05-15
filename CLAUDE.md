@@ -4,6 +4,27 @@
 
 ---
 
+## UI Aesthetic Rules (MANDATORY)
+
+Every UI component MUST follow these rules:
+
+1. PRIMARY CARDS: Always use `glass card-lift` classes on bg-gray-900 rounded cards
+2. NESTED CARDS: Use solid bg-gray-950 inside glass parents (never glass inside glass)
+3. ANIMATIONS: Every page section gets `animate-fade-up`. Grids get `enter-stagger` on the parent.
+4. HOVER: Cards use `card-lift` (translateY -2px + shadow). Important cards add `glow-hover`.
+5. COLORS: Only use design tokens from globals.css. Never invent hex values.
+6. FONT: Geist only. Never Inter, Roboto, or system defaults.
+7. BORDERS: Cards use border-gray-800 (--rule). Modals use border-gray-700.
+8. RADIUS: Cards use rounded-xl or rounded-2xl. Never rounded-lg on primary cards.
+9. BUTTONS: Accent buttons (bg-indigo-600) get automatic glow from CSS. No extra work needed.
+10. UPLOAD ZONES: border-dashed elements get automatic accent hover from CSS.
+11. LABELS: font-mono text-[10px] font-semibold uppercase tracking-wider text-gray-500
+12. MODALS: Add `glass` class to modal card. Overlay uses bg-black/70.
+13. PROGRESS BARS: bg-indigo-500 bars get automatic glow. No extra work needed.
+14. STICKY HEADERS: Must use bg-gray-950/85 backdrop-blur-md.
+
+---
+
 ## What This Is
 
 A free, non-commercial YouTube thumbnail brain activation analyzer.
