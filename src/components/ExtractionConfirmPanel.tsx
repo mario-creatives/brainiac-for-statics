@@ -18,8 +18,8 @@ const PERSON = ['first','second','third','none'] as const
 const TENSE = ['present','past','future','mixed'] as const
 const SENTENCE_TYPE = ['declarative','imperative','interrogative','fragmentary'] as const
 const SPECIFICITY = ['high','medium','low'] as const
-const EMOTIONAL_REGISTER_HEADLINE = ['pain','fear','desire','curiosity','empowerment','social_belonging','anger','hope','neutral'] as const
-const EMOTIONAL_REGISTER_SUB = ['pain','fear','desire','curiosity','empowerment','social_belonging','reassurance','neutral','absent'] as const
+const EMOTIONAL_REGISTER_HEADLINE = ['pain','fear','desire','curiosity','empowerment','social_belonging','anger','hope','nostalgia','aspiration','exclusivity','shame','vindication','anti_establishment','neutral'] as const
+const EMOTIONAL_REGISTER_SUB = ['pain','fear','desire','curiosity','empowerment','social_belonging','reassurance','nostalgia','aspiration','exclusivity','shame','vindication','anti_establishment','neutral','absent'] as const
 const TONE_REGISTER = ['formal','casual','raw','clinical','conversational','authoritative','intimate'] as const
 const READING_LEVEL = ['simple','moderate','complex'] as const
 const SUB_ROLE = ['bridge_to_benefits','bridge_to_solution','standalone_claim','clarification','amplification','absent'] as const
@@ -248,11 +248,17 @@ function BenefitsDnaEditor({ dna, onChange }: { dna: BenefitsDNA; onChange: (d: 
 function TrustDnaEditor({ dna, onChange }: { dna: TrustDNA; onChange: (d: TrustDNA) => void }) {
   const set = <K extends keyof TrustDNA>(k: K, v: TrustDNA[K]) => onChange({ ...dna, [k]: v })
   return (
-    <DnaCollapsible title="Trust DNA — 4 dimensions">
+    <DnaCollapsible title="Trust DNA — 10 dimensions">
       <NumberField label="count" value={dna.count} onChange={v => set('count', v ?? 0)} />
       <BoolToggle label="has_specific_quantifiers" value={dna.has_specific_quantifiers} onChange={v => set('has_specific_quantifiers', v)} />
       <EnumSelect label="source_attribution" value={dna.source_attribution} options={SOURCE_ATTRIBUTION} onChange={v => set('source_attribution', v)} />
       <TagInput label="types_present" value={dna.types_present} onChange={v => set('types_present', v)} />
+      <BoolToggle label="has_founder_credibility" value={dna.has_founder_credibility} onChange={v => set('has_founder_credibility', v)} />
+      <BoolToggle label="has_owned_audience_size" value={dna.has_owned_audience_size} onChange={v => set('has_owned_audience_size', v)} />
+      <BoolToggle label="has_community_size" value={dna.has_community_size} onChange={v => set('has_community_size', v)} />
+      <BoolToggle label="has_public_review_aggregate" value={dna.has_public_review_aggregate} onChange={v => set('has_public_review_aggregate', v)} />
+      <BoolToggle label="has_manufacturing_claim" value={dna.has_manufacturing_claim} onChange={v => set('has_manufacturing_claim', v)} />
+      <BoolToggle label="has_years_in_business" value={dna.has_years_in_business} onChange={v => set('has_years_in_business', v)} />
     </DnaCollapsible>
   )
 }
@@ -502,7 +508,7 @@ export function ExtractionConfirmPanel({ fileName, previewUrl, extracted, onConf
               onChange={e => set('ad_format_guess', e.target.value)}
               className="w-full bg-gray-950 border border-gray-800 rounded px-2.5 py-1.5 text-xs text-gray-200 focus:border-[#ff2a2b] focus:outline-none"
             >
-              {['direct_response', 'native_ugc', 'advertorial', 'brand_awareness', 'product_demo', 'testimonial', 'hybrid'].map(f => (
+              {['direct_response','native_ugc','advertorial','brand_awareness','product_demo','product_demo_with_text','testimonial','hybrid','chat_screenshot','screenshot_of_review','screenshot_of_tweet','before_after','founder_pov','listicle','meme_template','carousel_card'].map(f => (
                 <option key={f} value={f}>{f.replace(/_/g, ' ')}</option>
               ))}
             </select>

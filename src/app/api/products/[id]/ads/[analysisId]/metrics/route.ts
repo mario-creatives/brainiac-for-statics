@@ -43,12 +43,33 @@ export async function PATCH(
     date_range_end?: string | null
     ad_active?: boolean | null
     loss_reason?: string | null
+    // Audience Clarity Module (012 migration) — per-ad audience overrides.
+    stated_concept?: string | null
+    stated_persona?: string | null
+    stated_micro_persona?: string | null
+    stated_angle?: string | null
+    // North-star reference ad toggle per product.
+    is_reference_ad?: boolean
   }
 
   // Build update with only provided fields (allow explicit null to clear)
   const update: Record<string, unknown> = {}
-  for (const key of ['spend_usd', 'cpa_usd', 'ctr_pct', 'age_range', 'date_range_start', 'date_range_end', 'ad_active', 'loss_reason'] as const) {
-    if (key in body) update[key] = body[key]
+  for (const key of [
+    'spend_usd', 'cpa_usd', 'ctr_pct', 'age_range',
+    'date_range_start', 'date_range_end', 'ad_active', 'loss_reason',
+    'stated_concept', 'stated_persona', 'stated_micro_persona', 'stated_angle',
+    'is_reference_ad',
+  ] as const) {
+    if (key in body) {
+      // Trim text fields and empty-coerce to null.
+      const v = body[key as keyof typeof body]
+      if (typeof v === 'string') {
+        const trimmed = v.trim()
+        update[key] = trimmed === '' ? null : trimmed
+      } else {
+        update[key] = v
+      }
+    }
   }
 
   // Recompute quadrant from new effective spend + cpa using the product's

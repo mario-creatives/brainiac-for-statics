@@ -235,7 +235,7 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
                             a.framework_grade === 'B' ? 'text-amber-400 border-amber-800/60' :
                             a.framework_grade === 'C' ? 'text-orange-400 border-orange-800/60' :
                             'text-[#ff2a2b] border-red-900/60'
-                          }`}>{a.framework_grade}</span>
+                          }`}>{a.framework_score != null ? `${a.framework_grade} (${a.framework_score.toFixed(1)})` : a.framework_grade}</span>
                         )}
                         {a.mean_top_roi_score != null && (
                           <span className="text-[9px] font-mono text-indigo-300 border border-indigo-800/60 bg-gray-900 rounded px-1.5 py-0.5">

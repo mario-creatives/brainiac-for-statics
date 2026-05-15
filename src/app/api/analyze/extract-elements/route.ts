@@ -26,9 +26,15 @@ export interface HeadlineDNA {
   time_bound: boolean | null
   number_present: boolean | null
   power_words: string[]
+  // L6 from brutal-audit-v2: expanded for 2024+ creative registers. The
+  // original 9 collapsed modern winners (Liquid Death, On Running, AG1) into
+  // social_belonging / empowerment and the pattern library learned nothing.
   emotional_register:
     | 'pain' | 'fear' | 'desire' | 'curiosity' | 'empowerment'
-    | 'social_belonging' | 'anger' | 'hope' | 'neutral' | null
+    | 'social_belonging' | 'anger' | 'hope'
+    | 'nostalgia' | 'aspiration' | 'exclusivity' | 'shame'
+    | 'vindication' | 'anti_establishment'
+    | 'neutral' | null
   tone_register:
     | 'formal' | 'casual' | 'raw' | 'clinical' | 'conversational'
     | 'authoritative' | 'intimate' | null
@@ -53,7 +59,10 @@ export interface SubheadlineDNA {
   tonal_shift: 'maintains' | 'softens' | 'sharpens' | 'absent' | null
   emotional_register:
     | 'pain' | 'fear' | 'desire' | 'curiosity' | 'empowerment'
-    | 'social_belonging' | 'reassurance' | 'neutral' | 'absent' | null
+    | 'social_belonging' | 'reassurance'
+    | 'nostalgia' | 'aspiration' | 'exclusivity' | 'shame'
+    | 'vindication' | 'anti_establishment'
+    | 'neutral' | 'absent' | null
   tense: 'present' | 'past' | 'future' | 'mixed' | 'absent' | null
 }
 
@@ -82,6 +91,14 @@ export interface TrustDNA {
   types_present: string[]
   has_specific_quantifiers: boolean | null
   source_attribution: 'named' | 'anonymous' | 'mixed' | 'absent' | null
+  // L8 from brutal-audit-v2: structured modern-trust booleans. The old
+  // types_present string array couldn't be aggregated by the pattern library.
+  has_founder_credibility: boolean | null
+  has_owned_audience_size: boolean | null
+  has_community_size: boolean | null
+  has_public_review_aggregate: boolean | null
+  has_manufacturing_claim: boolean | null
+  has_years_in_business: boolean | null
 }
 
 export interface CtaDNA {
@@ -135,7 +152,7 @@ const EXTRACT_SCHEMA = `{
   "cta": "<exact CTA button or link text, or null>",
   "offer_details": "<any price, discount %, free trial, or promo text visible, or null>",
   "visual_description": "<one sentence: dominant visual subject, style, dominant colors>",
-  "ad_format_guess": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | testimonial | hybrid>",
+  "ad_format_guess": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | product_demo_with_text | testimonial | hybrid | chat_screenshot | screenshot_of_review | screenshot_of_tweet | before_after | founder_pov | listicle | meme_template | carousel_card>",
   "vertical_category": "<D2C category — one of: health | beauty_skincare | apparel | food_beverage | home_lifestyle | fitness | supplements | pet | accessories | wellness | other>",
 
   "headline_dna": {
@@ -154,7 +171,7 @@ const EXTRACT_SCHEMA = `{
     "time_bound": <true | false | null — references a timeframe (in 7 days, by 3pm, overnight)?>,
     "number_present": <true | false | null — contains a numeric value?>,
     "power_words": ["<verbatim power word from text, e.g. 'free', 'proven', 'instantly', 'guaranteed', 'breakthrough', 'secret', 'new'>"],
-    "emotional_register": "<pain | fear | desire | curiosity | empowerment | social_belonging | anger | hope | neutral | null>",
+    "emotional_register": "<pain | fear | desire | curiosity | empowerment | social_belonging | anger | hope | nostalgia | aspiration | exclusivity | shame | vindication | anti_establishment | neutral | null>",
     "tone_register": "<formal | casual | raw | clinical | conversational | authoritative | intimate | null>",
     "uses_metaphor": <true | false | null>,
     "uses_negation": <true | false | null — uses 'no/not/without/never' framing?>,
@@ -173,7 +190,7 @@ const EXTRACT_SCHEMA = `{
     "introduces_audience": <true | false | null>,
     "person_continuity": "<maintains | shifts_to_product | shifts_to_audience | absent>",
     "tonal_shift": "<maintains | softens | sharpens | absent>",
-    "emotional_register": "<pain | fear | desire | curiosity | empowerment | social_belonging | reassurance | neutral | absent>",
+    "emotional_register": "<pain | fear | desire | curiosity | empowerment | social_belonging | reassurance | nostalgia | aspiration | exclusivity | shame | vindication | anti_establishment | neutral | absent>",
     "tense": "<present | past | future | mixed | absent>"
   },
 
@@ -198,7 +215,13 @@ const EXTRACT_SCHEMA = `{
     "count": <integer count of trust signals>,
     "types_present": ["<testimonial | review_count | star_rating | award | media_logo | certification | press_quote | celebrity | expert | guarantee | before_after — list each type present>"],
     "has_specific_quantifiers": <true | false | null — '50,000 reviews' yes; 'thousands' no>,
-    "source_attribution": "<named | anonymous | mixed | absent>"
+    "source_attribution": "<named | anonymous | mixed | absent>",
+    "has_founder_credibility": <true | false | null — names a founder with credentials ('founded by ex-VP of X')>,
+    "has_owned_audience_size": <true | false | null — references newsletter/community/follower count ('500k newsletter readers')>,
+    "has_community_size": <true | false | null — explicit community-membership claim ('join 100k members')>,
+    "has_public_review_aggregate": <true | false | null — Trustpilot/Reviews.io/G2 aggregate score visible>,
+    "has_manufacturing_claim": <true | false | null — 'made in our own facility', 'small-batch', 'in-house QC'>,
+    "has_years_in_business": <true | false | null — 'since 1998', '20 years strong', etc.>
   },
 
   "cta_dna": {
