@@ -19,60 +19,15 @@ import {
 } from '@/lib/pattern-library'
 import { runBaselineEvolution } from '@/lib/baseline-evolution'
 import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
+import { LOSS_REASONS, LOSS_REASON_LABELS, type LossReason } from '@/lib/loss-reasons'
+
+export { LOSS_REASONS, LOSS_REASON_LABELS }
+export type { LossReason } from '@/lib/loss-reasons'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 180
 
 const anthropic = new Anthropic({ timeout: 120000 })
-
-// Loss-reason enum — every loser is classified into ONE of these.
-// Anti-patterns are derived per reason so a "weak hook" loser doesn't
-// contaminate the "no offer" anti-pattern bucket.
-//
-// L4 audit fix: 70% of paid-media failure is buying/optimization, not
-// creative. Without these categories the anti-pattern library blames
-// creative for media-layer mistakes. Order: creative reasons first,
-// media reasons second, escape-hatch last.
-export const LOSS_REASONS = [
-  // Creative-side failures
-  'weak_hook',
-  'no_offer',
-  'no_proof',
-  'wrong_audience',
-  'saturated_pattern',
-  'congruence_failure',
-  'cognitive_overload',
-  'weak_cta',
-  'creative_fatigue',
-  // Media / account-side failures
-  'audience_saturation',
-  'targeting_mismatch',
-  'landing_page_failure',
-  'tracking_loss',
-  'paused_too_early',
-  'seasonality',
-  'other',
-] as const
-export type LossReason = typeof LOSS_REASONS[number]
-
-export const LOSS_REASON_LABELS: Record<LossReason, string> = {
-  weak_hook: 'Weak hook',
-  no_offer: 'No / unclear offer',
-  no_proof: 'No proof or trust signal',
-  wrong_audience: 'Wrong audience match',
-  saturated_pattern: 'Saturated pattern',
-  congruence_failure: 'Congruence failure',
-  cognitive_overload: 'Cognitive overload',
-  weak_cta: 'Weak CTA',
-  creative_fatigue: 'Creative fatigue (CTR decay)',
-  audience_saturation: 'Audience saturation',
-  targeting_mismatch: 'Targeting mismatch',
-  landing_page_failure: 'Landing page failure',
-  tracking_loss: 'Tracking / attribution loss',
-  paused_too_early: 'Paused too early',
-  seasonality: 'Seasonality',
-  other: 'Other',
-}
 
 async function classifyLossReason(ca: ComprehensiveAnalysis, spendUsd: number): Promise<LossReason> {
   const fingerprint = buildAdSummary(ca, spendUsd, null)
