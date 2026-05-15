@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Star } from 'lucide-react'
 import type { Quadrant } from '@/lib/quadrant'
 import type { ProductAdRow } from '@/app/api/products/[id]/dashboard/route'
-import { LOSS_REASONS, LOSS_REASON_LABELS, type LossReason } from '@/app/api/analyze/synthesize-patterns/route'
+import { LOSS_REASONS, LOSS_REASON_LABELS, type LossReason } from '@/lib/loss-reasons'
 
 interface Props {
   token: string
