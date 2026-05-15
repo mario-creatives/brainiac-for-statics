@@ -43,11 +43,13 @@ export async function PATCH(
     date_range_end?: string | null
     ad_active?: boolean | null
     loss_reason?: string | null
-    // Audience Clarity Module (012 migration) — per-ad audience overrides.
+    // Creative-level free text
     stated_concept?: string | null
-    stated_persona?: string | null
-    stated_micro_persona?: string | null
     stated_angle?: string | null
+    // Hierarchical audience FKs (014 migration)
+    tam_id?: string | null
+    persona_id?: string | null
+    micro_persona_id?: string | null
     // North-star reference ad toggle per product.
     is_reference_ad?: boolean
   }
@@ -57,11 +59,10 @@ export async function PATCH(
   for (const key of [
     'spend_usd', 'cpa_usd', 'ctr_pct', 'age_range',
     'date_range_start', 'date_range_end', 'ad_active', 'loss_reason',
-    'stated_concept', 'stated_persona', 'stated_micro_persona', 'stated_angle',
+    'stated_concept', 'stated_angle',
     'is_reference_ad',
   ] as const) {
     if (key in body) {
-      // Trim text fields and empty-coerce to null.
       const v = body[key as keyof typeof body]
       if (typeof v === 'string') {
         const trimmed = v.trim()
@@ -70,6 +71,77 @@ export async function PATCH(
         update[key] = v
       }
     }
+  }
+
+  // Validate audience FK chain belongs to this product, then apply.
+  if ('tam_id' in body || 'persona_id' in body || 'micro_persona_id' in body) {
+    const tamId = body.tam_id ?? null
+    const personaId = body.persona_id ?? null
+    const microId = body.micro_persona_id ?? null
+
+    if (tamId) {
+      const { data } = await supabaseServer
+        .from('product_tams')
+        .select('id, product_id')
+        .eq('id', tamId)
+        .maybeSingle()
+      if (!data || (data as { product_id: string }).product_id !== productId) {
+        return NextResponse.json({ error: 'tam_id does not belong to this product' }, { status: 400 })
+      }
+    }
+    if (personaId) {
+      const { data } = await supabaseServer
+        .from('product_personas')
+        .select('id, tam_id')
+        .eq('id', personaId)
+        .maybeSingle()
+      if (!data) return NextResponse.json({ error: 'persona_id not found' }, { status: 400 })
+      const personaTamId = (data as { tam_id: string }).tam_id
+      const { data: tam } = await supabaseServer
+        .from('product_tams')
+        .select('product_id')
+        .eq('id', personaTamId)
+        .maybeSingle()
+      const personaProductId = (tam as { product_id: string } | null)?.product_id
+      if (personaProductId !== productId) {
+        return NextResponse.json({ error: 'persona_id does not belong to this product' }, { status: 400 })
+      }
+      if (tamId && personaTamId !== tamId) {
+        return NextResponse.json({ error: 'persona_id does not belong to tam_id' }, { status: 400 })
+      }
+    }
+    if (microId) {
+      const { data } = await supabaseServer
+        .from('product_micro_personas')
+        .select('id, persona_id')
+        .eq('id', microId)
+        .maybeSingle()
+      if (!data) return NextResponse.json({ error: 'micro_persona_id not found' }, { status: 400 })
+      const microPersonaId = (data as { persona_id: string }).persona_id
+      const { data: persona } = await supabaseServer
+        .from('product_personas')
+        .select('tam_id')
+        .eq('id', microPersonaId)
+        .maybeSingle()
+      const microTamId = (persona as { tam_id: string } | null)?.tam_id
+      if (!microTamId) return NextResponse.json({ error: 'micro_persona_id has no parent' }, { status: 400 })
+      const { data: tam } = await supabaseServer
+        .from('product_tams')
+        .select('product_id')
+        .eq('id', microTamId)
+        .maybeSingle()
+      const microProductId = (tam as { product_id: string } | null)?.product_id
+      if (microProductId !== productId) {
+        return NextResponse.json({ error: 'micro_persona_id does not belong to this product' }, { status: 400 })
+      }
+      if (personaId && microPersonaId !== personaId) {
+        return NextResponse.json({ error: 'micro_persona_id does not belong to persona_id' }, { status: 400 })
+      }
+    }
+
+    if ('tam_id' in body) update.tam_id = tamId
+    if ('persona_id' in body) update.persona_id = personaId
+    if ('micro_persona_id' in body) update.micro_persona_id = microId
   }
 
   // Recompute quadrant from new effective spend + cpa using the product's

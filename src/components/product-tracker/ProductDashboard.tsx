@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Plus, Trash2, Settings2, X } from 'lucide-react'
 import { ImageBatchTab } from '@/components/ImageBatchTab'
+import { AudienceHierarchyEditor } from './AudienceHierarchyEditor'
 import { AdAnalysisModal } from '@/components/AdAnalysisModal'
 import { ActionPlanCard } from './ActionPlanCard'
 import { AdTrackerTable } from './AdTrackerTable'
@@ -270,10 +271,6 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
     product.winner_spend_threshold_usd?.toString() ?? '1000',
   )
   const [notes, setNotes] = useState(product.notes ?? '')
-  // Audience Clarity Module — product-level defaults
-  const [tam, setTam] = useState(product.tam ?? '')
-  const [defaultPersona, setDefaultPersona] = useState(product.default_persona ?? '')
-  const [defaultMicroPersona, setDefaultMicroPersona] = useState(product.default_micro_persona ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -290,9 +287,6 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
           target_cpa_usd: targetCpa === '' ? null : Number(targetCpa),
           winner_spend_threshold_usd: winnerThreshold === '' ? 1000 : Number(winnerThreshold),
           notes: notes.trim() || null,
-          tam: tam.trim() || null,
-          default_persona: defaultPersona.trim() || null,
-          default_micro_persona: defaultMicroPersona.trim() || null,
         }),
       })
       if (!res.ok) {
@@ -326,7 +320,7 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
       onClick={onClose}
     >
       <div
-        className="bg-gray-950 border border-gray-700 rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[90vh]"
+        className="bg-gray-950 border border-gray-700 rounded-2xl w-full max-w-2xl shadow-xl flex flex-col max-h-[90vh]"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 shrink-0">
@@ -335,27 +329,23 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
         </div>
         <div className="p-6 space-y-4 overflow-y-auto flex-1">
           <Input label="Name" value={name} onChange={setName} />
-          <Input label="Target CPA (USD)" type="number" value={targetCpa} onChange={setTargetCpa} />
-          <div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Target CPA (USD)" type="number" value={targetCpa} onChange={setTargetCpa} />
             <Input label="Winner spend threshold (USD)" type="number" value={winnerThreshold} onChange={setWinnerThreshold} />
-            <p className="text-[10px] text-gray-600 mt-1">Spend at which an on-target ad becomes a confirmed winner. Changing this re-classifies every ad in this product.</p>
           </div>
+          <p className="text-[10px] text-gray-600 -mt-2">Changing the target CPA or threshold re-classifies every ad in this product.</p>
+
           <div className="border-t border-gray-800 pt-4 space-y-3">
-            <p className="text-[10px] uppercase tracking-wider text-indigo-400 font-semibold font-mono">Audience clarity (optional)</p>
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium font-mono block mb-1">TAM</label>
-              <textarea
-                value={tam}
-                onChange={e => setTam(e.target.value)}
-                rows={2}
-                placeholder="e.g. 35-55 yr-old women in the US with chronic insomnia"
-                className="input resize-none"
-              />
+              <p className="text-[10px] uppercase tracking-wider text-indigo-400 font-semibold font-mono">Audience hierarchy</p>
+              <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">
+                A product can serve many TAMs. Each TAM has its own personas; each persona has micro-personas. A specific ad later picks ONE combo from this tree to anchor the targeting-fit check.
+              </p>
             </div>
-            <Input label="Default persona" value={defaultPersona} onChange={setDefaultPersona} />
-            <Input label="Default micro-persona" value={defaultMicroPersona} onChange={setDefaultMicroPersona} />
+            <AudienceHierarchyEditor productId={product.id} token={token} />
           </div>
-          <div>
+
+          <div className="border-t border-gray-800 pt-4">
             <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium font-mono block mb-1">Notes</label>
             <textarea
               value={notes}

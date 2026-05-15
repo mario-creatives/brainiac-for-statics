@@ -9,11 +9,15 @@ import { formatGrade } from '@/lib/format'
 import type { ProductAdRow } from '@/app/api/products/[id]/dashboard/route'
 import type { Quadrant } from '@/lib/quadrant'
 
-function TargetingDot({ quality }: { quality: ProductAdRow['audience_match_quality'] }) {
-  if (quality === 'aligned') return <span className="text-emerald-400 text-base leading-none" title="Audience aligned">●</span>
-  if (quality === 'partial_mismatch') return <span className="text-amber-400 text-base leading-none" title="Partial audience mismatch">●</span>
-  if (quality === 'major_mismatch') return <span className="text-[#ff2a2b] text-base leading-none" title="Major audience mismatch — ad reads as targeting a different audience than stated">●</span>
-  return <span className="text-gray-700 text-xs" title="No stated audience supplied">—</span>
+function TargetingDot({ quality, personaLabel }: {
+  quality: ProductAdRow['audience_match_quality']
+  personaLabel?: string | null
+}) {
+  const suffix = personaLabel ? ` (${personaLabel})` : ''
+  if (quality === 'aligned') return <span className="text-emerald-400 text-base leading-none" title={`Audience aligned${suffix}`}>●</span>
+  if (quality === 'partial_mismatch') return <span className="text-amber-400 text-base leading-none" title={`Partial audience mismatch${suffix}`}>●</span>
+  if (quality === 'major_mismatch') return <span className="text-[#ff2a2b] text-base leading-none" title={`Major audience mismatch — ad reads as targeting a different audience than stated${suffix}`}>●</span>
+  return <span className="text-gray-700 text-xs" title="No audience selected — select one in the editor to enable the targeting-fit check">—</span>
 }
 
 interface Props {
@@ -365,7 +369,7 @@ function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEd
           )}
         </td>
         <td className="py-2 px-3 text-center">
-          <TargetingDot quality={row.audience_match_quality} />
+          <TargetingDot quality={row.audience_match_quality} personaLabel={row.persona_label} />
         </td>
         <td className="py-2 px-3 text-right">
           <button onClick={onEdit} className="text-gray-500 hover:text-indigo-400 p-1" aria-label="Edit metrics">
@@ -424,7 +428,7 @@ function MobileAdCard({ row, selected, onToggleSelect, onOpenAd, onEdit, editing
                   row.framework_grade === 'C' ? 'text-orange-400' : 'text-[#ff2a2b]'
                 }`}>{formatGrade(row.framework_grade, row.framework_score)}</span>
               )}
-              <TargetingDot quality={row.audience_match_quality} />
+              <TargetingDot quality={row.audience_match_quality} personaLabel={row.persona_label} />
               {row.fatigue_flag && <Flame className="w-3 h-3 text-orange-400" />}
             </div>
             <div className="flex items-center gap-2 text-[10px] text-gray-500">
