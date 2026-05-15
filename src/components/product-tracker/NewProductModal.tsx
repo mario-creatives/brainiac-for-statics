@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { X, ChevronDown } from 'lucide-react'
+import { X } from 'lucide-react'
 
 const VERTICAL_OPTIONS = [
   '', 'health', 'beauty_skincare', 'apparel', 'food_beverage', 'home_lifestyle',
@@ -20,10 +20,6 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
   const [targetCpa, setTargetCpa] = useState('')
   const [winnerThreshold, setWinnerThreshold] = useState('1000')
   const [notes, setNotes] = useState('')
-  const [tam, setTam] = useState('')
-  const [defaultPersona, setDefaultPersona] = useState('')
-  const [defaultMicroPersona, setDefaultMicroPersona] = useState('')
-  const [audienceOpen, setAudienceOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -47,9 +43,6 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
           target_cpa_usd: targetCpa ? Number(targetCpa) : null,
           winner_spend_threshold_usd: winnerThreshold ? Number(winnerThreshold) : 1000,
           notes: notes.trim() || null,
-          tam: tam.trim() || null,
-          default_persona: defaultPersona.trim() || null,
-          default_micro_persona: defaultMicroPersona.trim() || null,
         }),
       })
       const data = await res.json()
@@ -85,7 +78,6 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
 
         {/* Scrollable body */}
         <div className="overflow-y-auto flex-1 p-6 space-y-4">
-
           <Field label="Product name" required>
             <input
               type="text"
@@ -145,55 +137,9 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
             />
           </Field>
 
-          {/* Audience Clarity — collapsed by default */}
-          <div className="border border-gray-800 rounded-xl overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setAudienceOpen(v => !v)}
-              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-800/40 transition-colors"
-            >
-              <div>
-                <p className="text-[10px] font-mono font-semibold uppercase tracking-wider text-indigo-400">Audience clarity</p>
-                <p className="text-[10px] text-gray-500 mt-0.5">TAM · persona · micro-persona (optional)</p>
-              </div>
-              <ChevronDown className={`w-3.5 h-3.5 text-gray-500 transition-transform ${audienceOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {audienceOpen && (
-              <div className="px-4 pb-4 space-y-3 border-t border-gray-800 pt-3 bg-gray-950/50">
-                <p className="text-[10px] text-gray-500 leading-relaxed">
-                  These are the defaults used as the "you said" side of the targeting-fit check. If Claude&apos;s read of the ad doesn&apos;t match, it flags the mismatch — because if Claude can&apos;t tell who it&apos;s for, Meta&apos;s algorithm can&apos;t either.
-                </p>
-                <Field label="TAM">
-                  <textarea
-                    value={tam}
-                    onChange={e => setTam(e.target.value)}
-                    rows={2}
-                    placeholder="e.g. 35–55 yr-old women in the US with chronic insomnia"
-                    className="input resize-none"
-                  />
-                </Field>
-                <Field label="Default persona">
-                  <input
-                    type="text"
-                    value={defaultPersona}
-                    onChange={e => setDefaultPersona(e.target.value)}
-                    placeholder="e.g. exhausted working mothers"
-                    className="input"
-                  />
-                </Field>
-                <Field label="Default micro-persona">
-                  <input
-                    type="text"
-                    value={defaultMicroPersona}
-                    onChange={e => setDefaultMicroPersona(e.target.value)}
-                    placeholder="e.g. 38-yr-old working mom of two who tried Ambien and quit"
-                    className="input"
-                  />
-                </Field>
-              </div>
-            )}
-          </div>
+          <p className="text-[10px] text-gray-500 leading-relaxed border-t border-gray-800 pt-3">
+            After creating, define your audience hierarchy — TAMs → personas → micro-personas — in Product Settings. Each ad will then pick one combo to anchor the targeting-fit check.
+          </p>
 
           {error && <p className="text-xs text-[#ff2a2b]">{error}</p>}
         </div>

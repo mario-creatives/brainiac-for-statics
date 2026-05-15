@@ -504,7 +504,7 @@ function TargetingFitSection({ data }: { data: ComprehensiveAnalysis }) {
               </>
             ) : (
               <p className="text-[10px] text-gray-500 leading-snug">
-                Set TAM / persona on the product, or stated_persona / stated_angle on this ad in the metrics editor, to see how the ad maps to your intent.
+                Select a TAM / persona / micro-persona for this ad in the metrics editor (and define the audience hierarchy in Product Settings first if you haven't) to enable the targeting-fit check.
               </p>
             )}
           </div>

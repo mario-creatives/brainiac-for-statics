@@ -43,9 +43,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     target_cpa_usd?: number | null
     winner_spend_threshold_usd?: number | null
     notes?: string | null
-    tam?: string | null
-    default_persona?: string | null
-    default_micro_persona?: string | null
   }
   const update: Record<string, unknown> = {}
   if (body.name !== undefined) update.name = body.name
@@ -60,10 +57,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         : 1000
   }
   if (body.notes !== undefined) update.notes = body.notes
-  // Audience Clarity Module fields — accept null to allow clearing.
-  if (body.tam !== undefined) update.tam = body.tam?.trim() || null
-  if (body.default_persona !== undefined) update.default_persona = body.default_persona?.trim() || null
-  if (body.default_micro_persona !== undefined) update.default_micro_persona = body.default_micro_persona?.trim() || null
 
   const { data, error } = await supabaseServer
     .from('products')

@@ -1642,34 +1642,54 @@ export async function POST(req: NextRequest) {
     if (analysis_id) {
       const { data: row } = await supabaseServer
         .from('analyses')
-        .select('quadrant, quadrant_override, product_id, stated_concept, stated_persona, stated_micro_persona, stated_angle')
+        .select('quadrant, quadrant_override, stated_concept, stated_angle, tam_id, persona_id, micro_persona_id')
         .eq('id', analysis_id)
         .maybeSingle()
       effectiveQuadrant = (row?.quadrant_override as string | null) ?? (row?.quadrant as string | null) ?? null
 
-      // Audience Clarity Module: ad-level overrides supersede product defaults.
-      // Even if the ad has no overrides, fall back to the product's defaults
-      // so a product-wide TAM/persona still anchors the audience-match check.
-      let productDefaults: { tam: string | null; default_persona: string | null; default_micro_persona: string | null } | null = null
-      const productId = row?.product_id as string | null | undefined
-      if (productId) {
-        const { data: product } = await supabaseServer
-          .from('products')
-          .select('tam, default_persona, default_micro_persona')
-          .eq('id', productId)
-          .maybeSingle()
-        productDefaults = product ? {
-          tam: (product.tam as string | null) ?? null,
-          default_persona: (product.default_persona as string | null) ?? null,
-          default_micro_persona: (product.default_micro_persona as string | null) ?? null,
-        } : null
-      }
-      statedAudience = {
-        tam: productDefaults?.tam ?? null,
-        persona: (row?.stated_persona as string | null) ?? productDefaults?.default_persona ?? null,
-        micro_persona: (row?.stated_micro_persona as string | null) ?? productDefaults?.default_micro_persona ?? null,
-        concept: (row?.stated_concept as string | null) ?? null,
-        angle: (row?.stated_angle as string | null) ?? null,
+      // Hierarchical Audience Clarity (014 migration): resolve labels from
+      // the ad's selected (tam_id, persona_id, micro_persona_id) combo.
+      // No fallback to product defaults — if the user hasn't selected an
+      // audience for this ad, statedAudience stays null and the match check
+      // is skipped (has_user_input=false).
+      const tamId = row?.tam_id as string | null | undefined
+      const personaId = row?.persona_id as string | null | undefined
+      const microId = row?.micro_persona_id as string | null | undefined
+      const statedConcept = (row?.stated_concept as string | null) ?? null
+      const statedAngle = (row?.stated_angle as string | null) ?? null
+
+      if (tamId || personaId || microId) {
+        let tamLabel: string | null = null
+        let personaLabel: string | null = null
+        let microLabel: string | null = null
+        if (tamId) {
+          const { data } = await supabaseServer.from('product_tams').select('label').eq('id', tamId).maybeSingle()
+          tamLabel = (data?.label as string) ?? null
+        }
+        if (personaId) {
+          const { data } = await supabaseServer.from('product_personas').select('label').eq('id', personaId).maybeSingle()
+          personaLabel = (data?.label as string) ?? null
+        }
+        if (microId) {
+          const { data } = await supabaseServer.from('product_micro_personas').select('label').eq('id', microId).maybeSingle()
+          microLabel = (data?.label as string) ?? null
+        }
+        statedAudience = {
+          tam: tamLabel,
+          persona: personaLabel,
+          micro_persona: microLabel,
+          concept: statedConcept,
+          angle: statedAngle,
+        }
+      } else if (statedConcept || statedAngle) {
+        // Concept/angle alone (no audience FKs) still warrants a check.
+        statedAudience = {
+          tam: null,
+          persona: null,
+          micro_persona: null,
+          concept: statedConcept,
+          angle: statedAngle,
+        }
       }
     }
 
