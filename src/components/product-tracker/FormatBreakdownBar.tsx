@@ -31,8 +31,18 @@ export function FormatBreakdownBar({ ads }: Props) {
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={data} margin={{ top: 10, right: 16, bottom: 8, left: 0 }}>
             <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" />
-            <XAxis dataKey="format" tick={{ fontSize: 9, fill: '#9ca3af' }} stroke="#374151" />
-            <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} stroke="#374151" />
+            <XAxis
+              dataKey="format"
+              tick={{ fontSize: 9, fill: '#9ca3af' }}
+              stroke="#374151"
+              label={{ value: 'Ad format', position: 'insideBottom', offset: -2, fill: '#9ca3af', fontSize: 10 }}
+            />
+            <YAxis
+              allowDecimals={false}
+              tick={{ fontSize: 10, fill: '#9ca3af' }}
+              stroke="#374151"
+              label={{ value: '# ads', angle: -90, position: 'insideLeft', fill: '#9ca3af', fontSize: 10, dy: 16 }}
+            />
             <Tooltip contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 6, fontSize: 11 }} />
             <Legend wrapperStyle={{ fontSize: 9 }} />
             <Bar dataKey="winners" stackId="a" fill="#34d399" />

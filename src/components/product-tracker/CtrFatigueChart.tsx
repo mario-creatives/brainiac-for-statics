@@ -45,8 +45,18 @@ export function CtrFatigueChart({ ads }: Props) {
       <ResponsiveContainer width="100%" height={240}>
         <LineChart data={data} margin={{ top: 10, right: 16, bottom: 8, left: 0 }}>
           <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" />
-          <XAxis dataKey="day" tick={{ fontSize: 9, fill: '#9ca3af' }} stroke="#374151" />
-          <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} stroke="#374151" tickFormatter={v => `${v}%`} />
+          <XAxis
+            dataKey="day"
+            tick={{ fontSize: 9, fill: '#9ca3af' }}
+            stroke="#374151"
+            label={{ value: 'Day', position: 'insideBottom', offset: -2, fill: '#9ca3af', fontSize: 10 }}
+          />
+          <YAxis
+            tick={{ fontSize: 10, fill: '#9ca3af' }}
+            stroke="#374151"
+            tickFormatter={v => `${v}%`}
+            label={{ value: 'CTR (%)', angle: -90, position: 'insideLeft', fill: '#9ca3af', fontSize: 10, dy: 24 }}
+          />
           <Tooltip contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 6, fontSize: 11 }} />
           <Legend wrapperStyle={{ fontSize: 9 }} />
           {labels.map((label, i) => (

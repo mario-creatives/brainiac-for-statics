@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
+import { computeQuadrant } from '@/lib/quadrant'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,12 +41,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     name?: string
     vertical_category?: string | null
     target_cpa_usd?: number | null
+    winner_spend_threshold_usd?: number | null
     notes?: string | null
   }
   const update: Record<string, unknown> = {}
   if (body.name !== undefined) update.name = body.name
   if (body.vertical_category !== undefined) update.vertical_category = body.vertical_category
   if (body.target_cpa_usd !== undefined) update.target_cpa_usd = body.target_cpa_usd
+  if (body.winner_spend_threshold_usd !== undefined) {
+    // Threshold must be positive — fall back to the default rather than letting
+    // a zero/negative slip through and break computeQuadrant.
+    update.winner_spend_threshold_usd =
+      body.winner_spend_threshold_usd != null && body.winner_spend_threshold_usd > 0
+        ? body.winner_spend_threshold_usd
+        : 1000
+  }
   if (body.notes !== undefined) update.notes = body.notes
 
   const { data, error } = await supabaseServer
@@ -58,10 +68,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // If target_cpa_usd changed, recompute quadrant for every ad in this product
-  // so the dashboard reflects the new threshold immediately.
-  if (body.target_cpa_usd !== undefined && body.target_cpa_usd !== existing.target_cpa_usd) {
-    await recomputeProductQuadrants(id, body.target_cpa_usd ?? null)
+  // If target_cpa_usd OR winner_spend_threshold_usd changed, recompute quadrant
+  // for every ad in this product so the dashboard reflects the new boundary
+  // immediately.
+  const cpaChanged =
+    body.target_cpa_usd !== undefined && body.target_cpa_usd !== existing.target_cpa_usd
+  const thresholdChanged =
+    body.winner_spend_threshold_usd !== undefined &&
+    (update.winner_spend_threshold_usd as number) !== existing.winner_spend_threshold_usd
+  if (cpaChanged || thresholdChanged) {
+    await recomputeProductQuadrants(
+      id,
+      (data?.target_cpa_usd as number | null) ?? null,
+      (data?.winner_spend_threshold_usd as number | null) ?? 1000,
+    )
   }
 
   return NextResponse.json({ product: data })
@@ -82,14 +102,17 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   return NextResponse.json({ archived: true })
 }
 
-async function recomputeProductQuadrants(productId: string, targetCpa: number | null) {
-  const { computeQuadrant } = await import('@/lib/quadrant')
+async function recomputeProductQuadrants(
+  productId: string,
+  targetCpa: number | null,
+  winnerThreshold: number,
+) {
   const { data: rows } = await supabaseServer
     .from('analyses')
     .select('id, spend_usd, cpa_usd')
     .eq('product_id', productId)
   for (const r of (rows ?? []) as { id: string; spend_usd: number | null; cpa_usd: number | null }[]) {
-    const q = computeQuadrant(r.spend_usd, r.cpa_usd, targetCpa)
+    const q = computeQuadrant(r.spend_usd, r.cpa_usd, targetCpa, winnerThreshold)
     await supabaseServer.from('analyses').update({ quadrant: q }).eq('id', r.id)
   }
 }

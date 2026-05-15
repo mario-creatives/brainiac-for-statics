@@ -8,6 +8,7 @@ export interface ProductRow {
   name: string
   vertical_category: string | null
   target_cpa_usd: number | null
+  winner_spend_threshold_usd: number
   notes: string | null
   archived: boolean
   created_at: string
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
 
   const { data: products } = await supabaseServer
     .from('products')
-    .select('id, name, vertical_category, target_cpa_usd, notes, archived, created_at')
+    .select('id, name, vertical_category, target_cpa_usd, winner_spend_threshold_usd, notes, archived, created_at')
     .eq('user_id', user.id)
     .eq('archived', false)
     .order('created_at', { ascending: false })
@@ -60,22 +61,28 @@ export async function POST(req: NextRequest) {
     name?: string
     vertical_category?: string | null
     target_cpa_usd?: number | null
+    winner_spend_threshold_usd?: number | null
     notes?: string | null
   }
 
   const name = body.name?.trim()
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
 
+  const insert: Record<string, unknown> = {
+    user_id: user.id,
+    name,
+    vertical_category: body.vertical_category ?? null,
+    target_cpa_usd: body.target_cpa_usd ?? null,
+    notes: body.notes ?? null,
+  }
+  if (body.winner_spend_threshold_usd != null && body.winner_spend_threshold_usd > 0) {
+    insert.winner_spend_threshold_usd = body.winner_spend_threshold_usd
+  }
+
   const { data, error } = await supabaseServer
     .from('products')
-    .insert({
-      user_id: user.id,
-      name,
-      vertical_category: body.vertical_category ?? null,
-      target_cpa_usd: body.target_cpa_usd ?? null,
-      notes: body.notes ?? null,
-    })
-    .select('id, name, vertical_category, target_cpa_usd, notes, archived, created_at')
+    .insert(insert)
+    .select('id, name, vertical_category, target_cpa_usd, winner_spend_threshold_usd, notes, archived, created_at')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

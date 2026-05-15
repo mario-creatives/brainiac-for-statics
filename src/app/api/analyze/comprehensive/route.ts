@@ -234,6 +234,37 @@ export interface ComprehensiveAnalysis {
       predicted_impact: string
     } | null
   }
+  // M2 audit — Halbert's WIIFM in one literal sentence. If Claude can't
+  // write the sentence, the ad has failed promise clarity.
+  promise_clarity?: {
+    one_line: string
+    score: number
+    feedback: string
+  }
+  // M5 audit — Schwartz: name the objection before the reader does.
+  objection_preempt?: {
+    objections_addressed: string[]
+    objections_unaddressed: string[]
+    score: number
+    feedback: string
+  }
+  // M3 audit — structured proof specificity (sibling of copy.proof_signals).
+  proof_specificity?: {
+    has_named_source: boolean
+    has_specific_number: boolean
+    has_third_party_attribution: boolean
+    score: number
+    feedback: string
+  }
+  // M6 audit — structured risk reversal (refines offer_architecture.has_guarantee).
+  risk_reversal?: {
+    has_guarantee: boolean
+    guarantee_days: number | null
+    return_condition: 'conditional' | 'unconditional' | 'no_questions_asked' | 'absent'
+    refund_contingency: string | null
+    score: number
+    feedback: string
+  }
 }
 
 const anthropic = new Anthropic({ timeout: 280000 })
@@ -420,7 +451,12 @@ const STATIC_FRAMEWORK_BASELINE = `STATIC FRAMEWORK BASELINE (apply when no LEAR
 
 Copywriting framework (minimum-viable-copy principle — apply strictly):
 - Start with the minimum. Add an element ONLY when the previous one leaves something unresolved.
-- Headline: Aim for maximum impact with minimum words. If an 11-word headline can say the same thing in 5 words without losing meaning, emotional specificity, identity, or audience fit — it should. Length is justified only when every word is load-bearing. Rhythm, flavor, or repetition of the visual do not justify extra words. Headlines longer than 5 words ARE acceptable when each word carries unique weight that cannot be cut.
+- Headline length is GATED by market sophistication and awareness — there is no universal "ideal length":
+    · Sophistication 1–2 (bold claim wins): aim for ≤ 7 words. Extra words dilute the claim.
+    · Sophistication 3 (mechanism differentiates): 7–12 words. The mechanism must appear in the headline.
+    · Sophistication 4–5 (claims and mechanisms saturated): 10–18 words. Identification ("for people like you") or mechanism + sensation must appear; brevity loses to specificity here.
+    · Cross-cutting by awareness: at UNAWARE, surface the problem first regardless of length; at MOST-AWARE, lean shorter and offer-led.
+  Every word must carry weight that cannot be cut without losing meaning, emotional specificity, identification, or audience fit. Rhythm or flavor are not load-bearing.
 - Subheadline: Justified ONLY if headline leaves "so what?" unanswered. If headline is complete, subheadline is clutter.
 - Benefits: Justified ONLY if the audience needs to justify the decision (not just desire it). Each benefit should answer a specific objection — not restate the headline.
 - Trust signal: Default ON for health, money, significant life changes. Otherwise start without and test.
@@ -750,6 +786,32 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
       "verdict_reasoning": "<one sentence: what the counts and examples show>"
     },
     "alternative_combination": "<null when current is optimal. Otherwise object: { 'recommended': '<composition_tag>', 'intent': '<replacement | test_variant>', 'rationale': '<two sentences citing Block 0 learned rules and/or specific winner examples>', 'element_changes': { 'headline': '<new text or unchanged or remove>', 'subheadline': '<new text or unchanged or remove>', 'benefits': ['<benefit>'] | 'unchanged' | 'remove' | 'trim_to_2', 'trust_signals': ['<signal>'] | 'unchanged' | 'remove', 'cta': '<new text or unchanged>', 'offer': '<new text or unchanged or remove>' }, 'predicted_impact': '<one sentence: which scores improve and which segment-pattern this matches>' }>"
+  },
+  "promise_clarity": {
+    "one_line": "<the literal sentence the reader's brain receives in 3 seconds — written as an internal monologue, not ad copy. e.g. 'You get clearer skin in 14 days with no irritation.' If you can't write one cleanly, the ad has failed WIIFM clarity.>",
+    "score": <1-10>,
+    "feedback": "<one-two sentences — must agree with score>"
+  },
+  "objection_preempt": {
+    "objections_addressed": ["<canonical: safety | price | fit_for_me | speed | effectiveness | side_effects | difficulty | trust>"],
+    "objections_unaddressed": ["<same vocabulary; objections the audience would have that the ad doesn't answer>"],
+    "score": <1-10>,
+    "feedback": "<one-two sentences — must agree with score; per Schwartz, naming an objection before the reader does drives conversion>"
+  },
+  "proof_specificity": {
+    "has_named_source": <true/false — 'Dr. Jane Smith, dermatologist' yes; 'doctors recommend' no>,
+    "has_specific_number": <true/false — '9 out of 10' yes; 'most' no>,
+    "has_third_party_attribution": <true/false — 'as featured in NYT' yes; 'we tested' no>,
+    "score": <1-10>,
+    "feedback": "<one-two sentences — must agree with score; per Ogilvy, specificity converts where vagueness does not>"
+  },
+  "risk_reversal": {
+    "has_guarantee": <true/false>,
+    "guarantee_days": <integer or null>,
+    "return_condition": "<one of: conditional | unconditional | no_questions_asked | absent>",
+    "refund_contingency": "<one sentence describing the contingency, or null when absent>",
+    "score": <1-10>,
+    "feedback": "<one-two sentences — capture the qualitative gap between a '365-day no-questions-asked' guarantee and 'we promise quality' — they are not the same boolean>"
   }
 }`
 
@@ -898,6 +960,32 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
       "verdict_reasoning": "<one sentence>"
     },
     "alternative_combination": "<For winners with all elements 7+: null (combination is optimal). Otherwise object: { 'recommended': '<composition_tag>', 'intent': 'test_variant', 'rationale': '<two sentences: which DNA dimension would extend the working pattern, citing Block 0 learned rules and specific winner examples>', 'element_changes': { 'headline': '<new text or unchanged>', 'subheadline': '<new text or unchanged or remove>', 'benefits': ['<benefit>'] | 'unchanged' | 'remove' | 'trim_to_2', 'trust_signals': ['<signal>'] | 'unchanged' | 'remove', 'cta': '<new text or unchanged>', 'offer': '<new text or unchanged or remove>' }, 'predicted_impact': '<one sentence: which segment-pattern this would extend>' }>"
+  },
+  "promise_clarity": {
+    "one_line": "<the literal sentence the reader's brain receives in 3 seconds — written as an internal monologue. This is observation: what made this winner instantly legible to its audience>",
+    "score": <1-10>,
+    "feedback": "<one-two sentences: what this winner's promise clarity reveals about successful WIIFM in this category>"
+  },
+  "objection_preempt": {
+    "objections_addressed": ["<canonical: safety | price | fit_for_me | speed | effectiveness | side_effects | difficulty | trust>"],
+    "objections_unaddressed": ["<same vocabulary>"],
+    "score": <1-10>,
+    "feedback": "<one-two sentences: which objections this winner preempted and what that reveals about audience psychology>"
+  },
+  "proof_specificity": {
+    "has_named_source": <true/false>,
+    "has_specific_number": <true/false>,
+    "has_third_party_attribution": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one-two sentences: what this winner's proof architecture reveals about evidence the audience needed>"
+  },
+  "risk_reversal": {
+    "has_guarantee": <true/false>,
+    "guarantee_days": <integer or null>,
+    "return_condition": "<one of: conditional | unconditional | no_questions_asked | absent>",
+    "refund_contingency": "<one sentence describing the contingency, or null>",
+    "score": <1-10>,
+    "feedback": "<one-two sentences: what this winner's risk reversal reveals about the perceived purchase friction in this category>"
   }
 }`
 
@@ -1047,6 +1135,32 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
       "verdict_reasoning": "<one sentence>"
     },
     "alternative_combination": "<For losers, this is the diagnostic insight: object: { 'recommended': '<composition_tag>', 'intent': 'replacement', 'rationale': '<two sentences: which DNA dimensions of this loser likely caused the failure and what combination would have likely worked given pattern library evidence — cite Block 0 learned rules and specific winner examples>', 'element_changes': { 'headline': '<new text>', 'subheadline': '<new text or remove>', 'benefits': ['<benefit>'] | 'remove' | 'trim_to_2', 'trust_signals': ['<signal>'] | 'remove', 'cta': '<new text>', 'offer': '<new text or remove>' }, 'predicted_impact': '<one sentence: which winner segment-pattern this aligns with>' }>"
+  },
+  "promise_clarity": {
+    "one_line": "<the literal sentence the reader's brain received in 3 seconds — or 'unclear' when no clean sentence emerges. The inability to write this is itself the diagnosis>",
+    "score": <1-10>,
+    "feedback": "<one-two sentences: what the promise-clarity failure reveals about why this ad did not earn distribution>"
+  },
+  "objection_preempt": {
+    "objections_addressed": ["<canonical: safety | price | fit_for_me | speed | effectiveness | side_effects | difficulty | trust>"],
+    "objections_unaddressed": ["<same vocabulary; which objections this loser left unanswered>"],
+    "score": <1-10>,
+    "feedback": "<one-two sentences: which unanswered objection most plausibly stalled conversion>"
+  },
+  "proof_specificity": {
+    "has_named_source": <true/false>,
+    "has_specific_number": <true/false>,
+    "has_third_party_attribution": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one-two sentences: how the proof gap contributed to the failure to overcome audience skepticism>"
+  },
+  "risk_reversal": {
+    "has_guarantee": <true/false>,
+    "guarantee_days": <integer or null>,
+    "return_condition": "<one of: conditional | unconditional | no_questions_asked | absent>",
+    "refund_contingency": "<one sentence describing the contingency, or null>",
+    "score": <1-10>,
+    "feedback": "<one-two sentences: how the absence or weakness of risk reversal contributed to the failure>"
   }
 }`
 

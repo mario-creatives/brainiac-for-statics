@@ -3,11 +3,12 @@
 import { useState } from 'react'
 import type { Quadrant } from '@/lib/quadrant'
 import type { ProductAdRow } from '@/app/api/products/[id]/dashboard/route'
+import { LOSS_REASONS, LOSS_REASON_LABELS, type LossReason } from '@/app/api/analyze/synthesize-patterns/route'
 
 interface Props {
   token: string
   productId: string
-  row: ProductAdRow
+  row: ProductAdRow & { loss_reason?: string | null }
   onSaved: () => void
   onClose: () => void
 }
@@ -29,6 +30,9 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
   const [dateEnd, setDateEnd] = useState(row.date_range_end ?? '')
   const [active, setActive] = useState<boolean>(row.ad_active ?? true)
   const [override, setOverride] = useState<'' | Quadrant>(row.quadrant_override ?? '')
+  const [lossReason, setLossReason] = useState<'' | LossReason>(
+    (row.loss_reason as LossReason | null | undefined) ?? '',
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -48,6 +52,7 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
           date_range_start: dateStart || null,
           date_range_end: dateEnd || null,
           ad_active: active,
+          loss_reason: lossReason || null,
         }),
       })
       if (!metricsRes.ok) {
@@ -91,6 +96,19 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
               className="w-full bg-gray-900 border border-gray-800 rounded px-2 py-1 text-xs text-white focus:border-indigo-600 focus:outline-none"
             >
               {QUADRANT_OPTIONS.map(o => <option key={o.value || 'auto'} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">Loss reason</label>
+            <select
+              value={lossReason}
+              onChange={e => setLossReason(e.target.value as '' | LossReason)}
+              className="w-full bg-gray-900 border border-gray-800 rounded px-2 py-1 text-xs text-white focus:border-indigo-600 focus:outline-none"
+            >
+              <option value="">Auto-classify</option>
+              {LOSS_REASONS.map(r => (
+                <option key={r} value={r}>{LOSS_REASON_LABELS[r]}</option>
+              ))}
             </select>
           </div>
           <div>

@@ -169,15 +169,17 @@ export async function storeComprehensiveAnalysis(
     const productId = existing?.product_id as string | null | undefined
     const cpa = (existing?.cpa_usd as number | null | undefined) ?? null
     let targetCpa: number | null = null
+    let winnerThreshold = 1000
     if (productId) {
       const { data: p } = await supabaseServer
         .from('products')
-        .select('target_cpa_usd')
+        .select('target_cpa_usd, winner_spend_threshold_usd')
         .eq('id', productId)
         .maybeSingle()
       targetCpa = (p?.target_cpa_usd as number | null | undefined) ?? null
+      winnerThreshold = (p?.winner_spend_threshold_usd as number | null | undefined) ?? 1000
     }
-    update.quadrant = computeQuadrant(spendUsd, cpa, targetCpa)
+    update.quadrant = computeQuadrant(spendUsd, cpa, targetCpa, winnerThreshold)
   }
 
   await supabaseServer

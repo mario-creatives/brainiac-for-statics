@@ -22,6 +22,7 @@ export interface ProductAdRow {
   quadrant: Quadrant | null
   quadrant_override: Quadrant | null
   effective_quadrant: Quadrant | null
+  loss_reason: string | null
   fatigue_flag: boolean
   ctr_history: { recorded_at: string; ctr_pct: number | null; spend_usd: number | null; cpa_usd: number | null }[]
 }
@@ -32,6 +33,7 @@ export interface ProductDashboardPayload {
     name: string
     vertical_category: string | null
     target_cpa_usd: number | null
+    winner_spend_threshold_usd: number
     notes: string | null
     created_at: string
   }
@@ -58,7 +60,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params
   const { data: product } = await supabaseServer
     .from('products')
-    .select('id, name, vertical_category, target_cpa_usd, notes, created_at')
+    .select('id, name, vertical_category, target_cpa_usd, winner_spend_threshold_usd, notes, created_at')
     .eq('id', id)
     .eq('user_id', user.id)
     .maybeSingle()
@@ -66,7 +68,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { data: ads } = await supabaseServer
     .from('analyses')
-    .select('id, created_at, heatmap_url, comprehensive_analysis, spend_usd, cpa_usd, ctr_pct, age_range, date_range_start, date_range_end, ad_active, quadrant, quadrant_override')
+    .select('id, created_at, heatmap_url, comprehensive_analysis, spend_usd, cpa_usd, ctr_pct, age_range, date_range_start, date_range_end, ad_active, quadrant, quadrant_override, loss_reason')
     .eq('product_id', id)
     .order('created_at', { ascending: false })
 
@@ -76,6 +78,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     spend_usd: number | null; cpa_usd: number | null; ctr_pct: number | null
     age_range: string | null; date_range_start: string | null; date_range_end: string | null
     ad_active: boolean | null; quadrant: Quadrant | null; quadrant_override: Quadrant | null
+    loss_reason: string | null
   }[]
 
   // Pull metrics history for every ad in one query
@@ -121,6 +124,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       quadrant: a.quadrant,
       quadrant_override: a.quadrant_override,
       effective_quadrant: effective,
+      loss_reason: a.loss_reason,
       fatigue_flag: fatigue,
       ctr_history: history,
     }

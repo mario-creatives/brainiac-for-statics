@@ -1,8 +1,32 @@
 'use client'
 
-import { X } from 'lucide-react'
+import { useState } from 'react'
+import { X, Copy, Check, FileText } from 'lucide-react'
 import type { AnalysisResult } from '@/types'
 import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
+import { Tooltip } from '@/components/Tooltip'
+
+function CopyButton({ text, label = 'Copy', className = '' }: { text: string; label?: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+  async function handleClick() {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* user can read it anyway */ }
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={`text-[10px] inline-flex items-center gap-1 text-gray-400 hover:text-white transition-colors ${className}`}
+      aria-label={label}
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+      {copied ? 'Copied' : label}
+    </button>
+  )
+}
 
 function RichLine({ text }: { text: string }) {
   const parts = text.split(/(\*\*[^*]+\*\*)/)
@@ -51,6 +75,14 @@ function PassFail({ pass, label }: { pass: boolean; label: string }) {
       </span>
       <span className="text-xs text-gray-300">{label}</span>
     </div>
+  )
+}
+
+function Badge({ on, label }: { on: boolean | undefined; label: string }) {
+  return (
+    <span className={`px-1.5 py-0.5 rounded border ${on ? 'text-emerald-400 border-emerald-900/50 bg-gray-900' : 'text-gray-600 border-gray-800 bg-gray-900'}`}>
+      {on ? '✓ ' : '✗ '}{label}
+    </span>
   )
 }
 
@@ -104,22 +136,22 @@ interface Props {
 export function AdAnalysisModal({ card, comprehensive, loading, error, isHistorical, onClose, onRetry }: Props) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col"
+        className="bg-gray-900 border border-gray-700 sm:rounded-2xl w-full max-w-2xl shadow-2xl h-full sm:h-auto sm:max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        <div className="relative bg-gray-800 shrink-0 max-h-[35vh] overflow-hidden rounded-t-2xl">
+        <div className="relative bg-gray-800 shrink-0 max-h-[25vh] sm:max-h-[35vh] overflow-hidden sm:rounded-t-2xl">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={card.previewUrl} alt={card.fileName} className="w-full h-full max-h-[35vh] object-contain" />
+          <img src={card.previewUrl} alt={card.fileName} className="w-full h-full max-h-[25vh] sm:max-h-[35vh] object-contain" />
           {card.result?.heatmap_url && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={card.result.heatmap_url}
               alt="Brain activation heatmap"
-              className="absolute inset-0 w-full h-full max-h-[35vh] object-contain opacity-70"
+              className="absolute inset-0 w-full h-full max-h-[25vh] sm:max-h-[35vh] object-contain opacity-70"
             />
           )}
           {card.isWinner && (
@@ -151,10 +183,20 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, isHistori
           {/* Brain Activation — BERG (bars + heatmap legend + narrative) */}
           {card.result?.roi_data && (
             <Section title="Brain Activation — BERG">
+              <p className="text-[10px] text-gray-500 leading-snug">
+                <Tooltip text="BERG (fmri-nsd-fwrf) is a publicly-released brain encoding model trained on real fMRI data from human viewers. It predicts how each visual-cortex region would respond to this image — not what objects are present, but how the visual signal lights up specific neural circuitry." width="lg">
+                  BERG
+                </Tooltip>{' '}
+                models predicted neural response across 6 visual-cortex regions.
+              </p>
               {card.result.mean_top_roi_score != null && (
                 <div className="bg-gray-950 border border-indigo-900/40 rounded-lg px-3 py-2">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold">Neural Engagement Score</span>
+                    <span className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold">
+                      <Tooltip text="Mean activation across the top-scoring brain regions for this ad. Higher = stronger overall predicted neural response. Useful as a single summary number when comparing ads." width="lg">
+                        Neural Engagement Score
+                      </Tooltip>
+                    </span>
                     <span className="text-lg text-white font-mono font-semibold">{card.result.mean_top_roi_score.toFixed(2)}</span>
                     <span className="text-[10px] text-gray-500 font-mono">/ 1.00</span>
                   </div>
@@ -266,13 +308,87 @@ function RewriteCard({ rewrite, label = 'Proposed Rewrite' }: { rewrite: Rewrite
     null
   return (
     <div className="bg-gray-950 border border-amber-900/50 rounded-lg px-3 py-2.5 space-y-1.5 mt-2">
-      <p className="text-[10px] uppercase tracking-wide text-amber-400 font-semibold">{label}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-wide text-amber-400 font-semibold">{label}</p>
+        {proposedDisplay && <CopyButton text={proposedDisplay} />}
+      </div>
       {proposedDisplay && <p className="text-xs text-white font-medium leading-snug">{proposedDisplay}</p>}
       {rewrite.rationale && <p className="text-[11px] text-gray-300 leading-snug">{rewrite.rationale}</p>}
       {rewrite.expected_lift && (
         <p className="text-[11px] text-amber-300/90 leading-snug">Expected lift: {rewrite.expected_lift}</p>
       )}
     </div>
+  )
+}
+
+/** Collects every rewrite block in the comprehensive analysis into a single
+ *  pasteable strategist brief. The order is deliberate: highest-leverage
+ *  copy fixes first, then structural changes, then offer / hook / congruence. */
+function buildFullBrief(data: ComprehensiveAnalysis, headlineText?: string): string {
+  const lines: string[] = []
+  const push = (h: string, body: string) => { lines.push(`## ${h}`, body, '') }
+
+  if (headlineText) lines.push(`# Brief for: "${headlineText}"`, '')
+
+  if (data.overall) {
+    if (data.overall.verdict) push('Verdict', data.overall.verdict)
+    if (data.overall.priority_fix) push('Priority fix', data.overall.priority_fix)
+  }
+  if (data.promise_clarity?.one_line) push('Promise (one line)', data.promise_clarity.one_line)
+
+  const r = (label: string, rw: RewriteLike) => {
+    if (!rw) return
+    const text =
+      rw.proposed_text || rw.proposed_change || rw.proposed_pattern_interrupt ||
+      rw.proposed_offer_text || (rw.proposed_benefits?.join(' • ')) ||
+      (rw.proposed_signals?.join(' • ')) || rw.proposed_action || ''
+    if (text) push(label, `${text}\n— ${rw.rationale ?? ''}\nExpected lift: ${rw.expected_lift ?? '—'}`)
+  }
+  r('Headline rewrite',     data.copy?.headline?.rewrite)
+  r('Subheadline rewrite',  data.copy?.subheadline?.rewrite)
+  r('Benefits rewrite',     data.copy?.benefits_features?.rewrite)
+  r('Trust signals',        data.copy?.trust_signals?.rewrite)
+  r('Proof signals',        data.copy?.proof_signals?.rewrite)
+  r('CTA rewrite',          data.copy?.cta?.rewrite)
+  r('Hook rewrite',         data.hook_analysis?.rewrite)
+  r('Offer rewrite',        data.offer_architecture?.rewrite)
+  r('Congruence fix',       data.congruence?.rewrite)
+  r('Cognitive subtraction', data.cognitive_load?.rewrite)
+
+  return lines.join('\n')
+}
+
+/** Extracts up to 3 highest-leverage rewrites to surface in the TL;DR card.
+ *  Picks the ones with the lowest source score first (most room to grow). */
+function pickTopThreeRewrites(data: ComprehensiveAnalysis): {
+  label: string
+  proposed: string
+  rationale: string
+  score: number
+}[] {
+  const candidates: { label: string; proposed: string | null; rationale: string; score: number }[] = [
+    { label: 'Headline',     proposed: extractProposed(data.copy?.headline?.rewrite),     rationale: data.copy?.headline?.rewrite?.rationale ?? '',        score: data.copy?.headline?.clarity ?? 10 },
+    { label: 'Subheadline',  proposed: extractProposed(data.copy?.subheadline?.rewrite),  rationale: data.copy?.subheadline?.rewrite?.rationale ?? '',     score: data.copy?.subheadline?.clarity ?? 10 },
+    { label: 'Benefits',     proposed: extractProposed(data.copy?.benefits_features?.rewrite), rationale: data.copy?.benefits_features?.rewrite?.rationale ?? '', score: data.copy?.benefits_features?.clarity ?? 10 },
+    { label: 'Trust',        proposed: extractProposed(data.copy?.trust_signals?.rewrite), rationale: data.copy?.trust_signals?.rewrite?.rationale ?? '',   score: data.copy?.trust_signals?.strength ?? 10 },
+    { label: 'Proof',        proposed: extractProposed(data.copy?.proof_signals?.rewrite), rationale: data.copy?.proof_signals?.rewrite?.rationale ?? '',  score: data.copy?.proof_signals?.strength ?? 10 },
+    { label: 'CTA',          proposed: extractProposed(data.copy?.cta?.rewrite),          rationale: data.copy?.cta?.rewrite?.rationale ?? '',             score: data.copy?.cta?.clarity ?? 10 },
+    { label: 'Hook',         proposed: extractProposed(data.hook_analysis?.rewrite),      rationale: data.hook_analysis?.rewrite?.rationale ?? '',         score: data.hook_analysis?.scroll_stop_score ?? 10 },
+    { label: 'Offer',        proposed: extractProposed(data.offer_architecture?.rewrite), rationale: data.offer_architecture?.rewrite?.rationale ?? '',    score: data.offer_architecture?.offer_clarity_score ?? 10 },
+    { label: 'Congruence',   proposed: extractProposed(data.congruence?.rewrite),         rationale: data.congruence?.rewrite?.rationale ?? '',            score: data.congruence?.overall_score ?? 10 },
+  ]
+  return candidates
+    .filter((c): c is { label: string; proposed: string; rationale: string; score: number } => !!c.proposed)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 3)
+}
+
+function extractProposed(rw: RewriteLike): string | null {
+  if (!rw) return null
+  return (
+    rw.proposed_text || rw.proposed_change || rw.proposed_pattern_interrupt ||
+    rw.proposed_offer_text || (rw.proposed_benefits ? rw.proposed_benefits.join(' • ') : null) ||
+    (rw.proposed_signals ? rw.proposed_signals.join(' • ') : null) || rw.proposed_action || null
   )
 }
 
@@ -323,9 +439,61 @@ function LibraryAlignmentChips({ alignment }: { alignment: AlignmentLike }) {
   )
 }
 
+function TLDRCard({ data, isHistorical }: { data: ComprehensiveAnalysis; isHistorical?: boolean }) {
+  const topRewrites = isHistorical ? [] : pickTopThreeRewrites(data)
+  const headlineText = data.copy?.headline?.text
+  const verdict = data.overall?.verdict
+  const priorityFix = data.overall?.priority_fix
+  const oneLine = data.promise_clarity?.one_line
+  const fullBrief = buildFullBrief(data, headlineText)
+  if (!verdict && !priorityFix && topRewrites.length === 0) return null
+  return (
+    <div className="border border-indigo-900/50 bg-indigo-950/20 rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-widest text-indigo-300 font-semibold">TL;DR</p>
+        <CopyButton text={fullBrief} label="Copy full brief" />
+      </div>
+      {oneLine && (
+        <div className="bg-gray-950 border border-gray-800 rounded-md px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-0.5">Promise (one line)</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs text-gray-100 leading-snug italic">&ldquo;{oneLine}&rdquo;</p>
+            <CopyButton text={oneLine} label="" className="shrink-0 mt-0.5" />
+          </div>
+        </div>
+      )}
+      {verdict && <p className="text-xs text-gray-200 leading-relaxed">{verdict}</p>}
+      {priorityFix && !isHistorical && (
+        <div className="bg-gray-950 border border-amber-900/40 rounded-md px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-amber-400 font-semibold mb-0.5">Priority fix</p>
+          <p className="text-xs text-gray-100 leading-snug">{priorityFix}</p>
+        </div>
+      )}
+      {topRewrites.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] uppercase tracking-wide text-indigo-300 font-semibold">Top {topRewrites.length} actions</p>
+          {topRewrites.map((rw, i) => (
+            <div key={i} className="bg-gray-950 border border-gray-800 rounded-md px-3 py-2 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">{rw.label} <span className="text-gray-600">· score {rw.score}/10</span></span>
+                <CopyButton text={rw.proposed} label="" />
+              </div>
+              <p className="text-xs text-white leading-snug">{rw.proposed}</p>
+              {rw.rationale && <p className="text-[10px] text-gray-400 leading-snug">{rw.rationale}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ComprehensiveSections({ data, isHistorical, isLoser }: { data: ComprehensiveAnalysis; isHistorical?: boolean; isLoser?: boolean }) {
   return (
     <>
+      {/* TL;DR — verdict + top 3 rewrites + copy-full-brief. First read of the modal. */}
+      <TLDRCard data={data} isHistorical={isHistorical} />
+
       {/* Market Context */}
       {data.market_context && (
         <Section title="Market Context">
@@ -578,6 +746,121 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
         </Section>
       )}
 
+      {/* Promise Clarity (M2 audit) — the literal sentence the reader's brain receives. */}
+      {data.promise_clarity && (data.promise_clarity.one_line || data.promise_clarity.score) ? (
+        <Section title="Promise Clarity">
+          <div className="flex items-center gap-3">
+            <ScoreBadge score={data.promise_clarity.score ?? 0} />
+            <span className="text-[10px] text-gray-500">
+              <Tooltip text="Halbert's WIIFM in 3 seconds: in one sentence, what does the reader's brain understand they get? If a sentence can't be written, the ad has failed promise clarity.">
+                WIIFM in 3 seconds
+              </Tooltip>
+            </span>
+          </div>
+          {data.promise_clarity.one_line && (
+            <div className="bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 flex items-start justify-between gap-2">
+              <p className="text-xs text-gray-100 italic leading-snug">&ldquo;{data.promise_clarity.one_line}&rdquo;</p>
+              <CopyButton text={data.promise_clarity.one_line} label="" className="shrink-0 mt-0.5" />
+            </div>
+          )}
+          {data.promise_clarity.feedback && (
+            <p className="text-[11px] text-gray-400 leading-snug">{data.promise_clarity.feedback}</p>
+          )}
+        </Section>
+      ) : null}
+
+      {/* Objection Preempt (M5 audit) — Schwartz: name the objection before the reader does. */}
+      {data.objection_preempt && (data.objection_preempt.objections_addressed?.length || data.objection_preempt.objections_unaddressed?.length) ? (
+        <Section title="Objection Preempt">
+          <div className="flex items-center gap-3">
+            <ScoreBadge score={data.objection_preempt.score ?? 0} />
+            <span className="text-[10px] text-gray-500">
+              <Tooltip text="Schwartz: an ad that names the objection before the reader does converts higher than one that ignores it. Aim to address the top 2–3 objections for this audience.">
+                preempt &gt; ignore
+              </Tooltip>
+            </span>
+          </div>
+          {(data.objection_preempt.objections_addressed ?? []).length > 0 && (
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Addressed</p>
+              <div className="flex flex-wrap gap-1">
+                {data.objection_preempt.objections_addressed.map((o, i) => (
+                  <span key={`a-${i}`} className="text-[10px] text-emerald-400 bg-gray-900 border border-emerald-900/40 rounded px-1.5 py-0.5">{o}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {(data.objection_preempt.objections_unaddressed ?? []).length > 0 && (
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Left unanswered</p>
+              <div className="flex flex-wrap gap-1">
+                {data.objection_preempt.objections_unaddressed.map((o, i) => (
+                  <span key={`u-${i}`} className="text-[10px] text-[#ff2a2b] bg-gray-900 border border-red-900/40 rounded px-1.5 py-0.5">{o}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {data.objection_preempt.feedback && (
+            <p className="text-[11px] text-gray-400 leading-snug">{data.objection_preempt.feedback}</p>
+          )}
+        </Section>
+      ) : null}
+
+      {/* Proof Specificity (M3 audit) — Ogilvy: '9 of 10 dermatologists', not 'doctors'. */}
+      {data.proof_specificity && (
+        <Section title="Proof Specificity">
+          <div className="flex items-center gap-3">
+            <ScoreBadge score={data.proof_specificity.score ?? 0} />
+            <span className="text-[10px] text-gray-500">
+              <Tooltip text="Ogilvy's named-source rule: '9 of 10 dermatologists' converts where 'doctors recommend' does not. Score lifts when proof is named, numbered, and third-party-attributed.">
+                named, numbered, attributed
+              </Tooltip>
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[10px]">
+            <Badge on={data.proof_specificity.has_named_source} label="Named source" />
+            <Badge on={data.proof_specificity.has_specific_number} label="Specific number" />
+            <Badge on={data.proof_specificity.has_third_party_attribution} label="Third-party attribution" />
+          </div>
+          {data.proof_specificity.feedback && (
+            <p className="text-[11px] text-gray-400 leading-snug">{data.proof_specificity.feedback}</p>
+          )}
+        </Section>
+      )}
+
+      {/* Risk Reversal (M6 audit) — refines offer_architecture.has_guarantee. */}
+      {data.risk_reversal && (data.risk_reversal.has_guarantee || data.risk_reversal.score) ? (
+        <Section title="Risk Reversal">
+          <div className="flex items-center gap-3">
+            <ScoreBadge score={data.risk_reversal.score ?? 0} />
+            <span className="text-[10px] text-gray-500">
+              <Tooltip text="A 365-day no-questions-asked guarantee is not the same boolean as 'we promise quality'. Days, return condition, and contingency all carry conversion weight.">
+                guarantee specificity matters
+              </Tooltip>
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[10px]">
+            <Badge on={data.risk_reversal.has_guarantee} label="Guarantee present" />
+            {data.risk_reversal.guarantee_days != null && (
+              <span className="text-emerald-400 border border-emerald-900/50 bg-gray-900 px-1.5 py-0.5 rounded">
+                {data.risk_reversal.guarantee_days} days
+              </span>
+            )}
+            {data.risk_reversal.return_condition && data.risk_reversal.return_condition !== 'absent' && (
+              <span className="text-gray-300 border border-gray-800 bg-gray-900 px-1.5 py-0.5 rounded">
+                {data.risk_reversal.return_condition.replace(/_/g, ' ')}
+              </span>
+            )}
+          </div>
+          {data.risk_reversal.refund_contingency && (
+            <p className="text-[11px] text-gray-300 leading-snug italic">&ldquo;{data.risk_reversal.refund_contingency}&rdquo;</p>
+          )}
+          {data.risk_reversal.feedback && (
+            <p className="text-[11px] text-gray-400 leading-snug">{data.risk_reversal.feedback}</p>
+          )}
+        </Section>
+      ) : null}
+
       {/* Cognitive Simplicity — internally stored as cognitive_load.score where
           low=effortless; we display the inverted form so the convention
           matches every other score (higher = better). */}
@@ -667,6 +950,12 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
       {/* Framework Score */}
       {data.framework_score && (
         <Section title="Framework Score">
+          <p className="text-[10px] text-gray-500 leading-snug">
+            <Tooltip text="The minimum-viable-copy framework: every element (headline, subheadline, benefits, trust, CTA) must be justified by the previous one leaving something unresolved. Grade A = every element justified; D = elements present but not earning their place." width="lg">
+              Framework grade
+            </Tooltip>{' '}
+            audits whether each element earns its place.
+          </p>
           <div className="flex items-center gap-3">
             <GradeBadge grade={data.framework_score.overall_framework_grade} />
             <span className={`text-xs font-medium ${
@@ -735,7 +1024,11 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
         <Section title="Combination Analysis">
           <div className="bg-gray-950 border border-indigo-900/40 rounded-lg px-3 py-2.5 space-y-2">
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold">Current Combination</span>
+              <span className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold">
+                <Tooltip text="A composition_tag is a canonical short-hand for the elements present in the ad — e.g. 'headline+benefits+cta' or 'headline_only'. The pattern library groups winners and losers by this tag so the system can spot which stacks reliably convert in your segment." width="lg">
+                  Current Combination
+                </Tooltip>
+              </span>
               <span className="text-xs text-white font-mono bg-gray-900 border border-gray-800 rounded px-2 py-0.5">
                 {data.combination_analysis.current_combination}
               </span>
