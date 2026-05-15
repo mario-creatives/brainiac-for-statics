@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Star } from 'lucide-react'
 import type { Quadrant } from '@/lib/quadrant'
 import type { ProductAdRow } from '@/app/api/products/[id]/dashboard/route'
 import { LOSS_REASONS, LOSS_REASON_LABELS, type LossReason } from '@/app/api/analyze/synthesize-patterns/route'
@@ -33,6 +34,12 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
   const [lossReason, setLossReason] = useState<'' | LossReason>(
     (row.loss_reason as LossReason | null | undefined) ?? '',
   )
+  // Audience Clarity Module — per-ad overrides. Empty = use product default.
+  const [statedConcept, setStatedConcept] = useState(row.stated_concept ?? '')
+  const [statedPersona, setStatedPersona] = useState(row.stated_persona ?? '')
+  const [statedMicroPersona, setStatedMicroPersona] = useState(row.stated_micro_persona ?? '')
+  const [statedAngle, setStatedAngle] = useState(row.stated_angle ?? '')
+  const [isReferenceAd, setIsReferenceAd] = useState(row.is_reference_ad ?? false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -53,6 +60,11 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
           date_range_end: dateEnd || null,
           ad_active: active,
           loss_reason: lossReason || null,
+          stated_concept: statedConcept.trim() || null,
+          stated_persona: statedPersona.trim() || null,
+          stated_micro_persona: statedMicroPersona.trim() || null,
+          stated_angle: statedAngle.trim() || null,
+          is_reference_ad: isReferenceAd,
         }),
       })
       if (!metricsRes.ok) {
@@ -80,7 +92,7 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
 
   return (
     <tr className="bg-gray-950/50 border-b border-gray-800">
-      <td colSpan={11} className="px-3 py-3">
+      <td colSpan={12} className="px-3 py-3">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
           <Field label="Spend (USD)" type="number" value={spend} onChange={setSpend} placeholder="0.00" />
           <Field label="CPA (USD)" type="number" value={cpa} onChange={setCpa} placeholder="0.00" />
@@ -121,6 +133,32 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
               {active ? 'Active' : 'Paused'}
             </button>
           </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">Reference ad ★</label>
+            <button
+              onClick={() => setIsReferenceAd(v => !v)}
+              type="button"
+              title="Star this as the north-star ad for this product"
+              className={`text-xs px-2 py-1 rounded border flex items-center gap-1 ${isReferenceAd ? 'bg-yellow-900/30 border-yellow-800/60 text-yellow-300' : 'bg-gray-900 border-gray-800 text-gray-500'}`}
+            >
+              <Star className={`w-3 h-3 ${isReferenceAd ? 'fill-yellow-400 text-yellow-400' : ''}`} />
+              {isReferenceAd ? 'Starred' : 'Star'}
+            </button>
+          </div>
+        </div>
+
+        {/* Audience Clarity overrides (optional) — falls back to product defaults when blank */}
+        <div className="border-t border-gray-800 mt-3 pt-3">
+          <p className="text-[10px] uppercase tracking-wider text-indigo-400 font-semibold mb-2">Audience overrides (optional)</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Field label="Stated persona (override)" type="text" value={statedPersona} onChange={setStatedPersona} placeholder="leave blank to use product default" />
+            <Field label="Stated micro-persona (override)" type="text" value={statedMicroPersona} onChange={setStatedMicroPersona} placeholder="leave blank to use product default" />
+            <Field label="Concept (this ad)" type="text" value={statedConcept} onChange={setStatedConcept} placeholder="the ONE big idea this ad expresses" />
+            <Field label="Angle (this ad)" type="text" value={statedAngle} onChange={setStatedAngle} placeholder="the lead/hook angle" />
+          </div>
+          <p className="text-[10px] text-gray-600 mt-1.5">
+            On the next re-analysis, Claude infers persona/concept/angle from the ad alone, then checks alignment against these. Mismatches surface as a "targeting fit" flag.
+          </p>
         </div>
 
         {error && <p className="text-[10px] text-[#ff2a2b] mt-2">{error}</p>}

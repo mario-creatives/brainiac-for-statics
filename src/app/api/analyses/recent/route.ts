@@ -11,6 +11,7 @@ export interface RecentAnalysis {
   mean_top_roi_score: number | null
   heatmap_url: string | null
   framework_grade: string | null
+  framework_score: number | null
   composition_tag: string | null
   headline_text: string | null
   status: string
@@ -46,6 +47,7 @@ export async function GET(req: NextRequest) {
       mean_top_roi_score: r.mean_top_roi_score,
       heatmap_url: r.heatmap_url,
       framework_grade: (fwk?.overall_framework_grade as string) ?? null,
+      framework_score: (fwk?.overall_framework_score as number | null) ?? null,
       composition_tag: (ca?.composition_tag as string) ?? null,
       headline_text: (headline?.text as string) ?? null,
       status: r.status,

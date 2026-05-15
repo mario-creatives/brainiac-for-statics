@@ -20,6 +20,11 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
   const [targetCpa, setTargetCpa] = useState('')
   const [winnerThreshold, setWinnerThreshold] = useState('1000')
   const [notes, setNotes] = useState('')
+  // Audience Clarity Module — product-level defaults. Any per-ad overrides
+  // supplied later will take precedence.
+  const [tam, setTam] = useState('')
+  const [defaultPersona, setDefaultPersona] = useState('')
+  const [defaultMicroPersona, setDefaultMicroPersona] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -38,6 +43,9 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
           target_cpa_usd: targetCpa ? Number(targetCpa) : null,
           winner_spend_threshold_usd: winnerThreshold ? Number(winnerThreshold) : 1000,
           notes: notes.trim() || null,
+          tam: tam.trim() || null,
+          default_persona: defaultPersona.trim() || null,
+          default_micro_persona: defaultMicroPersona.trim() || null,
         }),
       })
       const data = await res.json()
@@ -113,6 +121,51 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
               className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-600 focus:outline-none"
             />
             <p className="text-[10px] text-gray-600 mt-1">Spend at which an ad on-target becomes a confirmed winner. Default $1,000. Raise for high-margin products, lower for tight tests.</p>
+          </div>
+
+          {/* ─── Audience Clarity (optional) ────────────────────────────
+              These anchor the "ad reads as / you said" mismatch check.
+              If Claude's read of the ad doesn't match what you wrote here,
+              Meta's algorithm can't target this audience either. */}
+          <div className="border-t border-gray-800 pt-4 space-y-3">
+            <p className="text-[10px] uppercase tracking-wider text-indigo-400 font-semibold">Audience clarity (optional)</p>
+            <p className="text-[10px] text-gray-600 -mt-1">
+              Defaults applied to every ad in this product. Each ad can override its persona / angle / concept later.
+              If left blank, Claude will still infer the audience from each ad — you just won't get a mismatch flag.
+            </p>
+
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">TAM (total addressable market)</label>
+              <textarea
+                value={tam}
+                onChange={e => setTam(e.target.value)}
+                rows={2}
+                placeholder="e.g. 35-55 yr-old women in the US with chronic insomnia"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">Default persona</label>
+              <input
+                type="text"
+                value={defaultPersona}
+                onChange={e => setDefaultPersona(e.target.value)}
+                placeholder="e.g. exhausted working mothers"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">Default micro-persona</label>
+              <input
+                type="text"
+                value={defaultMicroPersona}
+                onChange={e => setDefaultMicroPersona(e.target.value)}
+                placeholder="e.g. 38-yr-old working mom of two who's tried Ambien and quit"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
           </div>
 
           <div>

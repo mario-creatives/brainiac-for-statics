@@ -2,6 +2,7 @@
 
 import { X } from 'lucide-react'
 import { QuadrantBadge } from './QuadrantBadge'
+import { formatGrade } from '@/lib/format'
 import type { ProductAdRow } from '@/app/api/products/[id]/dashboard/route'
 
 interface Props {
@@ -126,9 +127,9 @@ export function AdCompareModal({ adA, adB, onClose }: Props) {
                 <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Ad {i === 0 ? 'A' : 'B'}</p>
                 {ad.heatmap_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={ad.heatmap_url} alt="" className="w-full aspect-video object-cover rounded-lg border border-gray-800" />
+                  <img src={ad.heatmap_url} alt="" className="w-full aspect-[16/9] object-cover rounded-lg border border-gray-800" />
                 ) : (
-                  <div className="w-full aspect-video bg-gray-800 rounded-lg" />
+                  <div className="w-full aspect-[16/9] bg-gray-800 rounded-lg" />
                 )}
                 <p className="text-xs text-gray-200 leading-snug line-clamp-2">{ad.headline_text ?? 'Untitled ad'}</p>
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -138,7 +139,7 @@ export function AdCompareModal({ adA, adB, onClose }: Props) {
                       ad.framework_grade === 'A' ? 'text-emerald-400' :
                       ad.framework_grade === 'B' ? 'text-amber-400' :
                       ad.framework_grade === 'C' ? 'text-orange-400' : 'text-[#ff2a2b]'
-                    }`}>{ad.framework_grade}</span>
+                    }`}>{formatGrade(ad.framework_grade, ad.framework_score)}</span>
                   )}
                   {ad.composition_tag && (
                     <span className="text-[9px] font-mono text-gray-400 bg-gray-950 border border-gray-800 rounded px-1.5 py-0.5 truncate max-w-full">

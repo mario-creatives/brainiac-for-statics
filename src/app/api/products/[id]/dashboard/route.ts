@@ -26,6 +26,15 @@ export interface ProductAdRow {
   mean_top_roi_score: number | null
   fatigue_flag: boolean
   ctr_history: { recorded_at: string; ctr_pct: number | null; spend_usd: number | null; cpa_usd: number | null }[]
+  // Audience Clarity Module
+  stated_concept: string | null
+  stated_persona: string | null
+  stated_micro_persona: string | null
+  stated_angle: string | null
+  audience_match_quality: 'aligned' | 'partial_mismatch' | 'major_mismatch' | null
+  is_reference_ad: boolean
+  // A7 — numeric framework score alongside the letter
+  framework_score: number | null
 }
 
 export interface ProductDashboardPayload {
@@ -36,6 +45,10 @@ export interface ProductDashboardPayload {
     target_cpa_usd: number | null
     winner_spend_threshold_usd: number
     notes: string | null
+    // Audience Clarity Module — product defaults
+    tam: string | null
+    default_persona: string | null
+    default_micro_persona: string | null
     created_at: string
   }
   ads: ProductAdRow[]
@@ -61,7 +74,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params
   const { data: product } = await supabaseServer
     .from('products')
-    .select('id, name, vertical_category, target_cpa_usd, winner_spend_threshold_usd, notes, created_at')
+    .select('id, name, vertical_category, target_cpa_usd, winner_spend_threshold_usd, notes, tam, default_persona, default_micro_persona, created_at')
     .eq('id', id)
     .eq('user_id', user.id)
     .maybeSingle()
@@ -69,7 +82,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { data: ads } = await supabaseServer
     .from('analyses')
-    .select('id, created_at, heatmap_url, comprehensive_analysis, mean_top_roi_score, spend_usd, cpa_usd, ctr_pct, age_range, date_range_start, date_range_end, ad_active, quadrant, quadrant_override, loss_reason')
+    .select('id, created_at, heatmap_url, comprehensive_analysis, mean_top_roi_score, spend_usd, cpa_usd, ctr_pct, age_range, date_range_start, date_range_end, ad_active, quadrant, quadrant_override, loss_reason, stated_concept, stated_persona, stated_micro_persona, stated_angle, is_reference_ad')
     .eq('product_id', id)
     .order('created_at', { ascending: false })
 
@@ -81,6 +94,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     age_range: string | null; date_range_start: string | null; date_range_end: string | null
     ad_active: boolean | null; quadrant: Quadrant | null; quadrant_override: Quadrant | null
     loss_reason: string | null
+    stated_concept: string | null; stated_persona: string | null
+    stated_micro_persona: string | null; stated_angle: string | null
+    is_reference_ad: boolean
   }[]
 
   // Pull metrics history for every ad in one query
@@ -130,6 +146,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       mean_top_roi_score: a.mean_top_roi_score,
       fatigue_flag: fatigue,
       ctr_history: history,
+      stated_concept: a.stated_concept,
+      stated_persona: a.stated_persona,
+      stated_micro_persona: a.stated_micro_persona,
+      stated_angle: a.stated_angle,
+      audience_match_quality: ((ca as Record<string, unknown>).audience_match as Record<string, unknown> | undefined)?.match_quality as 'aligned' | 'partial_mismatch' | 'major_mismatch' | null ?? null,
+      is_reference_ad: a.is_reference_ad ?? false,
+      framework_score: (fwk?.overall_framework_score as number | null) ?? null,
     }
   })
 

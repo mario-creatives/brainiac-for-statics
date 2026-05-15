@@ -264,6 +264,10 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
     product.winner_spend_threshold_usd?.toString() ?? '1000',
   )
   const [notes, setNotes] = useState(product.notes ?? '')
+  // Audience Clarity Module — product-level defaults
+  const [tam, setTam] = useState(product.tam ?? '')
+  const [defaultPersona, setDefaultPersona] = useState(product.default_persona ?? '')
+  const [defaultMicroPersona, setDefaultMicroPersona] = useState(product.default_micro_persona ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -280,6 +284,9 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
           target_cpa_usd: targetCpa === '' ? null : Number(targetCpa),
           winner_spend_threshold_usd: winnerThreshold === '' ? 1000 : Number(winnerThreshold),
           notes: notes.trim() || null,
+          tam: tam.trim() || null,
+          default_persona: defaultPersona.trim() || null,
+          default_micro_persona: defaultMicroPersona.trim() || null,
         }),
       })
       if (!res.ok) {
@@ -321,6 +328,24 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
             <Input label="Winner spend threshold (USD)" type="number" value={winnerThreshold} onChange={setWinnerThreshold} />
             <p className="text-[10px] text-gray-600 mt-1">Spend at which an on-target ad becomes a confirmed winner. Changing this re-classifies every ad in this product.</p>
           </div>
+          {/* Audience Clarity (optional). Defaults for every ad in this product. */}
+          <div className="border-t border-gray-800 pt-4 space-y-3">
+            <p className="text-[10px] uppercase tracking-wider text-indigo-400 font-semibold">Audience clarity (optional)</p>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">TAM (total addressable market)</label>
+              <textarea
+                value={tam}
+                onChange={e => setTam(e.target.value)}
+                rows={2}
+                placeholder="e.g. 35-55 yr-old women in the US with chronic insomnia"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <Input label="Default persona" value={defaultPersona} onChange={setDefaultPersona} />
+            <Input label="Default micro-persona" value={defaultMicroPersona} onChange={setDefaultMicroPersona} />
+            <p className="text-[10px] text-gray-600">Used as the baseline for the "ad reads as / you said" mismatch check on every ad in this product.</p>
+          </div>
+
           <div>
             <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">Notes</label>
             <textarea

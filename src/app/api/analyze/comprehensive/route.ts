@@ -143,7 +143,14 @@ export interface ComprehensiveAnalysis {
     sophistication_reasoning: string
   }
   ad_format: {
-    type: 'direct_response' | 'native_ugc' | 'advertorial' | 'brand_awareness' | 'product_demo' | 'testimonial' | 'hybrid'
+    // L7 from brutal-audit-v2: expanded to cover the formats that actually
+    // win on modern paid social. The old 7-value list forced everything
+    // modern into native_ugc / hybrid and dulled every downstream signal.
+    type:
+      | 'direct_response' | 'native_ugc' | 'advertorial' | 'brand_awareness'
+      | 'product_demo' | 'product_demo_with_text' | 'testimonial' | 'hybrid'
+      | 'chat_screenshot' | 'screenshot_of_review' | 'screenshot_of_tweet'
+      | 'before_after' | 'founder_pov' | 'listicle' | 'meme_template' | 'carousel_card'
     composition: {
       has_headline: boolean
       has_subheadline: boolean
@@ -186,12 +193,17 @@ export interface ComprehensiveAnalysis {
     rewrite?: ElementRewrite | null
   }
   framework_score: {
-    minimum_viable_test: 'pass' | 'fail'
+    // A6 from brutal-audit-v2: was binary 'pass' | 'fail' — promoted to 1-10 to
+    // capture obvious gradations. passes_minimum_viable_test stays for any
+    // callers that read a boolean.
+    minimum_viable_test_score: number
+    passes_minimum_viable_test: boolean
     headline_leaves_gap: boolean
     subheadline_justified: boolean
     benefits_justified: boolean
     trust_signal_justified: boolean
     cta_justified: boolean
+    overall_framework_score: number
     overall_framework_grade: 'A' | 'B' | 'C' | 'D'
     framework_feedback: string
   }
@@ -264,6 +276,35 @@ export interface ComprehensiveAnalysis {
     refund_contingency: string | null
     score: number
     feedback: string
+  }
+  // ── Audience Clarity Module (brutal-audit-v2) ─────────────────────────────
+  // STEP A: Claude infers from the ad ALONE, with no anchor to user input.
+  // This is the "Meta algorithm test" — if Claude can't tell who an ad is for,
+  // neither can Meta's algorithm.
+  audience_inference?: {
+    inferred_persona: string
+    inferred_micro_persona: string
+    inferred_concept: string
+    inferred_angle: string
+    inferred_tam_signal: 'narrow' | 'medium' | 'broad' | 'unclear'
+    confidence: number
+    reasoning: string
+  }
+  // STEP B: Compare inferred audience to user-stated audience (product defaults
+  // or per-ad overrides). Null when user supplied no audience inputs.
+  audience_match?: {
+    has_user_input: boolean
+    match_quality: 'aligned' | 'partial_mismatch' | 'major_mismatch' | null
+    mismatches: string[]
+    recommendation: string
+  }
+  // A8 from brutal-audit-v2: "one big idea per ad" check. Catches the common
+  // failure of arguing two or three competing promises in the same canvas.
+  concept_clarity?: {
+    has_single_concept: boolean
+    concept_summary: string
+    competing_concepts: string[]
+    score: number
   }
 }
 
@@ -709,7 +750,7 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "sophistication_reasoning": "<one sentence: why this sophistication level>"
   },
   "ad_format": {
-    "type": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | testimonial | hybrid>",
+    "type": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | product_demo_with_text | testimonial | hybrid | chat_screenshot | screenshot_of_review | screenshot_of_tweet | before_after | founder_pov | listicle | meme_template | carousel_card>",
     "composition": {
       "has_headline": <true/false>,
       "has_subheadline": <true/false>,
@@ -752,13 +793,15 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "rewrite": "<null when score <= 6. When score > 6 (high load = bad), object: { 'proposed_action': '<one of: remove_subheadline | trim_benefits | shorten_headline | remove_trust_block>', 'rationale': '<which element creates overload>', 'expected_lift': '<projected score after subtraction>' }>"
   },
   "framework_score": {
-    "minimum_viable_test": "<pass or fail: does every word in the headline earn its place — could any word be cut without losing meaning, impact, emotional specificity, or audience fit?>",
+    "minimum_viable_test_score": <1-10 — does every word in the headline earn its place? 1=most words are filler; 10=every single word is load-bearing>,
+    "passes_minimum_viable_test": <true if minimum_viable_test_score >= 6, false otherwise>,
     "headline_leaves_gap": <true/false>,
     "subheadline_justified": <true/false>,
     "benefits_justified": <true/false>,
     "trust_signal_justified": <true/false>,
     "cta_justified": <true/false>,
-    "overall_framework_grade": "<A | B | C | D — A=9-10, B=7-8, C=4-6, D=1-3>",
+    "overall_framework_score": <numeric 1-10 — granular score that maps to the letter grade>,
+    "overall_framework_grade": "<A | B | C | D — A=9-10, B=7-8, C=4-6, D=1-3 — MUST agree with overall_framework_score>",
     "framework_feedback": "<two sentences — must agree with grade; do not flag a flaw if grade is A>"
   },
   "congruence": {
@@ -812,6 +855,27 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "refund_contingency": "<one sentence describing the contingency, or null when absent>",
     "score": <1-10>,
     "feedback": "<one-two sentences — capture the qualitative gap between a '365-day no-questions-asked' guarantee and 'we promise quality' — they are not the same boolean>"
+  },
+  "audience_inference": {
+    "inferred_persona": "<ONE sentence — who this ad reads as targeting, from visual + copy ALONE. Fill this BEFORE looking at any stated_* values below.>",
+    "inferred_micro_persona": "<ONE sentence — narrower: specific identity, life-stage, situational context the ad reads as speaking to>",
+    "inferred_concept": "<ONE sentence — the single big idea the ad expresses>",
+    "inferred_angle": "<ONE sentence — the lead/hook angle (mechanism reveal | identity claim | before/after | curiosity gap | etc.)>",
+    "inferred_tam_signal": "<narrow | medium | broad | unclear — how tightly the ad signals a specific audience to a stranger>",
+    "confidence": <1-10 — how clearly the ad communicates an audience to someone with zero context>,
+    "reasoning": "<≤2 sentences citing specific visual and copy evidence>"
+  },
+  "audience_match": {
+    "has_user_input": <true if ANY of the stated_* values supplied below are non-empty, false otherwise>,
+    "match_quality": "<aligned | partial_mismatch | major_mismatch — set to null when has_user_input=false>",
+    "mismatches": ["<each mismatch as one sentence, e.g. 'Stated persona = remote workers, but ad reads as founders/CEOs based on suit + boardroom imagery'>"],
+    "recommendation": "<one sentence: the smallest change that would align ad ↔ stated audience. When aligned, write 'ad and stated audience are aligned — no change needed'.>"
+  },
+  "concept_clarity": {
+    "has_single_concept": <true/false — does this ad argue ONE thing, or multiple competing promises?>,
+    "concept_summary": "<one line — the single thing this ad argues>",
+    "competing_concepts": ["<each competing promise as a short string; empty array when has_single_concept=true>"],
+    "score": <1-10 — 10=laser-focused single concept; 1=three+ competing promises>
   }
 }`
 
@@ -890,7 +954,7 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "sophistication_reasoning": "<one sentence: why this sophistication level>"
   },
   "ad_format": {
-    "type": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | testimonial | hybrid>",
+    "type": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | product_demo_with_text | testimonial | hybrid | chat_screenshot | screenshot_of_review | screenshot_of_tweet | before_after | founder_pov | listicle | meme_template | carousel_card>",
     "composition": {
       "has_headline": <true/false>,
       "has_subheadline": <true/false>,
@@ -928,13 +992,15 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "simplification": "<one sentence: what this load level reveals about minimum-viable copy in this category>"
   },
   "framework_score": {
-    "minimum_viable_test": "<pass or fail: does every word in the headline earn its place — could any word be cut without losing meaning, impact, emotional specificity, or audience fit?>",
+    "minimum_viable_test_score": <1-10 — does every word in the headline earn its place? 1=most words are filler; 10=every single word is load-bearing>,
+    "passes_minimum_viable_test": <true if minimum_viable_test_score >= 6, false otherwise>,
     "headline_leaves_gap": <true/false>,
     "subheadline_justified": <true/false>,
     "benefits_justified": <true/false>,
     "trust_signal_justified": <true/false>,
     "cta_justified": <true/false>,
-    "overall_framework_grade": "<A | B | C | D — A=9-10, B=7-8, C=4-6, D=1-3>",
+    "overall_framework_score": <numeric 1-10 — granular score that maps to the letter grade>,
+    "overall_framework_grade": "<A | B | C | D — A=9-10, B=7-8, C=4-6, D=1-3 — MUST agree with overall_framework_score>",
     "framework_feedback": "<two sentences — must agree with grade>"
   },
   "congruence": {
@@ -986,6 +1052,27 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "refund_contingency": "<one sentence describing the contingency, or null>",
     "score": <1-10>,
     "feedback": "<one-two sentences: what this winner's risk reversal reveals about the perceived purchase friction in this category>"
+  },
+  "audience_inference": {
+    "inferred_persona": "<ONE sentence — who this winning ad reads as targeting, from visual + copy ALONE. Fill this BEFORE looking at any stated_* values below.>",
+    "inferred_micro_persona": "<ONE sentence — narrower: specific identity, life-stage, situational context the winner speaks to>",
+    "inferred_concept": "<ONE sentence — the single big idea the winner expresses>",
+    "inferred_angle": "<ONE sentence — the lead/hook angle that worked>",
+    "inferred_tam_signal": "<narrow | medium | broad | unclear>",
+    "confidence": <1-10>,
+    "reasoning": "<≤2 sentences citing the visual and copy evidence that made the audience legible>"
+  },
+  "audience_match": {
+    "has_user_input": <true if ANY stated_* supplied below, else false>,
+    "match_quality": "<aligned | partial_mismatch | major_mismatch — null when has_user_input=false>",
+    "mismatches": ["<each mismatch as one sentence>"],
+    "recommendation": "<one sentence: in a winning ad, audiences usually align. If they don't, name why this won despite the mismatch (e.g. broad-funnel concept that swept).>"
+  },
+  "concept_clarity": {
+    "has_single_concept": <true/false>,
+    "concept_summary": "<one line — the single thing this winner argues>",
+    "competing_concepts": ["<empty if single>"],
+    "score": <1-10>
   }
 }`
 
@@ -1065,7 +1152,7 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "sophistication_reasoning": "<one sentence: why this sophistication level and whether the ad addressed it correctly>"
   },
   "ad_format": {
-    "type": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | testimonial | hybrid>",
+    "type": "<one of: direct_response | native_ugc | advertorial | brand_awareness | product_demo | product_demo_with_text | testimonial | hybrid | chat_screenshot | screenshot_of_review | screenshot_of_tweet | before_after | founder_pov | listicle | meme_template | carousel_card>",
     "composition": {
       "has_headline": <true/false>,
       "has_subheadline": <true/false>,
@@ -1103,13 +1190,15 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "simplification": "<one sentence: what this load level reveals about copy failure in this category>"
   },
   "framework_score": {
-    "minimum_viable_test": "<pass or fail: does every word in the headline earn its place — could any word be cut without losing meaning, impact, emotional specificity, or audience fit?>",
+    "minimum_viable_test_score": <1-10 — does every word in the headline earn its place? 1=most words are filler; 10=every single word is load-bearing>,
+    "passes_minimum_viable_test": <true if minimum_viable_test_score >= 6, false otherwise>,
     "headline_leaves_gap": <true/false>,
     "subheadline_justified": <true/false>,
     "benefits_justified": <true/false>,
     "trust_signal_justified": <true/false>,
     "cta_justified": <true/false>,
-    "overall_framework_grade": "<A | B | C | D — A=9-10, B=7-8, C=4-6, D=1-3>",
+    "overall_framework_score": <numeric 1-10 — granular score that maps to the letter grade>,
+    "overall_framework_grade": "<A | B | C | D — A=9-10, B=7-8, C=4-6, D=1-3 — MUST agree with overall_framework_score>",
     "framework_feedback": "<two sentences — must agree with grade; describe how violations explain the failure>"
   },
   "congruence": {
@@ -1161,8 +1250,66 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "refund_contingency": "<one sentence describing the contingency, or null>",
     "score": <1-10>,
     "feedback": "<one-two sentences: how the absence or weakness of risk reversal contributed to the failure>"
+  },
+  "audience_inference": {
+    "inferred_persona": "<ONE sentence — who this losing ad reads as targeting from visual + copy ALONE. Fill this BEFORE looking at any stated_* values.>",
+    "inferred_micro_persona": "<ONE sentence — narrower>",
+    "inferred_concept": "<ONE sentence — the single big idea, or 'no clear concept' if the ad fails to express one>",
+    "inferred_angle": "<ONE sentence — angle, or 'no clear angle'>",
+    "inferred_tam_signal": "<narrow | medium | broad | unclear — unclear is common in losers>",
+    "confidence": <1-10 — losers often score low here>,
+    "reasoning": "<≤2 sentences. If the ad doesn't communicate an audience, say so explicitly — this is the 'Meta algorithm test' failure mode.>"
+  },
+  "audience_match": {
+    "has_user_input": <true if ANY stated_* supplied, else false>,
+    "match_quality": "<aligned | partial_mismatch | major_mismatch — null when has_user_input=false>",
+    "mismatches": ["<each mismatch as one sentence — losers often show audience-targeting mismatches as a root cause>"],
+    "recommendation": "<one sentence: the change that would have aligned ad ↔ stated audience>"
+  },
+  "concept_clarity": {
+    "has_single_concept": <true/false>,
+    "concept_summary": "<one line, or 'no clear concept'>",
+    "competing_concepts": ["<each competing promise — losers commonly have 2+>"],
+    "score": <1-10>
   }
 }`
+
+export interface StatedAudience {
+  tam: string | null
+  persona: string | null
+  micro_persona: string | null
+  concept: string | null
+  angle: string | null
+}
+
+function buildStatedAudienceBlock(s?: StatedAudience | null): string {
+  if (!s) return ''
+  const hasAny = !!(s.tam || s.persona || s.micro_persona || s.concept || s.angle)
+  // Always emit the block, even when empty, so the prompt's audience-match
+  // instructions still apply consistently (has_user_input=false in that case).
+  const dash = (v: string | null) => (v && v.trim()) ? v : '—'
+  return `
+AUDIENCE CLARITY PROTOCOL — strict ordering, do not violate:
+1. FIRST, fill the "audience_inference" block based ONLY on the ad image and copy you can see.
+   Do NOT look at the stated audience below until that block is complete.
+   This is the "Meta algorithm test": if YOU can't tell who this ad is for from the
+   creative alone, neither can Meta's targeting algorithm — and the ad cannot find its audience
+   no matter what targeting the buyer sets.
+2. THEN compare your inference to this user-stated audience:
+   - TAM: ${dash(s.tam)}
+   - Persona: ${dash(s.persona)}
+   - Micro-persona: ${dash(s.micro_persona)}
+   - Concept: ${dash(s.concept)}
+   - Angle: ${dash(s.angle)}
+3. Fill "audience_match":
+   - has_user_input = ${hasAny ? 'true' : 'false'}
+   ${hasAny
+     ? '- score match_quality (aligned | partial_mismatch | major_mismatch). List each specific mismatch as a sentence citing visual or copy evidence.'
+     : '- match_quality MUST be null, mismatches MUST be [], recommendation MUST be "no stated audience supplied".'}
+4. Fill "concept_clarity" — is this ad arguing ONE thing or multiple competing promises?
+   List each competing promise as a separate string when has_single_concept=false.
+`
+}
 
 export function buildComprehensiveVisionPrompt(
   roiAverages: ROIAverage[],
@@ -1172,6 +1319,7 @@ export function buildComprehensiveVisionPrompt(
   spendUsd?: number,
   evolvedBaseline?: BaselineEvolutionEntry | null,
   quadrant?: string | null,
+  statedAudience?: StatedAudience | null,
 ): string {
   const scoreLines = roiAverages
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)}`)
@@ -1238,7 +1386,7 @@ INVERTED SCALES — apply the contract correctly:
 
 CROSS-FIELD CONSISTENCY:
 - If congruence.overall_score is 9, field-level alignment booleans should mostly be true. If most are false, the score is wrong.
-- If framework_score.overall_framework_grade is A, *_justified booleans should mostly be true and minimum_viable_test should be "pass".
+- If framework_score.overall_framework_grade is A, *_justified booleans should mostly be true and minimum_viable_test_score should be >= 7.
 - If hook_analysis.scroll_stop_score is 8+, hook_feedback must describe the working pattern interrupt — not propose a new one.
 
 VIOLATION CHECK BEFORE OUTPUT: verify every score-feedback pair satisfies the contract. Do not return contradictions.
@@ -1300,7 +1448,7 @@ ${evolvedBaselineBlock}
 ${patternContext ? `\n${patternContext}\n` : ''}
 BERG brain activation scores:
 ${scoreLines}
-
+${buildStatedAudienceBlock(statedAudience)}
 ${analysisInstruction}
 
 Return a JSON object with EXACTLY this structure — no markdown fences, no extra keys:
@@ -1329,6 +1477,7 @@ async function runComprehensiveVisionAnalysis(
   spendUsd?: number,
   evolvedBaseline?: BaselineEvolutionEntry | null,
   quadrant?: string | null,
+  statedAudience?: StatedAudience | null,
 ): Promise<Omit<ComprehensiveAnalysis, 'berg_recommendations'>> {
   // Throw on any failure rather than silently returning null. The
   // previous null-fallback caused emptyComprehensive() to render with
@@ -1350,7 +1499,7 @@ async function runComprehensiveVisionAnalysis(
           type: 'image' as const,
           source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: imageBase64 },
         }] : []),
-        { type: 'text' as const, text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline, quadrant) },
+        { type: 'text' as const, text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline, quadrant, statedAudience) },
       ],
     }],
   })
@@ -1416,9 +1565,11 @@ function emptyComprehensive(bergBullets: string[]): ComprehensiveAnalysis {
     },
     cognitive_load: { score: 0, density: 'minimal', overload_risk: '', simplification: '' },
     framework_score: {
-      minimum_viable_test: 'fail',
+      minimum_viable_test_score: 0,
+      passes_minimum_viable_test: false,
       headline_leaves_gap: false, subheadline_justified: false, benefits_justified: false,
       trust_signal_justified: false, cta_justified: false,
+      overall_framework_score: 0,
       overall_framework_grade: 'D', framework_feedback: '',
     },
     congruence: {
@@ -1487,19 +1638,45 @@ export async function POST(req: NextRequest) {
     // re-analyses where the user has entered CPA, quadrant is set and
     // drives the winner/loser framing of the prompt.
     let effectiveQuadrant: string | null = null
+    let statedAudience: StatedAudience | null = null
     if (analysis_id) {
       const { data: row } = await supabaseServer
         .from('analyses')
-        .select('quadrant, quadrant_override')
+        .select('quadrant, quadrant_override, product_id, stated_concept, stated_persona, stated_micro_persona, stated_angle')
         .eq('id', analysis_id)
         .maybeSingle()
       effectiveQuadrant = (row?.quadrant_override as string | null) ?? (row?.quadrant as string | null) ?? null
+
+      // Audience Clarity Module: ad-level overrides supersede product defaults.
+      // Even if the ad has no overrides, fall back to the product's defaults
+      // so a product-wide TAM/persona still anchors the audience-match check.
+      let productDefaults: { tam: string | null; default_persona: string | null; default_micro_persona: string | null } | null = null
+      const productId = row?.product_id as string | null | undefined
+      if (productId) {
+        const { data: product } = await supabaseServer
+          .from('products')
+          .select('tam, default_persona, default_micro_persona')
+          .eq('id', productId)
+          .maybeSingle()
+        productDefaults = product ? {
+          tam: (product.tam as string | null) ?? null,
+          default_persona: (product.default_persona as string | null) ?? null,
+          default_micro_persona: (product.default_micro_persona as string | null) ?? null,
+        } : null
+      }
+      statedAudience = {
+        tam: productDefaults?.tam ?? null,
+        persona: (row?.stated_persona as string | null) ?? productDefaults?.default_persona ?? null,
+        micro_persona: (row?.stated_micro_persona as string | null) ?? productDefaults?.default_micro_persona ?? null,
+        concept: (row?.stated_concept as string | null) ?? null,
+        angle: (row?.stated_angle as string | null) ?? null,
+      }
     }
 
     const [bergText, visionResult] = await Promise.all([
       runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd, effectiveQuadrant),
       (image_base64 || confirmed_elements)
-        ? runComprehensiveVisionAnalysis(image_base64 ?? null, mime_type, roi_averages, patternContext, confirmed_elements, mode, spend_usd, evolvedBaseline, effectiveQuadrant)
+        ? runComprehensiveVisionAnalysis(image_base64 ?? null, mime_type, roi_averages, patternContext, confirmed_elements, mode, spend_usd, evolvedBaseline, effectiveQuadrant, statedAudience)
         : Promise.resolve(null),
     ])
 

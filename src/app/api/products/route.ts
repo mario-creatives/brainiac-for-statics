@@ -10,6 +10,11 @@ export interface ProductRow {
   target_cpa_usd: number | null
   winner_spend_threshold_usd: number
   notes: string | null
+  // Audience Clarity Module (012 migration) — product-level defaults used as
+  // fallback when an ad has no per-ad audience overrides.
+  tam: string | null
+  default_persona: string | null
+  default_micro_persona: string | null
   archived: boolean
   created_at: string
   ad_count: number
@@ -28,7 +33,7 @@ export async function GET(req: NextRequest) {
 
   const { data: products } = await supabaseServer
     .from('products')
-    .select('id, name, vertical_category, target_cpa_usd, winner_spend_threshold_usd, notes, archived, created_at')
+    .select('id, name, vertical_category, target_cpa_usd, winner_spend_threshold_usd, notes, tam, default_persona, default_micro_persona, archived, created_at')
     .eq('user_id', user.id)
     .eq('archived', false)
     .order('created_at', { ascending: false })
@@ -63,6 +68,9 @@ export async function POST(req: NextRequest) {
     target_cpa_usd?: number | null
     winner_spend_threshold_usd?: number | null
     notes?: string | null
+    tam?: string | null
+    default_persona?: string | null
+    default_micro_persona?: string | null
   }
 
   const name = body.name?.trim()
@@ -74,6 +82,9 @@ export async function POST(req: NextRequest) {
     vertical_category: body.vertical_category ?? null,
     target_cpa_usd: body.target_cpa_usd ?? null,
     notes: body.notes ?? null,
+    tam: body.tam?.trim() || null,
+    default_persona: body.default_persona?.trim() || null,
+    default_micro_persona: body.default_micro_persona?.trim() || null,
   }
   if (body.winner_spend_threshold_usd != null && body.winner_spend_threshold_usd > 0) {
     insert.winner_spend_threshold_usd = body.winner_spend_threshold_usd
@@ -82,7 +93,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabaseServer
     .from('products')
     .insert(insert)
-    .select('id, name, vertical_category, target_cpa_usd, winner_spend_threshold_usd, notes, archived, created_at')
+    .select('id, name, vertical_category, target_cpa_usd, winner_spend_threshold_usd, notes, tam, default_persona, default_micro_persona, archived, created_at')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

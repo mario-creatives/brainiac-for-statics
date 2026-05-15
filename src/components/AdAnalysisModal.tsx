@@ -54,15 +54,18 @@ function ScoreBadge({ score, max = 10 }: { score: number; max?: number }) {
   )
 }
 
-function GradeBadge({ grade }: { grade: 'A' | 'B' | 'C' | 'D' }) {
+function GradeBadge({ grade, score }: { grade: 'A' | 'B' | 'C' | 'D'; score?: number | null }) {
   const color =
     grade === 'A' ? 'text-emerald-400 border-emerald-800/60' :
     grade === 'B' ? 'text-amber-400 border-amber-800/60' :
     grade === 'C' ? 'text-orange-400 border-orange-800/60' :
                     'text-[#ff2a2b] border-red-900/60'
+  // A7 from brutal-audit-v2: show numeric score alongside the letter so a 4.1
+  // and a 5.9 don't both read as "C".
+  const display = score != null && !isNaN(score) ? `${grade} (${score.toFixed(1)})` : grade
   return (
     <span className={`text-sm font-mono font-bold px-2 py-0.5 rounded border bg-gray-900 ${color}`}>
-      {grade}
+      {display}
     </span>
   )
 }
@@ -439,6 +442,120 @@ function LibraryAlignmentChips({ alignment }: { alignment: AlignmentLike }) {
   )
 }
 
+function TargetingFitSection({ data }: { data: ComprehensiveAnalysis }) {
+  const inf = data.audience_inference
+  const m = data.audience_match
+  const hasUserInput = m?.has_user_input ?? false
+  // Chip coloring matches the match-quality vocabulary in the schema.
+  const chip = (() => {
+    if (!hasUserInput) return { color: 'text-gray-500 border-gray-700 bg-gray-900', label: 'no stated audience' }
+    if (m?.match_quality === 'aligned') return { color: 'text-emerald-400 border-emerald-800/60 bg-emerald-950/30', label: '✓ aligned' }
+    if (m?.match_quality === 'partial_mismatch') return { color: 'text-amber-400 border-amber-800/60 bg-amber-950/30', label: '~ partial mismatch' }
+    if (m?.match_quality === 'major_mismatch') return { color: 'text-[#ff2a2b] border-red-900/60 bg-red-950/30', label: '✗ major mismatch' }
+    return { color: 'text-gray-500 border-gray-700 bg-gray-900', label: '—' }
+  })()
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Targeting fit</h3>
+          <p className="text-[10px] text-gray-500 mt-0.5 max-w-md leading-snug">
+            What Claude reads from the ad alone vs what you told us the ad is for. If they don't match, Meta's algorithm can't target this audience either — the creative is the targeting signal.
+          </p>
+        </div>
+        <span className={`text-[10px] font-mono font-bold px-2 py-1 rounded border ${chip.color}`}>{chip.label}</span>
+      </div>
+
+      {inf && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          <div className="space-y-2">
+            <p className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold">Ad reads as targeting</p>
+            <Row label="Persona" value={inf.inferred_persona} />
+            <Row label="Micro-persona" value={inf.inferred_micro_persona} />
+            <Row label="Concept" value={inf.inferred_concept} />
+            <Row label="Angle" value={inf.inferred_angle} />
+            <div className="flex items-center gap-2 pt-1">
+              <span className="text-[10px] text-gray-500">TAM signal:</span>
+              <span className="text-[10px] font-mono text-gray-300">{inf.inferred_tam_signal}</span>
+              <span className="text-[10px] text-gray-500">· confidence {inf.confidence}/10</span>
+            </div>
+            {inf.reasoning && <p className="text-[10px] text-gray-500 italic leading-snug pt-1">{inf.reasoning}</p>}
+          </div>
+          <div className="space-y-2">
+            <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">{hasUserInput ? 'You said' : 'No stated audience'}</p>
+            {hasUserInput ? (
+              <>
+                {m && m.mismatches && m.mismatches.length > 0 ? (
+                  <ul className="space-y-1">
+                    {m.mismatches.map((mm, i) => (
+                      <li key={i} className="text-[11px] text-amber-300 leading-snug">• {mm}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[11px] text-emerald-300 leading-snug">No mismatches detected. The ad communicates the audience you intended.</p>
+                )}
+                {m?.recommendation && (
+                  <div className="pt-2 mt-2 border-t border-gray-800">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Recommendation</p>
+                    <p className="text-[11px] text-gray-300 leading-snug">{m.recommendation}</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-[10px] text-gray-500 leading-snug">
+                Set TAM / persona on the product, or stated_persona / stated_angle on this ad in the metrics editor, to see how the ad maps to your intent.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConceptClarityPanel({ data }: { data: NonNullable<ComprehensiveAnalysis['concept_clarity']> }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+          data.has_single_concept
+            ? 'text-emerald-400 border-emerald-800/60 bg-emerald-950/30'
+            : 'text-amber-400 border-amber-800/60 bg-amber-950/30'
+        }`}>
+          {data.has_single_concept ? '✓ Single concept' : '✗ Competing concepts'}
+        </span>
+        <span className="text-[10px] font-mono text-gray-400">{data.score}/10</span>
+      </div>
+      {data.concept_summary && (
+        <p className="text-xs text-white leading-relaxed">"{data.concept_summary}"</p>
+      )}
+      {!data.has_single_concept && data.competing_concepts.length > 0 && (
+        <div className="pt-1">
+          <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Competing promises in this ad</p>
+          <ul className="space-y-0.5">
+            {data.competing_concepts.map((c, i) => (
+              <li key={i} className="text-[11px] text-amber-300">• {c}</li>
+            ))}
+          </ul>
+          <p className="text-[10px] text-gray-500 mt-2 leading-snug">
+            An ad arguing two things at once dilutes both. Pick the one with the strongest pull for the intended audience.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Row({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">{label}</p>
+      <p className="text-[11px] text-gray-200 leading-snug">{value || '—'}</p>
+    </div>
+  )
+}
+
 function TLDRCard({ data, isHistorical }: { data: ComprehensiveAnalysis; isHistorical?: boolean }) {
   const topRewrites = isHistorical ? [] : pickTopThreeRewrites(data)
   const headlineText = data.copy?.headline?.text
@@ -493,6 +610,20 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
     <>
       {/* TL;DR — verdict + top 3 rewrites + copy-full-brief. First read of the modal. */}
       <TLDRCard data={data} isHistorical={isHistorical} />
+
+      {/* Targeting fit — the Meta algorithm test. Right under the TL;DR so
+          targeting failures don't get buried under copy analysis. */}
+      {(data.audience_inference || data.audience_match) && (
+        <TargetingFitSection data={data} />
+      )}
+
+      {/* Concept clarity — A8 from brutal-audit-v2. Catches the "two competing
+          promises in one ad" failure mode. */}
+      {data.concept_clarity && (
+        <Section title="Concept Clarity">
+          <ConceptClarityPanel data={data.concept_clarity} />
+        </Section>
+      )}
 
       {/* Market Context */}
       {data.market_context && (
@@ -956,12 +1087,13 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
             </Tooltip>{' '}
             audits whether each element earns its place.
           </p>
-          <div className="flex items-center gap-3">
-            <GradeBadge grade={data.framework_score.overall_framework_grade} />
+          <div className="flex items-center gap-3 flex-wrap">
+            <GradeBadge grade={data.framework_score.overall_framework_grade} score={data.framework_score.overall_framework_score} />
             <span className={`text-xs font-medium ${
-              data.framework_score.minimum_viable_test === 'pass' ? 'text-emerald-400' : 'text-[#ff2a2b]'
+              data.framework_score.passes_minimum_viable_test ? 'text-emerald-400' : 'text-[#ff2a2b]'
             }`}>
-              Minimum viable test: {data.framework_score.minimum_viable_test}
+              Minimum viable test: {data.framework_score.minimum_viable_test_score?.toFixed?.(1) ?? '—'}/10
+              {data.framework_score.passes_minimum_viable_test ? ' ✓' : ' ✗'}
             </span>
           </div>
           <div className="space-y-1.5 pt-1">

@@ -122,7 +122,7 @@ export interface AdCreative {
   user_id: string
   connected_account_id: string
   platform_creative_id: string | null
-  creative_type: 'image' | 'video'
+  creative_type: 'image'
   storage_key: string | null
   platform_name: string | null
   platform_status: string | null
@@ -141,15 +141,6 @@ export interface CreativePerformance {
   cpm: number
   roas: number | null
   recorded_at: string
-}
-
-// ─── YouTube ──────────────────────────────────────────────────────────────────
-
-export interface VideoMeta {
-  video_id: string
-  title: string
-  view_count: number | null
-  thumbnail_url: string
 }
 
 // ─── Correlation ──────────────────────────────────────────────────────────────

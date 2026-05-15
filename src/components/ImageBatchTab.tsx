@@ -799,6 +799,8 @@ function ImageResultCard({
 }) {
   const composition = comprehensive?.composition_tag
   const grade = comprehensive?.framework_score?.overall_framework_grade
+  const gradeScore = comprehensive?.framework_score?.overall_framework_score
+  const audienceMatch = comprehensive?.audience_match?.match_quality
   const comboVerdict = comprehensive?.combination_analysis?.historical_match?.verdict
   const topRoi = card.result?.roi_data?.slice(0, 3) ?? []
   const neuralScore = card.result?.mean_top_roi_score
@@ -814,7 +816,7 @@ function ImageResultCard({
       ].join(' ')}
       onClick={onClick}
     >
-      <div className="relative aspect-video bg-gray-800">
+      <div className="relative aspect-[16/9] bg-gray-800">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={card.previewUrl} alt={card.file.name} className="w-full h-full object-cover" loading="lazy" />
         {card.result?.heatmap_url && (
@@ -929,7 +931,17 @@ function ImageResultCard({
                 grade === 'B' ? 'text-amber-400 border-amber-800/60' :
                 grade === 'C' ? 'text-orange-400 border-orange-800/60' :
                                 'text-[#ff2a2b] border-red-900/60'
-              }`}>{grade}</span>
+              }`}>{gradeScore != null ? `${grade} (${gradeScore.toFixed(1)})` : grade}</span>
+            )}
+            {audienceMatch === 'major_mismatch' && (
+              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border text-[#ff2a2b] border-red-900/60 bg-gray-900" title="Ad reads as targeting a different audience than stated">
+                fit ✗
+              </span>
+            )}
+            {audienceMatch === 'partial_mismatch' && (
+              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border text-amber-400 border-amber-800/60 bg-gray-900" title="Partial targeting mismatch">
+                fit ~
+              </span>
             )}
             {comboVerdict && comboVerdict !== 'no_segment_data' && (
               <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border ${
