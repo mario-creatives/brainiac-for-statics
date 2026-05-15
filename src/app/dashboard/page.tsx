@@ -237,6 +237,34 @@ export default function DashboardPage() {
           <SessionHistory token={token} onSelect={handleReopen} onReanalyze={handleReopen} />
         )}
 
+        {/* W-flow1: First-time onboarding callout — shown until user has ≥1 historical ad */}
+        {token && stats !== null && stats.count === 0 && (
+          <div className="bg-indigo-950/30 border border-indigo-800/50 rounded-2xl p-6 animate-fade-up">
+            <h2 className="text-sm font-semibold text-white mb-1">Welcome — upload your first ad</h2>
+            <p className="text-xs text-gray-400 leading-relaxed max-w-2xl mb-4">
+              This tool runs every ad through BERG (a brain-activation model derived from fMRI data) and Claude to surface why an ad works — or doesn't.
+              Two modes:
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              <div className="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3">
+                <p className="text-xs font-semibold text-gray-200 mb-1">① Historical mode — start here</p>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  Upload ads you've already run with spend data. The tool classifies each as winner, promising, investigate, or loser based on your target CPA.
+                  After 10 ads, the winning-pattern library activates.
+                </p>
+              </div>
+              <div className="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3">
+                <p className="text-xs font-semibold text-gray-200 mb-1">② Feedback mode — unlocks at 10 ads</p>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  Upload new ads before launch. You'll see a full breakdown — brain activation, copy framework grade, rewrite suggestions —
+                  with your own winner patterns injected as reference.
+                </p>
+              </div>
+            </div>
+            <p className="text-[11px] text-indigo-400">↓ Switch to Historical mode below and upload your first ad to get started.</p>
+          </div>
+        )}
+
         {token && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 shadow-sm animate-fade-up">
             <div className="mb-5">
