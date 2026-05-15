@@ -269,6 +269,21 @@
     border-color: var(--glass-border);
   }
 
+  .input {
+    width: 100%;
+    background: rgba(3, 7, 18, 0.6);
+    border: 1px solid var(--graphite-8);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    color: #fff;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .input::placeholder { color: var(--graphite-6); }
+  .input:focus { border-color: #6366f1; }
+  .input option { background: #0f111a; }
+
   .card-lift {
     transition: transform 0.25s var(--ease-default), box-shadow 0.25s var(--ease-default), border-color 0.25s var(--ease-default);
   }
