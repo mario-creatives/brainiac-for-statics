@@ -89,7 +89,7 @@ function DnaCollapsible({ title, children }: { title: string; children: React.Re
         <span>{title}</span>
         <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
       </summary>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-2 pt-2 border-t border-gray-800">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 mt-2 pt-2 border-t border-gray-800">
         {children}
       </div>
     </details>

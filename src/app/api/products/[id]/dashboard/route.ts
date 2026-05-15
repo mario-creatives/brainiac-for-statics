@@ -23,6 +23,7 @@ export interface ProductAdRow {
   quadrant_override: Quadrant | null
   effective_quadrant: Quadrant | null
   loss_reason: string | null
+  mean_top_roi_score: number | null
   fatigue_flag: boolean
   ctr_history: { recorded_at: string; ctr_pct: number | null; spend_usd: number | null; cpa_usd: number | null }[]
 }
@@ -68,13 +69,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { data: ads } = await supabaseServer
     .from('analyses')
-    .select('id, created_at, heatmap_url, comprehensive_analysis, spend_usd, cpa_usd, ctr_pct, age_range, date_range_start, date_range_end, ad_active, quadrant, quadrant_override, loss_reason')
+    .select('id, created_at, heatmap_url, comprehensive_analysis, mean_top_roi_score, spend_usd, cpa_usd, ctr_pct, age_range, date_range_start, date_range_end, ad_active, quadrant, quadrant_override, loss_reason')
     .eq('product_id', id)
     .order('created_at', { ascending: false })
 
   const adRows = (ads ?? []) as {
     id: string; created_at: string; heatmap_url: string | null
     comprehensive_analysis: Record<string, unknown> | null
+    mean_top_roi_score: number | null
     spend_usd: number | null; cpa_usd: number | null; ctr_pct: number | null
     age_range: string | null; date_range_start: string | null; date_range_end: string | null
     ad_active: boolean | null; quadrant: Quadrant | null; quadrant_override: Quadrant | null
@@ -125,6 +127,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       quadrant_override: a.quadrant_override,
       effective_quadrant: effective,
       loss_reason: a.loss_reason,
+      mean_top_roi_score: a.mean_top_roi_score,
       fatigue_flag: fatigue,
       ctr_history: history,
     }

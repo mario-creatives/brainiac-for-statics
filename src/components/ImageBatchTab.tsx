@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
-import { Upload, Square } from 'lucide-react'
+import { Upload, Square, RefreshCw } from 'lucide-react'
 import type { AnalysisResult, ROIRegion } from '@/types'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import { AdAnalysisModal } from '@/components/AdAnalysisModal'
@@ -73,8 +73,9 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
   const [extractedElements, setExtractedElements] = useState<Record<string, ExtractedElements>>({})
   const [extractionLoading, setExtractionLoading] = useState<Record<string, boolean>>({})
   const [extractionError, setExtractionError] = useState<Record<string, string>>({})
-  const [awaitingConfirmation, setAwaitingConfirmation] = useState<Record<string, boolean>>({})
   const [confirmedElements, setConfirmedElements] = useState<Record<string, ExtractedElements>>({})
+  // W-flow3: reviewingCard replaces awaitingConfirmation — panel opens only on explicit user request
+  const [reviewingCard, setReviewingCard] = useState<ImageCard | null>(null)
   const [showExtractionPanel, setShowExtractionPanel] = useState(false)
   const [userAdCount, setUserAdCount] = useState<number | null>(null)
   const [baselineStatus, setBaselineStatus] = useState<{
@@ -95,17 +96,13 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
   const intervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map())
 
   async function fetchAdCount() {
-    // Historical-mode only — the feedback-mode lock and the dashboard
-    // counters both need to reflect only ads with confirmed spend.
     const { data } = await supabase
       .from('analyses')
       .select('spend_usd')
       .eq('type', 'thumbnail')
       .eq('status', 'complete')
       .not('spend_usd', 'is', null)
-    const rows = data ?? []
-    const count = rows.length
-    setUserAdCount(count)
+    setUserAdCount((data ?? []).length)
     onStatsUpdate?.()
   }
 
@@ -134,10 +131,6 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
   }, [])
 
   const feedbackLocked = userAdCount !== null && userAdCount < 10
-  // When a 50-ad milestone has been crossed but the auto baseline-update
-  // didn't write the new evolution row, historical uploads are blocked
-  // until the user clicks the manual safety-net button. Keeps the
-  // pattern-library / feedback baseline in sync with the ad pool.
   const milestoneLockActive = baselineStatus?.pending_milestone_update === true
 
   useEffect(() => {
@@ -160,14 +153,8 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
       const data = await readJsonStream(res)
-      if (data.error) {
-        setBaselineError(data.error as string)
-      } else if (data.evolved === false) {
-        // Edge case: another tab or the auto path won the race. Just refetch.
-        await fetchBaselineStatus()
-      } else {
-        await fetchBaselineStatus()
-      }
+      if (data.error) setBaselineError(data.error as string)
+      else await fetchBaselineStatus()
     } catch (e) {
       setBaselineError(e instanceof Error ? e.message : 'Update failed')
     }
@@ -193,7 +180,6 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
     setExtractedElements({})
     setExtractionLoading({})
     setExtractionError({})
-    setAwaitingConfirmation({})
     setConfirmedElements({})
     e.target.value = ''
   }
@@ -201,17 +187,15 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
   function handleAddMore(e: React.ChangeEvent<HTMLInputElement>) {
     const existing = cardsRef.current
     const existingIds = new Set(existing.map(c => c.id))
-    const newFiles = Array.from(e.target.files ?? [])
     const toAdd: ImageCard[] = []
-    for (const file of newFiles) {
+    for (const file of Array.from(e.target.files ?? [])) {
       const id = `${file.name}-${file.size}-${file.lastModified}`
       if (!existingIds.has(id)) {
         toAdd.push({ id, file, previewUrl: URL.createObjectURL(file), analysisId: null, status: 'pending', result: null, spend: undefined })
         existingIds.add(id)
       }
     }
-    const merged = [...existing, ...toAdd].slice(0, 25)
-    setCards(merged)
+    setCards([...existing, ...toAdd].slice(0, 25))
     e.target.value = ''
   }
 
@@ -229,7 +213,6 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
     setExtractedElements({})
     setExtractionLoading({})
     setExtractionError({})
-    setAwaitingConfirmation({})
     setConfirmedElements({})
   }
 
@@ -271,7 +254,6 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
 
         clearInterval(iv)
         intervalsRef.current.delete(cardId)
-
         setCards(prev => prev.map(c =>
           c.id === cardId
             ? { ...c, status: data.status as ImageCard['status'], result: data, error: data.error_message ?? undefined }
@@ -303,8 +285,12 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
         if (data.error) {
           setExtractionError(prev => ({ ...prev, [card.id]: data.error as string }))
         } else if (data.extracted) {
-          setExtractedElements(prev => ({ ...prev, [card.id]: data.extracted as ExtractedElements }))
-          setAwaitingConfirmation(prev => ({ ...prev, [card.id]: true }))
+          const extracted = data.extracted as ExtractedElements
+          setExtractedElements(prev => ({ ...prev, [card.id]: extracted }))
+          // W-flow3: Auto-confirm — proceed directly to comprehensive without
+          // waiting for user confirmation. The "review ↗" badge lets users
+          // inspect/edit the extraction after the fact if they want to.
+          runComprehensive(card, freshToken, extracted)
         } else {
           setExtractionError(prev => ({ ...prev, [card.id]: 'Extraction returned no data' }))
         }
@@ -355,6 +341,50 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
     setCardLoading(prev => ({ ...prev, [card.id]: false }))
   }
 
+  // W-flow9: Retry a failed card — re-upload, re-poll BERG, re-extract, auto-comprehensive.
+  async function handleRetryCard(card: ImageCard) {
+    setCards(prev => prev.map(c =>
+      c.id === card.id ? { ...c, status: 'uploading', error: undefined, result: null, analysisId: null } : c
+    ))
+    const { data: { session } } = await supabase.auth.getSession()
+    const freshToken = session?.access_token ?? token
+
+    const form = new FormData()
+    form.append('image', card.file)
+    if (productId) form.append('product_id', productId)
+
+    let analysisId: string | null = null
+    try {
+      const res = await fetch('/api/analyze/thumbnail', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${freshToken}` },
+        body: form,
+      })
+      const data = await res.json()
+      if (!res.ok || !data.analysis_id) {
+        setCards(prev => prev.map(c =>
+          c.id === card.id ? { ...c, status: 'failed', error: data.error ?? 'Upload failed' } : c
+        ))
+        return
+      }
+      analysisId = data.analysis_id as string
+      setCards(prev => prev.map(c =>
+        c.id === card.id ? { ...c, analysisId, status: 'processing' } : c
+      ))
+    } catch {
+      setCards(prev => prev.map(c =>
+        c.id === card.id ? { ...c, status: 'failed', error: 'Network error' } : c
+      ))
+      return
+    }
+
+    await pollOne(analysisId, card.id, freshToken)
+    const refreshed = cardsRef.current.find(c => c.id === card.id)
+    if (refreshed?.status === 'complete') {
+      await runExtraction(refreshed, freshToken)
+    }
+  }
+
   async function handleAnalyze() {
     if (!cards.length || analyzing) return
     if (mode === 'historical') {
@@ -372,16 +402,11 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
     setExtractedElements({})
     setExtractionLoading({})
     setExtractionError({})
-    setAwaitingConfirmation({})
     setConfirmedElements({})
 
     const { data: { session } } = await supabase.auth.getSession()
     const freshToken = session?.access_token ?? token
 
-    // Sequential per-card pipeline: BERG upload → wait for BERG result → next
-    // card. The user wants waterfall processing — no parallel Claude calls,
-    // no parallel BERG polling — so each ad is processed to completion before
-    // the next starts. Visible progress is the explicit goal here.
     for (const card of cardsRef.current) {
       if (stoppedRef.current) break
 
@@ -416,13 +441,11 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
         continue
       }
 
-      // Wait for this card's BERG result before moving on.
       await pollOne(analysisId, card.id, freshToken)
     }
 
     if (stoppedRef.current) return
 
-    // Compute averages for the batch summary
     const completed = cardsRef.current.filter(c => c.status === 'complete' && c.result?.roi_data)
     if (completed.length) {
       const roiMap = new Map<string, { label: string; description: string; total: number; count: number }>()
@@ -433,22 +456,14 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
           else roiMap.set(roi.region_key, { label: roi.label, description: roi.description, total: roi.activation, count: 1 })
         }
       }
-      const averages: ROIAverage[] = Array.from(roiMap.entries())
-        .map(([region_key, v]) => ({
-          region_key,
-          label: v.label,
-          description: v.description,
-          activation: v.total / v.count,
-        }))
-        .sort((a, b) => b.activation - a.activation)
-      setRoiAverages(averages)
+      setRoiAverages(
+        Array.from(roiMap.entries())
+          .map(([region_key, v]) => ({ region_key, label: v.label, description: v.description, activation: v.total / v.count }))
+          .sort((a, b) => b.activation - a.activation)
+      )
     }
 
-    // Sequential extraction across every completed card. Each Claude
-    // extraction call must finish before the next starts so the model
-    // never sees concurrent load. (See plan §8B.)
-    const completedCards = cardsRef.current.filter(c => c.status === 'complete')
-    for (const c of completedCards) {
+    for (const c of cardsRef.current.filter(c => c.status === 'complete')) {
       if (stoppedRef.current) break
       await runExtraction(c, freshToken)
     }
@@ -458,56 +473,46 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
   }
 
   async function handleCardClick(card: ImageCard) {
-    // Both modes share the same flow: extraction → confirm → comprehensive.
-    // 1) Extraction is ready and awaiting confirmation → open the panel.
-    if (awaitingConfirmation[card.id] && extractedElements[card.id]) {
-      setSelectedCard(card)
-      setShowExtractionPanel(true)
-      return
-    }
-    // 2) Extraction is in flight → ignore clicks; the badge already shows "extracting…".
     if (extractionLoading[card.id]) return
-    // 3) Already past extraction (confirmed, analysis loading, or analysis done)
-    //    → open the comprehensive analysis modal.
     if (confirmedElements[card.id] || cardComprehensive[card.id] || cardLoading[card.id]) {
       setSelectedCard(card)
       setShowExtractionPanel(false)
       return
     }
-    // 4) BERG complete but extraction hasn't run yet (or failed and user wants a retry).
-    //    Open the BERG modal immediately so the user can view brain activation results,
-    //    then start extraction in the background. When extraction completes the
-    //    "confirm →" badge appears and the next click switches to the extraction panel.
     if (card.status === 'complete' && card.result?.roi_data) {
       setSelectedCard(card)
       setShowExtractionPanel(false)
-      const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-      runExtraction(card, freshToken)
+      if (!extractedElements[card.id] && !extractionLoading[card.id]) {
+        const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
+        runExtraction(card, freshToken)
+      }
     }
   }
 
+  // W-flow3: Open the review panel explicitly (user opts in, not auto-shown).
+  function handleReviewExtraction(card: ImageCard) {
+    setReviewingCard(card)
+    setShowExtractionPanel(true)
+  }
+
   async function handleExtractionConfirm(confirmed: ExtractedElements) {
-    if (!selectedCard) return
-    const card = selectedCard
+    const card = reviewingCard
+    if (!card) return
     setConfirmedElements(prev => ({ ...prev, [card.id]: confirmed }))
-    setAwaitingConfirmation(prev => ({ ...prev, [card.id]: false }))
+    setReviewingCard(null)
     setShowExtractionPanel(false)
     const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
     runComprehensive(card, freshToken, confirmed)
   }
 
   function handleExtractionSkip() {
-    if (!selectedCard) return
-    const card = selectedCard
-    setAwaitingConfirmation(prev => ({ ...prev, [card.id]: false }))
+    const card = reviewingCard
+    if (!card) return
+    setReviewingCard(null)
     setShowExtractionPanel(false)
-    // Skip means "use the un-edited extraction" — DNA is already populated.
-    // Pass it through so comprehensive analysis preserves the structural fingerprint
-    // instead of asking Claude to re-extract DNA without the schema enumerated.
     const auto = extractedElements[card.id]
     supabase.auth.getSession().then(({ data: { session } }) => {
-      const freshToken = session?.access_token ?? token
-      runComprehensive(card, freshToken, auto)
+      runComprehensive(card, session?.access_token ?? token, auto)
     })
   }
 
@@ -519,42 +524,22 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
       {/* Mode toggle */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex gap-1 bg-gray-950 border border-gray-800 rounded-lg p-1">
-          {([
-            ['feedback', 'Feedback Mode'],
-            ['historical', 'Historical Mode'],
-          ] as [Mode, string][]).map(([m, label]) => (
+          {(['feedback', 'historical'] as Mode[]).map(m => (
             <button
               key={m}
               onClick={() => setMode(m)}
               disabled={analyzing || (m === 'feedback' && feedbackLocked) || (m === 'historical' && milestoneLockActive)}
-              title={
-                m === 'feedback' && feedbackLocked
-                  ? `Unlocks after ${10 - (userAdCount ?? 0)} more historical ads`
-                  : m === 'historical' && milestoneLockActive
-                    ? 'Locked — feedback baseline pending update'
-                    : undefined
-              }
               className={[
-                'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                'px-3 py-1.5 rounded-md text-xs font-medium transition-all capitalize',
                 mode === m ? 'bg-indigo-600 text-[#fff] shadow-sm' : 'text-gray-400 hover:text-gray-200',
                 (m === 'feedback' && feedbackLocked) || (m === 'historical' && milestoneLockActive) ? 'opacity-40 cursor-not-allowed' : '',
               ].join(' ')}
             >
-              {label}
+              {m === 'feedback' ? 'Feedback Mode' : 'Historical Mode'}
             </button>
           ))}
         </div>
-        {feedbackLocked ? (
-          <div className="flex items-center gap-2 text-[11px] text-gray-500">
-            <div className="w-20 bg-gray-800 rounded-full h-1">
-              <div
-                className="bg-indigo-500 h-1 rounded-full transition-all"
-                style={{ width: `${Math.min(((userAdCount ?? 0) / 10) * 100, 100)}%` }}
-              />
-            </div>
-            <span>{userAdCount ?? 0}/10 ads — Feedback mode unlocks at 10</span>
-          </div>
-        ) : (
+        {!feedbackLocked && !milestoneLockActive && (
           <p className="text-[11px] text-gray-500 max-w-md leading-relaxed">
             {mode === 'historical'
               ? `Upload past ads with spend data. Ads with $${WINNER_THRESHOLD_USD}+ spend feed the shared winning-pattern library.`
@@ -563,9 +548,51 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
         )}
       </div>
 
+      {/* W-flow2: Prominent lock-state banners — replaces the tiny inline captions */}
+      {feedbackLocked && (
+        <div className="rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3 flex items-start gap-4">
+          <div className="shrink-0 mt-1">
+            <div className="w-20 bg-gray-800 rounded-full h-1.5">
+              <div
+                className="bg-amber-500 h-1.5 rounded-full transition-all"
+                style={{ width: `${Math.min(((userAdCount ?? 0) / 10) * 100, 100)}%` }}
+              />
+            </div>
+            <p className="text-[9px] text-amber-600 mt-1 tabular-nums text-center">{userAdCount ?? 0} / 10</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-amber-300">Feedback mode is locked</p>
+            <p className="text-[11px] text-amber-400/70 mt-0.5 leading-relaxed">
+              Upload {10 - (userAdCount ?? 0)} more historical ad{(10 - (userAdCount ?? 0)) !== 1 ? 's' : ''} with spend data to unlock.
+              Feedback mode needs at least 10 ads to build a useful reference baseline.
+            </p>
+          </div>
+        </div>
+      )}
+      {milestoneLockActive && (
+        <div className="rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3">
+          <p className="text-xs font-semibold text-amber-300">Historical uploads are locked — baseline update required</p>
+          <p className="text-[11px] text-amber-400/70 mt-0.5 leading-relaxed">
+            A 50-ad milestone was reached. Update the feedback baseline to keep the pattern library in sync.
+            Historical uploads resume automatically after the update.
+          </p>
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              onClick={handleBaselineUpdate}
+              disabled={updatingBaseline}
+              className="text-[11px] px-3 py-1.5 rounded-lg border bg-amber-900/40 border-amber-700/60 text-amber-200 hover:bg-amber-900/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            >
+              {updatingBaseline && <RefreshCw className="w-3 h-3 animate-spin" />}
+              {updatingBaseline ? 'Updating…' : `Update baseline now (v${baselineStatus?.current_milestone ?? '?'} ready · ${baselineStatus?.ads_analyzed ?? '?'} ads)`}
+            </button>
+            {baselineError && <p className="text-[10px] text-red-400">{baselineError}</p>}
+          </div>
+        </div>
+      )}
+
       {/* Feedback baseline status */}
       {mode === 'feedback' && !feedbackLocked && baselineStatus && (
-        <div className="-mt-4 space-y-2">
+        <div className="-mt-4">
           {baselineStatus.has_evolution ? (
             <p className="text-[10px] text-gray-600">
               Feedback mode last updated {formatLastUpdated(baselineStatus.last_updated_at)}
@@ -576,29 +603,6 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
               Feedback principles evolve after every 50 historical ads
               {baselineStatus.ads_analyzed < 50 ? ` · ${50 - baselineStatus.ads_analyzed} more needed` : ' · update pending'}
             </p>
-          )}
-
-          {/* Manual safety-net button — enabled only when a milestone was
-              crossed but the auto-update didn't write a new evolution row. */}
-          {milestoneLockActive && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                onClick={handleBaselineUpdate}
-                disabled={updatingBaseline}
-                className="text-[10px] px-2 py-1 rounded border bg-amber-900/30 border-amber-700/60 text-amber-300 hover:bg-amber-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {updatingBaseline
-                  ? 'Updating baseline…'
-                  : `Update baseline now (v${baselineStatus.current_milestone} ready · ${baselineStatus.ads_analyzed} ads)`}
-              </button>
-              <span className="text-[10px] text-amber-400">
-                Historical uploads locked until baseline updates
-              </span>
-            </div>
-          )}
-
-          {baselineError && (
-            <p className="text-[10px] text-red-400">{baselineError}</p>
           )}
         </div>
       )}
@@ -639,7 +643,6 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
         </div>
       )}
 
-      {/* Analyze button */}
       {cards.length > 0 && !analyzing && doneCount === 0 && (
         <button
           onClick={handleAnalyze}
@@ -649,25 +652,19 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
         </button>
       )}
 
-      {/* Progress bar */}
       {cards.length > 0 && (analyzing || doneCount > 0) && (
         <div className="flex items-center gap-4">
           <div className="flex-1">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs text-gray-400">
                 {analyzing
-                  ? processingCard
-                    ? `Analyzing: ${processingCard.file.name}`
-                    : 'Running comprehensive analysis…'
+                  ? processingCard ? `Analyzing: ${processingCard.file.name}` : 'Running comprehensive analysis…'
                   : `Done — ${doneCount} of ${cards.length} analyzed`}
               </span>
               <span className="text-xs text-gray-600">{doneCount} / {cards.length}</span>
             </div>
             <div className="w-full bg-gray-800 rounded-full h-1">
-              <div
-                className="bg-indigo-500 h-1 rounded-full transition-all duration-700"
-                style={{ width: `${(doneCount / cards.length) * 100}%` }}
-              />
+              <div className="bg-indigo-500 h-1 rounded-full transition-all duration-700" style={{ width: `${(doneCount / cards.length) * 100}%` }} />
             </div>
           </div>
           {analyzing && (
@@ -682,7 +679,6 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
         </div>
       )}
 
-      {/* Image card grid */}
       {cards.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {cards.map(card => (
@@ -693,28 +689,28 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
               disabled={analyzing}
               extractionLoading={extractionLoading[card.id]}
               extractionError={extractionError[card.id]}
-              awaitingConfirmation={awaitingConfirmation[card.id]}
-              confirmed={!!confirmedElements[card.id]}
+              hasExtractedElements={!!extractedElements[card.id]}
               comprehensive={cardComprehensive[card.id]}
+              comprehensiveLoading={cardLoading[card.id]}
+              comprehensiveError={cardError[card.id]}
               onSpendChange={(v) => updateSpend(card.id, v)}
               onRetryExtraction={async () => {
                 const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
                 runExtraction(card, freshToken)
               }}
+              onReviewExtraction={() => handleReviewExtraction(card)}
+              onRetryCard={() => handleRetryCard(card)}
               onClick={card.status === 'complete' ? () => handleCardClick(card) : undefined}
             />
           ))}
         </div>
       )}
 
-      {/* Batch summary */}
       {roiAverages && (
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-4">
           <div>
             <h3 className="text-sm font-semibold text-white">Average Brain Activation</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              BERG · averaged across {cards.filter(c => c.status === 'complete').length} ad images
-            </p>
+            <p className="text-xs text-gray-500 mt-0.5">BERG · averaged across {cards.filter(c => c.status === 'complete').length} ad images</p>
           </div>
           <div className="space-y-3">
             {roiAverages.map((roi, i) => (
@@ -740,19 +736,18 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
 
       {roiAverages && <AttributionFooter />}
 
-      {/* Extraction confirmation panel (historical mode) */}
-      {selectedCard && showExtractionPanel && extractedElements[selectedCard.id] && (
+      {/* W-flow3: Review panel — opened only on explicit user request via "review ↗" button */}
+      {reviewingCard && showExtractionPanel && extractedElements[reviewingCard.id] && (
         <ExtractionConfirmPanel
-          fileName={selectedCard.file.name}
-          previewUrl={selectedCard.previewUrl}
-          extracted={extractedElements[selectedCard.id]}
+          fileName={reviewingCard.file.name}
+          previewUrl={reviewingCard.previewUrl}
+          extracted={extractedElements[reviewingCard.id]}
           onConfirm={handleExtractionConfirm}
           onSkip={handleExtractionSkip}
-          onClose={() => { setSelectedCard(null); setShowExtractionPanel(false) }}
+          onClose={() => { setReviewingCard(null); setShowExtractionPanel(false) }}
         />
       )}
 
-      {/* Detail modal */}
       {selectedCard && !showExtractionPanel && (
         <AdAnalysisModal
           card={{
@@ -783,18 +778,23 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
 }
 
 function ImageResultCard({
-  card, mode, disabled, extractionLoading, extractionError, awaitingConfirmation, confirmed, comprehensive, onSpendChange, onRetryExtraction, onClick,
+  card, mode, disabled, extractionLoading, extractionError, hasExtractedElements,
+  comprehensive, comprehensiveLoading, comprehensiveError,
+  onSpendChange, onRetryExtraction, onReviewExtraction, onRetryCard, onClick,
 }: {
   card: ImageCard
   mode: Mode
   disabled: boolean
   extractionLoading?: boolean
   extractionError?: string
-  awaitingConfirmation?: boolean
-  confirmed?: boolean
+  hasExtractedElements?: boolean
   comprehensive?: ComprehensiveAnalysis
+  comprehensiveLoading?: boolean
+  comprehensiveError?: string
   onSpendChange: (value: string) => void
   onRetryExtraction?: () => void
+  onReviewExtraction?: () => void
+  onRetryCard?: () => void
   onClick?: () => void
 }) {
   const composition = comprehensive?.composition_tag
@@ -819,23 +819,15 @@ function ImageResultCard({
         <img src={card.previewUrl} alt={card.file.name} className="w-full h-full object-cover" loading="lazy" />
         {card.result?.heatmap_url && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={card.result.heatmap_url}
-            alt="Brain activation heatmap"
-            className="absolute inset-0 w-full h-full object-cover opacity-70"
-          />
+          <img src={card.result.heatmap_url} alt="Brain activation heatmap" className="absolute inset-0 w-full h-full object-cover opacity-70" />
         )}
         {isWinner && (
-          <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider bg-yellow-500 text-yellow-950 px-1.5 py-0.5 rounded">
-            ★ Winner
-          </span>
+          <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider bg-yellow-500 text-yellow-950 px-1.5 py-0.5 rounded">★ Winner</span>
         )}
         {isLoser && (
-          <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider bg-red-900 text-red-300 px-1.5 py-0.5 rounded border border-red-800">
-            ✗ Loser
-          </span>
+          <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider bg-red-900 text-red-300 px-1.5 py-0.5 rounded border border-red-800">✗ Loser</span>
         )}
-        <div className="absolute top-1.5 right-1.5">
+        <div className="absolute top-1.5 right-1.5 flex flex-col items-end gap-1">
           {card.status === 'pending' && (
             <span className="text-[10px] bg-gray-900/80 text-gray-500 px-1.5 py-0.5 rounded">pending</span>
           )}
@@ -847,14 +839,21 @@ function ImageResultCard({
           {card.status === 'complete' && extractionLoading && (
             <span className="text-[10px] bg-gray-900/80 text-gray-400 px-1.5 py-0.5 rounded animate-pulse">extracting…</span>
           )}
+          {card.status === 'complete' && !extractionLoading && comprehensiveLoading && (
+            <span className="text-[10px] bg-indigo-900/80 text-indigo-300 px-1.5 py-0.5 rounded animate-pulse">analyzing…</span>
+          )}
           {card.status === 'complete' && extractionError && !extractionLoading && (
             <span className="text-[10px] bg-red-900/80 text-red-300 px-1.5 py-0.5 rounded">extract failed</span>
           )}
-          {card.status === 'complete' && awaitingConfirmation && !extractionLoading && (
-            <span className="text-[10px] bg-yellow-900/80 text-yellow-300 px-1.5 py-0.5 rounded">confirm →</span>
-          )}
-          {card.status === 'complete' && confirmed && !awaitingConfirmation && !extractionLoading && (
-            <span className="text-[10px] bg-emerald-900/80 text-emerald-300 px-1.5 py-0.5 rounded">confirmed</span>
+          {/* W-flow3: optional review badge — extraction is auto-confirmed, but user can inspect/correct */}
+          {card.status === 'complete' && hasExtractedElements && !extractionLoading && onReviewExtraction && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onReviewExtraction() }}
+              title="Review and edit Claude's extraction, then re-run analysis"
+              className="text-[10px] bg-gray-900/80 text-gray-500 hover:text-indigo-300 px-1.5 py-0.5 rounded border border-gray-800/50 hover:border-indigo-800/60 transition-colors"
+            >
+              review ↗
+            </button>
           )}
           {card.status === 'failed' && (
             <span className="text-[10px] bg-red-900/80 text-red-300 px-1.5 py-0.5 rounded">failed</span>
@@ -864,6 +863,22 @@ function ImageResultCard({
 
       <div className="p-2.5 flex-1 flex flex-col gap-2">
         <p className="text-xs text-gray-300 leading-snug line-clamp-2">{card.file.name}</p>
+
+        {/* W-flow9: Retry failed BERG analysis */}
+        {card.status === 'failed' && (
+          <div className="bg-red-900/20 border border-red-900/40 rounded px-2 py-1.5 space-y-1">
+            <p className="text-[10px] text-red-300 leading-snug">{card.error ?? 'Analysis failed'}</p>
+            {onRetryCard && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRetryCard() }}
+                className="flex items-center gap-1 text-[10px] text-red-200 hover:text-red-100 underline"
+              >
+                <RefreshCw className="w-2.5 h-2.5" />
+                Retry
+              </button>
+            )}
+          </div>
+        )}
 
         {extractionError && (
           <div className="bg-red-900/20 border border-red-900/40 rounded px-2 py-1.5 space-y-1">
@@ -876,6 +891,21 @@ function ImageResultCard({
                 className="text-[10px] text-red-200 underline hover:text-red-100"
               >
                 Retry extraction
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* W-flow9: comprehensive error with open-modal hint */}
+        {comprehensiveError && !comprehensiveLoading && (
+          <div className="bg-red-900/20 border border-red-900/40 rounded px-2 py-1.5">
+            <p className="text-[10px] text-red-300 leading-snug line-clamp-2">{comprehensiveError}</p>
+            {onClick && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onClick() }}
+                className="mt-0.5 text-[10px] text-red-200 underline hover:text-red-100"
+              >
+                Open modal to retry →
               </button>
             )}
           </div>
