@@ -182,15 +182,21 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
 
       {/* Upload sheet */}
       {showUpload && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-gray-950 border border-gray-700 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 sticky top-0 bg-gray-950 z-10">
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          onClick={() => { setShowUpload(false); load() }}
+        >
+          <div
+            className="bg-gray-950 border border-gray-700 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 shrink-0">
               <h2 className="text-sm font-semibold text-white">Add ads to {product.name}</h2>
-              <button onClick={() => { setShowUpload(false); load() }} className="text-gray-500 hover:text-white">
+              <button onClick={() => { setShowUpload(false); load() }} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-6">
+            <div className="p-6 overflow-y-auto flex-1">
               <ImageBatchTab
                 token={token}
                 productId={productId}
@@ -315,49 +321,52 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-950 border border-gray-700 rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[90vh]"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 shrink-0">
           <h2 className="text-sm font-semibold text-white">Product settings</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-colors"><X className="w-4 h-4" /></button>
         </div>
-        <div className="p-6 space-y-4">
+        <div className="p-6 space-y-4 overflow-y-auto flex-1">
           <Input label="Name" value={name} onChange={setName} />
           <Input label="Target CPA (USD)" type="number" value={targetCpa} onChange={setTargetCpa} />
           <div>
             <Input label="Winner spend threshold (USD)" type="number" value={winnerThreshold} onChange={setWinnerThreshold} />
             <p className="text-[10px] text-gray-600 mt-1">Spend at which an on-target ad becomes a confirmed winner. Changing this re-classifies every ad in this product.</p>
           </div>
-          {/* Audience Clarity (optional). Defaults for every ad in this product. */}
           <div className="border-t border-gray-800 pt-4 space-y-3">
-            <p className="text-[10px] uppercase tracking-wider text-indigo-400 font-semibold">Audience clarity (optional)</p>
+            <p className="text-[10px] uppercase tracking-wider text-indigo-400 font-semibold font-mono">Audience clarity (optional)</p>
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">TAM (total addressable market)</label>
+              <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium font-mono block mb-1">TAM</label>
               <textarea
                 value={tam}
                 onChange={e => setTam(e.target.value)}
                 rows={2}
                 placeholder="e.g. 35-55 yr-old women in the US with chronic insomnia"
-                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-600 focus:outline-none"
+                className="input resize-none"
               />
             </div>
             <Input label="Default persona" value={defaultPersona} onChange={setDefaultPersona} />
             <Input label="Default micro-persona" value={defaultMicroPersona} onChange={setDefaultMicroPersona} />
-            <p className="text-[10px] text-gray-600">Used as the baseline for the "ad reads as / you said" mismatch check on every ad in this product.</p>
           </div>
-
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">Notes</label>
+            <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium font-mono block mb-1">Notes</label>
             <textarea
               value={notes}
               onChange={e => setNotes(e.target.value)}
               rows={3}
-              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-600 focus:outline-none"
+              className="input resize-none"
             />
           </div>
           {error && <p className="text-xs text-[#ff2a2b]">{error}</p>}
         </div>
-        <div className="px-6 py-4 border-t border-gray-800 flex items-center justify-between">
+        <div className="px-6 py-4 border-t border-gray-800 flex items-center justify-between shrink-0">
           <button onClick={handleDelete} disabled={saving} className="text-xs text-[#ff2a2b] hover:text-red-400 flex items-center gap-1.5">
             <Trash2 className="w-3 h-3" />
             Archive product
@@ -377,13 +386,8 @@ function ProductSettingsModal({ token, product, onClose, onSaved, onDeleted }: {
 function Input({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
   return (
     <div>
-      <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium block mb-1">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-600 focus:outline-none"
-      />
+      <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium font-mono block mb-1">{label}</label>
+      <input type={type} value={value} onChange={e => onChange(e.target.value)} className="input" />
     </div>
   )
 }

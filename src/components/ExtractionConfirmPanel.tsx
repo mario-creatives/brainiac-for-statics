@@ -410,7 +410,7 @@ export function ExtractionConfirmPanel({ fileName, previewUrl, extracted, onConf
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col glass"
+        className="bg-gray-950 border border-gray-700 rounded-2xl w-full max-w-2xl shadow-xl max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
