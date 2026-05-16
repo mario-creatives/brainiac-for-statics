@@ -477,6 +477,24 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
     fetchAdCount()
   }
 
+  // Auto-trigger analysis inside Product Tracker: as soon as every uploaded
+  // card has a valid spend, kick off handleAnalyze after a short debounce so
+  // users don't have to click an extra button.
+  const handleAnalyzeRef = useRef<() => void>(() => {})
+  handleAnalyzeRef.current = handleAnalyze
+  useEffect(() => {
+    if (!productId) return
+    if (analyzing) return
+    if (cards.length === 0) return
+    if (cards.some(c => c.status !== 'pending')) return
+    const allHaveValidSpend = cards.every(
+      c => c.spend !== undefined && !isNaN(c.spend) && c.spend >= 0,
+    )
+    if (!allHaveValidSpend) return
+    const t = setTimeout(() => handleAnalyzeRef.current(), 1200)
+    return () => clearTimeout(t)
+  }, [cards, productId, analyzing])
+
   async function handleCardClick(card: ImageCard) {
     if (extractionLoading[card.id]) return
     if (confirmedElements[card.id] || cardComprehensive[card.id] || cardLoading[card.id]) {
@@ -664,12 +682,20 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
       )}
 
       {cards.length > 0 && !analyzing && doneCount === 0 && (
-        <button
-          onClick={handleAnalyze}
-          className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm font-medium transition-all shadow-sm hover:shadow-md"
-        >
-          Analyze {cards.length} ad{cards.length > 1 ? 's' : ''}
-        </button>
+        productId ? (
+          cards.every(c => c.spend !== undefined && !isNaN(c.spend) && c.spend >= 0) ? (
+            <p className="text-center text-xs text-gray-500 py-3">Starting analysis…</p>
+          ) : (
+            <p className="text-center text-xs text-gray-500 py-3">Enter spend for every ad to start analysis</p>
+          )
+        ) : (
+          <button
+            onClick={handleAnalyze}
+            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm font-medium transition-all shadow-sm hover:shadow-md"
+          >
+            Analyze {cards.length} ad{cards.length > 1 ? 's' : ''}
+          </button>
+        )
       )}
 
       {cards.length > 0 && (analyzing || doneCount > 0) && (
