@@ -31,6 +31,8 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
   const [lossReason, setLossReason] = useState<'' | LossReason>(
     (row.loss_reason as LossReason | null | undefined) ?? '',
   )
+  const [statedConcept, setStatedConcept] = useState(row.stated_concept ?? '')
+  const [statedAngle, setStatedAngle]   = useState(row.stated_angle ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -49,6 +51,8 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
           age_range: ageRange.trim() || null,
           ad_active: active,
           loss_reason: lossReason || null,
+          stated_concept: statedConcept.trim() || null,
+          stated_angle:   statedAngle.trim()   || null,
         }),
       })
       if (!metricsRes.ok) {
@@ -114,6 +118,11 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
               {active ? 'Active' : 'Paused'}
             </button>
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs mt-3 pt-3 border-t border-gray-800">
+          <Field label="Concept (this ad)" type="text" value={statedConcept} onChange={setStatedConcept} placeholder="the ONE big idea Claude inferred — edit if wrong" />
+          <Field label="Angle (this ad)"   type="text" value={statedAngle}   onChange={setStatedAngle}   placeholder="the lead/hook angle Claude inferred — edit if wrong" />
         </div>
 
         {error && <p className="text-[10px] text-[#ff2a2b] mt-2">{error}</p>}

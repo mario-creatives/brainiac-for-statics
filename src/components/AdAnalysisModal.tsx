@@ -659,6 +659,134 @@ function TargetingFitSection({ data, token, productId }: { data: ComprehensiveAn
   )
 }
 
+function MatchChip({ matched }: { matched: boolean }) {
+  return matched
+    ? <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border text-emerald-400 border-emerald-800/60 bg-emerald-950/30">✓ match</span>
+    : <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border text-amber-400 border-amber-800/60 bg-amber-950/30">~ mismatch</span>
+}
+
+function AlignmentRow({ label, matched, score, feedback, extra }: {
+  label: string
+  matched?: boolean
+  score?: number
+  feedback?: string
+  extra?: string
+}) {
+  return (
+    <div className="border-t border-gray-800 pt-2 first:border-t-0 first:pt-0">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-semibold text-white">{label}</span>
+        {typeof matched === 'boolean' && <MatchChip matched={matched} />}
+        {typeof score === 'number' && <ScoreBadge score={score} />}
+      </div>
+      {extra && <p className="text-[10px] text-gray-500 mt-0.5">{extra}</p>}
+      {feedback && <p className="text-[11px] text-gray-300 leading-snug mt-1">{feedback}</p>}
+    </div>
+  )
+}
+
+function AdAudienceAlignmentSection({ data }: { data: ComprehensiveAnalysis }) {
+  const a = data.angle_quality
+  const r = data.register_fit
+  const c = data.cognitive_load_fit
+  const p = data.placement_fit
+  const f = data.format_choice_fit
+  const t = data.audience_targeting_fit
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Ad–audience alignment</h3>
+        <p className="text-[10px] text-gray-500 mt-0.5">
+          Six lenses: did the angle, register, cognitive load, placement, format, and segment fit the audience's posture and capacity?
+        </p>
+      </div>
+      <div className="space-y-2.5">
+        {a && (
+          <AlignmentRow
+            label="Angle quality"
+            matched={a.interpretation_true && a.tension_resonated}
+            score={a.score}
+            extra={`interpretation true: ${a.interpretation_true ? 'yes' : 'no'} · tension resonated: ${a.tension_resonated ? 'yes' : 'no'}`}
+            feedback={a.feedback}
+          />
+        )}
+        {r && (
+          <AlignmentRow
+            label="Register fit"
+            matched={r.matched}
+            score={r.score}
+            extra={`used: ${r.register_used} · needed: ${r.register_needed}`}
+            feedback={r.feedback}
+          />
+        )}
+        {c && (
+          <AlignmentRow
+            label="Cognitive load fit"
+            matched={c.matched}
+            score={c.score}
+            extra={`format demanded: ${c.load_demanded} · audience capacity: ${c.capacity_available}`}
+            feedback={c.feedback}
+          />
+        )}
+        {p && (
+          <AlignmentRow
+            label="Placement fit"
+            matched={p.matched}
+            score={p.score}
+            extra={`likely state: ${p.likely_state_at_contact} · format assumes: ${p.format_assumes_state}`}
+            feedback={p.feedback}
+          />
+        )}
+        {f && (
+          <AlignmentRow
+            label="Format choice fit"
+            matched={f.carries_angle_psychology && f.carries_cognitive_load}
+            score={f.score}
+            extra={`carries angle psychology: ${f.carries_angle_psychology ? 'yes' : 'no'} · carries cognitive load: ${f.carries_cognitive_load ? 'yes' : 'no'}`}
+            feedback={f.feedback}
+          />
+        )}
+        {t && (
+          <AlignmentRow
+            label="Audience targeting fit"
+            matched={t.is_right_segment}
+            score={t.score}
+            extra={t.segment_critique}
+            feedback={t.feedback}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+const FAILURE_MODE_LABELS: Record<string, string> = {
+  comprehension_collapse: 'Comprehension collapse',
+  resistance_spike:       'Resistance spike',
+  abandonment:            'Abandonment',
+  trust_erosion:          'Trust erosion',
+}
+
+function FormatFailureModeBanner({ data }: { data: NonNullable<ComprehensiveAnalysis['format_failure_mode']> }) {
+  const label = FAILURE_MODE_LABELS[data.mode] ?? data.mode
+  return (
+    <div className="bg-red-950/30 border border-red-900/60 rounded-2xl p-5 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#ff2a2b] bg-red-950/60 border border-red-900/60 rounded px-1.5 py-0.5">
+          Format failure
+        </span>
+        <h3 className="text-sm font-semibold text-red-200">{label}</h3>
+      </div>
+      <p className="text-[11px] text-red-200/80 leading-snug">{data.reasoning}</p>
+      <div className="border-t border-red-900/40 pt-2 mt-1">
+        <p className="text-[10px] uppercase tracking-wide text-red-400 font-semibold mb-1">Fix</p>
+        <p className="text-[11px] text-red-100 leading-snug">{data.fix}</p>
+      </div>
+    </div>
+  )
+}
+
 function ConceptClarityPanel({ data }: { data: NonNullable<ComprehensiveAnalysis['concept_clarity']> }) {
   return (
     <div className="space-y-2">
@@ -760,6 +888,18 @@ function ComprehensiveSections({ data, isHistorical, isLoser, token, productId }
           targeting failures don't get buried under copy analysis. */}
       {(data.audience_inference || data.audience_match) && (
         <TargetingFitSection data={data} token={token} productId={productId} />
+      )}
+
+      {/* Ad–audience alignment — six lenses (angle, register, cognitive load,
+          placement, format choice, audience targeting). */}
+      {(data.angle_quality || data.register_fit || data.cognitive_load_fit ||
+        data.placement_fit || data.format_choice_fit || data.audience_targeting_fit) && (
+        <AdAudienceAlignmentSection data={data} />
+      )}
+
+      {/* Format failure mode banner — only renders when a failure mode actually fired. */}
+      {data.format_failure_mode && data.format_failure_mode.mode !== 'none' && (
+        <FormatFailureModeBanner data={data.format_failure_mode} />
       )}
 
       {/* Concept clarity — A8 from brutal-audit-v2. Catches the "two competing

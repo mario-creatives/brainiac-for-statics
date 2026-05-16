@@ -153,6 +153,24 @@ export function buildAdSummary(
   if (cd) {
     lines.push(`  CTA="${cta}" verb=${cd.verb} | ${cd.word_count}w | ${cd.framing} | ${cd.friction_level}_friction | value=${cd.has_value_anchor} urgency=${cd.has_urgency_signal}`)
   }
+
+  // Ad–audience alignment dimensions — propagates these signals to every
+  // consumer of buildAdSummary (Action Plan, Copy Intelligence, baseline synthesis).
+  const angleQ = ca.angle_quality
+  const reg = ca.register_fit
+  const cogFit = ca.cognitive_load_fit
+  const place = ca.placement_fit
+  const fmtFit = ca.format_choice_fit
+  const audFit = ca.audience_targeting_fit
+  const failMode = ca.format_failure_mode
+  if (angleQ) lines.push(`  ANGLE_QUALITY: interp_true=${angleQ.interpretation_true} tension=${angleQ.tension_resonated} score=${angleQ.score}`)
+  if (reg)    lines.push(`  REGISTER_FIT: used=${reg.register_used} needed=${reg.register_needed} matched=${reg.matched} score=${reg.score}`)
+  if (cogFit) lines.push(`  COG_LOAD_FIT: demanded=${cogFit.load_demanded} capacity=${cogFit.capacity_available} matched=${cogFit.matched} score=${cogFit.score}`)
+  if (place)  lines.push(`  PLACEMENT_FIT: state=${place.likely_state_at_contact} matched=${place.matched} score=${place.score}`)
+  if (fmtFit) lines.push(`  FMT_FIT: carries_angle=${fmtFit.carries_angle_psychology} carries_load=${fmtFit.carries_cognitive_load} score=${fmtFit.score}`)
+  if (audFit) lines.push(`  AUD_TARGET_FIT: right_segment=${audFit.is_right_segment} score=${audFit.score}`)
+  if (failMode && failMode.mode !== 'none') lines.push(`  FAIL_MODE: ${failMode.mode} — ${failMode.reasoning}`)
+
   return lines.join('\n')
 }
 
