@@ -99,34 +99,40 @@ export function AdTrackerTable({ token, productId, ads, onOpenAd, onChanged }: P
     setBulkReanalyzing(true)
     setBulkError(null)
     setBulkProgress({ done: 0, total: ids.length })
-    let failed = 0
+    const failedIds: string[] = []
     for (const id of ids) {
+      let ok = false
       try {
         const res = await fetch('/api/analyze/reanalyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ analysis_id: id }),
         })
-        if (!res.ok) { failed++; continue }
-        // drain stream
-        const reader = res.body?.getReader()
-        if (reader) {
-          const decoder = new TextDecoder()
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            decoder.decode(value, { stream: !done })
+        if (res.ok) {
+          // drain stream
+          const reader = res.body?.getReader()
+          if (reader) {
+            const decoder = new TextDecoder()
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              decoder.decode(value, { stream: !done })
+            }
           }
+          ok = true
         }
-      } catch {
-        failed++
-      }
+      } catch { /* ok stays false */ }
+      if (!ok) failedIds.push(id)
       setBulkProgress(p => p ? { ...p, done: p.done + 1 } : null)
     }
     setBulkReanalyzing(false)
     setBulkProgress(null)
-    if (failed > 0) setBulkError(`${failed} re-analysis failure${failed !== 1 ? 's' : ''}`)
-    setSelected(new Set())
+    if (failedIds.length > 0) {
+      setBulkError(`${failedIds.length} re-analysis failure${failedIds.length !== 1 ? 's' : ''} — click Re-analyze to retry just those`)
+      setSelected(new Set(failedIds))
+    } else {
+      setSelected(new Set())
+    }
     onChanged()
   }
 
