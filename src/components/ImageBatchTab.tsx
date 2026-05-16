@@ -392,7 +392,7 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
 
   async function handleAnalyze() {
     if (!cards.length || analyzing) return
-    if (mode === 'historical' && !productId) {
+    if (mode === 'historical') {
       const missing = cards.some(c => c.spend === undefined || isNaN(c.spend) || c.spend < 0)
       if (missing) {
         alert('Enter spend for every ad in historical mode (use 0 if unknown).')
@@ -713,7 +713,6 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
               comprehensive={cardComprehensive[card.id]}
               comprehensiveLoading={cardLoading[card.id]}
               comprehensiveError={cardError[card.id]}
-              productId={productId}
               onSpendChange={(v) => updateSpend(card.id, v)}
               onRetryExtraction={async () => {
                 const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
@@ -800,7 +799,7 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
 
 function ImageResultCard({
   card, mode, disabled, extractionLoading, extractionError, hasExtractedElements,
-  comprehensive, comprehensiveLoading, comprehensiveError, productId,
+  comprehensive, comprehensiveLoading, comprehensiveError,
   onSpendChange, onRetryExtraction, onReviewExtraction, onRetryCard, onClick,
 }: {
   card: ImageCard
@@ -812,7 +811,6 @@ function ImageResultCard({
   comprehensive?: ComprehensiveAnalysis
   comprehensiveLoading?: boolean
   comprehensiveError?: string
-  productId?: string
   onSpendChange: (value: string) => void
   onRetryExtraction?: () => void
   onReviewExtraction?: () => void
@@ -826,8 +824,8 @@ function ImageResultCard({
   const comboVerdict = comprehensive?.combination_analysis?.historical_match?.verdict
   const topRoi = card.result?.roi_data?.slice(0, 3) ?? []
   const neuralScore = card.result?.mean_top_roi_score
-  const isWinner = !productId && mode === 'historical' && (card.spend ?? 0) >= WINNER_THRESHOLD_USD
-  const isLoser = !productId && mode === 'historical' && card.spend !== undefined && card.spend < WINNER_THRESHOLD_USD
+  const isWinner = mode === 'historical' && (card.spend ?? 0) >= WINNER_THRESHOLD_USD
+  const isLoser = mode === 'historical' && card.spend !== undefined && card.spend < WINNER_THRESHOLD_USD
 
   return (
     <div
@@ -975,7 +973,7 @@ function ImageResultCard({
           </div>
         )}
 
-        {mode === 'historical' && !productId && (
+        {mode === 'historical' && (
           <div onClick={e => e.stopPropagation()} className="flex items-center gap-1.5">
             <span className="text-[10px] text-gray-500">$</span>
             <input
