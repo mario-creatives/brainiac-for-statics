@@ -10,6 +10,7 @@ import { AdTrackerTable } from './AdTrackerTable'
 import { SpendCpaScatter } from './SpendCpaScatter'
 import { FormatBreakdownBar } from './FormatBreakdownBar'
 import { WinnerReasonsPie } from './WinnerReasonsPie'
+import { AudienceProfileMap } from './AudienceProfileMap'
 import { DiagnosisPie } from './DiagnosisPie'
 import type { ProductDashboardPayload } from '@/app/api/products/[id]/dashboard/route'
 import type { ProductRecommendationReport } from '@/app/api/products/[id]/recommendations/route'
@@ -172,6 +173,9 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
         onOpenAd={handleOpenAd}
         onChanged={() => { load(); onProductChanged() }}
       />
+
+      {/* Audience profile map — built from Claude's inferences across all ads */}
+      <AudienceProfileMap productName={product.name} ads={ads} />
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

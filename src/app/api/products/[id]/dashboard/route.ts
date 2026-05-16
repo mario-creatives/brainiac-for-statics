@@ -39,6 +39,15 @@ export interface ProductAdRow {
   audience_match_quality: 'aligned' | 'partial_mismatch' | 'major_mismatch' | null
   is_reference_ad: boolean
   framework_score: number | null
+  audience_inference: {
+    inferred_persona: string
+    inferred_micro_persona: string
+    inferred_concept: string
+    inferred_angle: string
+    inferred_tam_signal: string
+    confidence: number
+    reasoning: string
+  } | null
 }
 
 export interface ProductDashboardPayload {
@@ -178,6 +187,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       audience_match_quality: ((ca as Record<string, unknown>).audience_match as Record<string, unknown> | undefined)?.match_quality as 'aligned' | 'partial_mismatch' | 'major_mismatch' | null ?? null,
       is_reference_ad: a.is_reference_ad ?? false,
       framework_score: (fwk?.overall_framework_score as number | null) ?? null,
+      audience_inference: ((ca as Record<string, unknown>).audience_inference as ProductAdRow['audience_inference']) ?? null,
     }
   })
 
