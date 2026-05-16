@@ -28,8 +28,6 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
   const [cpa, setCpa] = useState(row.cpa_usd?.toString() ?? '')
   const [ctr, setCtr] = useState(row.ctr_pct?.toString() ?? '')
   const [ageRange, setAgeRange] = useState(row.age_range ?? '')
-  const [dateStart, setDateStart] = useState(row.date_range_start ?? '')
-  const [dateEnd, setDateEnd] = useState(row.date_range_end ?? '')
   const [active, setActive] = useState<boolean>(row.ad_active ?? true)
   const [override, setOverride] = useState<'' | Quadrant>(row.quadrant_override ?? '')
   const [lossReason, setLossReason] = useState<'' | LossReason>(
@@ -87,8 +85,6 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
           cpa_usd:   cpa   === '' ? null : Number(cpa),
           ctr_pct:   ctr   === '' ? null : Number(ctr),
           age_range: ageRange.trim() || null,
-          date_range_start: dateStart || null,
-          date_range_end: dateEnd || null,
           ad_active: active,
           loss_reason: lossReason || null,
           tam_id: tamId || null,
@@ -134,8 +130,6 @@ export function AdMetricsEditor({ token, productId, row, onSaved, onClose }: Pro
           <Field label="CPA (USD)" type="number" value={cpa} onChange={setCpa} placeholder="0.00" />
           <Field label="CTR (%)" type="number" value={ctr} onChange={setCtr} placeholder="0.00" />
           <Field label="Age range" type="text" value={ageRange} onChange={setAgeRange} placeholder="e.g. 25-44" />
-          <Field label="Date start" type="date" value={dateStart} onChange={setDateStart} />
-          <Field label="Date end" type="date" value={dateEnd} onChange={setDateEnd} />
           <div>
             <label className="text-[10px] uppercase tracking-wider text-gray-500 font-medium font-mono block mb-1">Status override</label>
             <select

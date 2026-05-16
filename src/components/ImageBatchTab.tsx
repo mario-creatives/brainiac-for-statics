@@ -74,9 +74,9 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
   const [extractionLoading, setExtractionLoading] = useState<Record<string, boolean>>({})
   const [extractionError, setExtractionError] = useState<Record<string, string>>({})
   const [confirmedElements, setConfirmedElements] = useState<Record<string, ExtractedElements>>({})
-  // W-flow3: reviewingCard replaces awaitingConfirmation — panel opens only on explicit user request
   const [reviewingCard, setReviewingCard] = useState<ImageCard | null>(null)
   const [showExtractionPanel, setShowExtractionPanel] = useState(false)
+  const [pendingReviewQueue, setPendingReviewQueue] = useState<ImageCard[]>([])
   const [userAdCount, setUserAdCount] = useState<number | null>(null)
   const [baselineStatus, setBaselineStatus] = useState<{
     has_evolution: boolean
@@ -287,10 +287,15 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
         } else if (data.extracted) {
           const extracted = data.extracted as ExtractedElements
           setExtractedElements(prev => ({ ...prev, [card.id]: extracted }))
-          // W-flow3: Auto-confirm — proceed directly to comprehensive without
-          // waiting for user confirmation. The "review ↗" badge lets users
-          // inspect/edit the extraction after the fact if they want to.
-          runComprehensive(card, freshToken, extracted)
+          // Show review panel before running comprehensive; queue if another panel is already open.
+          setReviewingCard(prev => {
+            if (!prev) {
+              setShowExtractionPanel(true)
+              return card
+            }
+            setPendingReviewQueue(q => [...q, card])
+            return prev
+          })
         } else {
           setExtractionError(prev => ({ ...prev, [card.id]: 'Extraction returned no data' }))
         }
@@ -489,31 +494,42 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
     }
   }
 
-  // W-flow3: Open the review panel explicitly (user opts in, not auto-shown).
   function handleReviewExtraction(card: ImageCard) {
     setReviewingCard(card)
     setShowExtractionPanel(true)
+  }
+
+  function advanceReviewQueue() {
+    setPendingReviewQueue(q => {
+      const [next, ...rest] = q
+      if (next) {
+        setReviewingCard(next)
+        setShowExtractionPanel(true)
+        return rest
+      }
+      setReviewingCard(null)
+      setShowExtractionPanel(false)
+      return []
+    })
   }
 
   async function handleExtractionConfirm(confirmed: ExtractedElements) {
     const card = reviewingCard
     if (!card) return
     setConfirmedElements(prev => ({ ...prev, [card.id]: confirmed }))
-    setReviewingCard(null)
-    setShowExtractionPanel(false)
     const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
     runComprehensive(card, freshToken, confirmed)
+    advanceReviewQueue()
   }
 
   function handleExtractionSkip() {
     const card = reviewingCard
     if (!card) return
-    setReviewingCard(null)
-    setShowExtractionPanel(false)
     const auto = extractedElements[card.id]
     supabase.auth.getSession().then(({ data: { session } }) => {
       runComprehensive(card, session?.access_token ?? token, auto)
     })
+    advanceReviewQueue()
   }
 
   const doneCount = cards.filter(c => c.status === 'complete' || c.status === 'failed').length
@@ -736,7 +752,6 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
 
       {roiAverages && <AttributionFooter />}
 
-      {/* W-flow3: Review panel — opened only on explicit user request via "review ↗" button */}
       {reviewingCard && showExtractionPanel && extractedElements[reviewingCard.id] && (
         <ExtractionConfirmPanel
           fileName={reviewingCard.file.name}
@@ -764,6 +779,7 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
           error={cardError[selectedCard.id]}
           isHistorical={mode === 'historical'}
           token={token}
+          productId={productId}
           onClose={() => setSelectedCard(null)}
           onRetry={async () => {
             const card = selectedCard
@@ -847,7 +863,7 @@ function ImageResultCard({
           {card.status === 'complete' && extractionError && !extractionLoading && (
             <span className="text-[10px] bg-red-900/80 text-red-300 px-1.5 py-0.5 rounded">extract failed</span>
           )}
-          {/* W-flow3: optional review badge — extraction is auto-confirmed, but user can inspect/correct */}
+          {/* Review badge — lets user re-open the extraction panel after initial confirm */}
           {card.status === 'complete' && hasExtractedElements && !extractionLoading && onReviewExtraction && (
             <button
               onClick={(e) => { e.stopPropagation(); onReviewExtraction() }}
