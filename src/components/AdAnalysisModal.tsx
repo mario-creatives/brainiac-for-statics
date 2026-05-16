@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Copy, Check, FileText } from 'lucide-react'
+import { X, Copy, Check, FileText, Plus } from 'lucide-react'
 import type { AnalysisResult } from '@/types'
 import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
+import type { AudienceTreePayload } from '@/app/api/products/[id]/audiences/route'
 import { Tooltip } from '@/components/Tooltip'
 
 function CopyButton({ text, label = 'Copy', className = '' }: { text: string; label?: string; className?: string }) {
@@ -132,11 +133,12 @@ interface Props {
   error?: string
   isHistorical?: boolean
   token: string
+  productId?: string
   onClose: () => void
   onRetry?: () => void
 }
 
-export function AdAnalysisModal({ card, comprehensive, loading, error, isHistorical, onClose, onRetry }: Props) {
+export function AdAnalysisModal({ card, comprehensive, loading, error, isHistorical, token, productId, onClose, onRetry }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm"
@@ -269,7 +271,7 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, isHistori
             </div>
           )}
 
-          {comprehensive && <ComprehensiveSections data={comprehensive} isHistorical={isHistorical} isLoser={isHistorical && card.isWinner === false} />}
+          {comprehensive && <ComprehensiveSections data={comprehensive} isHistorical={isHistorical} isLoser={isHistorical && card.isWinner === false} token={token} productId={productId} />}
         </div>
       </div>
     </div>
@@ -442,11 +444,67 @@ function LibraryAlignmentChips({ alignment }: { alignment: AlignmentLike }) {
   )
 }
 
-function TargetingFitSection({ data }: { data: ComprehensiveAnalysis }) {
+function TargetingFitSection({ data, token, productId }: { data: ComprehensiveAnalysis; token?: string; productId?: string }) {
   const inf = data.audience_inference
   const m = data.audience_match
   const hasUserInput = m?.has_user_input ?? false
-  // Chip coloring matches the match-quality vocabulary in the schema.
+  const canAdd = !!(token && productId)
+
+  const [audienceTree, setAudienceTree] = useState<AudienceTreePayload | null>(null)
+  const [addingFor, setAddingFor] = useState<'persona' | 'micro_persona' | null>(null)
+  const [addLabel, setAddLabel] = useState('')
+  const [addTamId, setAddTamId] = useState('')
+  const [addPersonaId, setAddPersonaId] = useState('')
+  const [addStatus, setAddStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle')
+  const [addError, setAddError] = useState('')
+
+  async function openAdd(level: 'persona' | 'micro_persona', defaultLabel: string) {
+    setAddingFor(level)
+    setAddLabel(defaultLabel)
+    setAddTamId('')
+    setAddPersonaId('')
+    setAddStatus('idle')
+    setAddError('')
+    if (!audienceTree && token && productId) {
+      const res = await fetch(`/api/products/${productId}/audiences`, { headers: { Authorization: `Bearer ${token}` } })
+      if (res.ok) setAudienceTree(await res.json())
+    }
+  }
+
+  async function handleAddConfirm() {
+    if (!token || !productId || addStatus === 'saving') return
+    setAddStatus('saving')
+    setAddError('')
+    try {
+      const level = addingFor!
+      const parentId = level === 'persona' ? addTamId : addPersonaId
+      if (!parentId || !addLabel.trim()) {
+        setAddError('Select a parent and provide a label.')
+        setAddStatus('idle')
+        return
+      }
+      const res = await fetch(`/api/products/${productId}/audiences`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ level, parent_id: parentId, label: addLabel.trim() }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as Record<string, unknown>
+        setAddError((d.error as string) ?? 'Failed to add')
+        setAddStatus('error')
+      } else {
+        setAddStatus('ok')
+        setAddingFor(null)
+        // refresh tree
+        const r2 = await fetch(`/api/products/${productId}/audiences`, { headers: { Authorization: `Bearer ${token}` } })
+        if (r2.ok) setAudienceTree(await r2.json())
+      }
+    } catch (e) {
+      setAddError(e instanceof Error ? e.message : 'Network error')
+      setAddStatus('error')
+    }
+  }
+
   const chip = (() => {
     if (!hasUserInput) return { color: 'text-gray-500 border-gray-700 bg-gray-900', label: 'no stated audience' }
     if (m?.match_quality === 'aligned') return { color: 'text-emerald-400 border-emerald-800/60 bg-emerald-950/30', label: '✓ aligned' }
@@ -454,6 +512,10 @@ function TargetingFitSection({ data }: { data: ComprehensiveAnalysis }) {
     if (m?.match_quality === 'major_mismatch') return { color: 'text-[#ff2a2b] border-red-900/60 bg-red-950/30', label: '✗ major mismatch' }
     return { color: 'text-gray-500 border-gray-700 bg-gray-900', label: '—' }
   })()
+
+  const tams = audienceTree?.tams ?? []
+  const selectedTam = tams.find(t => t.id === addTamId)
+  const personas = selectedTam?.personas ?? []
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
@@ -471,8 +533,34 @@ function TargetingFitSection({ data }: { data: ComprehensiveAnalysis }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
           <div className="space-y-2">
             <p className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold">Ad reads as targeting</p>
-            <Row label="Persona" value={inf.inferred_persona} />
-            <Row label="Micro-persona" value={inf.inferred_micro_persona} />
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Persona</span>
+                {canAdd && inf.inferred_persona && (
+                  <button
+                    onClick={() => openAdd('persona', inf.inferred_persona)}
+                    className="flex items-center gap-0.5 text-[9px] text-indigo-400 hover:text-indigo-300 border border-indigo-800/50 rounded px-1 py-0.5 transition-colors"
+                  >
+                    <Plus className="w-2.5 h-2.5" />Add
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-200 leading-snug">{inf.inferred_persona || '—'}</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Micro-persona</span>
+                {canAdd && inf.inferred_micro_persona && (
+                  <button
+                    onClick={() => openAdd('micro_persona', inf.inferred_micro_persona)}
+                    className="flex items-center gap-0.5 text-[9px] text-indigo-400 hover:text-indigo-300 border border-indigo-800/50 rounded px-1 py-0.5 transition-colors"
+                  >
+                    <Plus className="w-2.5 h-2.5" />Add
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-200 leading-snug">{inf.inferred_micro_persona || '—'}</p>
+            </div>
             <Row label="Concept" value={inf.inferred_concept} />
             <Row label="Angle" value={inf.inferred_angle} />
             <div className="flex items-center gap-2 pt-1">
@@ -510,6 +598,191 @@ function TargetingFitSection({ data }: { data: ComprehensiveAnalysis }) {
           </div>
         </div>
       )}
+
+      {/* Inline add-to-hierarchy panel */}
+      {addingFor && (
+        <div className="border-t border-gray-800 pt-3 space-y-2">
+          <p className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold">
+            Add inferred {addingFor === 'persona' ? 'persona' : 'micro-persona'} to product hierarchy
+          </p>
+          <input
+            type="text"
+            value={addLabel}
+            onChange={e => setAddLabel(e.target.value)}
+            className="input !py-1 !text-xs"
+            placeholder="Label"
+          />
+          {addingFor === 'persona' ? (
+            <select
+              value={addTamId}
+              onChange={e => setAddTamId(e.target.value)}
+              className="input !py-1 !text-xs"
+            >
+              <option value="">— select TAM —</option>
+              {tams.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          ) : (
+            <>
+              <select
+                value={addTamId}
+                onChange={e => { setAddTamId(e.target.value); setAddPersonaId('') }}
+                className="input !py-1 !text-xs"
+              >
+                <option value="">— select TAM —</option>
+                {tams.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+              <select
+                value={addPersonaId}
+                onChange={e => setAddPersonaId(e.target.value)}
+                disabled={!addTamId}
+                className="input !py-1 !text-xs disabled:opacity-50"
+              >
+                <option value="">— select persona —</option>
+                {personas.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+            </>
+          )}
+          {addError && <p className="text-[10px] text-[#ff2a2b]">{addError}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={handleAddConfirm}
+              disabled={addStatus === 'saving'}
+              className="text-[10px] bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white px-3 py-1 rounded transition-colors"
+            >
+              {addStatus === 'saving' ? 'Saving…' : 'Confirm'}
+            </button>
+            <button onClick={() => setAddingFor(null)} className="text-[10px] text-gray-400 hover:text-white px-2 py-1">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MatchChip({ matched }: { matched: boolean }) {
+  return matched
+    ? <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border text-emerald-400 border-emerald-800/60 bg-emerald-950/30">✓ match</span>
+    : <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border text-amber-400 border-amber-800/60 bg-amber-950/30">~ mismatch</span>
+}
+
+function AlignmentRow({ label, matched, score, feedback, extra }: {
+  label: string
+  matched?: boolean
+  score?: number
+  feedback?: string
+  extra?: string
+}) {
+  return (
+    <div className="border-t border-gray-800 pt-2 first:border-t-0 first:pt-0">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-semibold text-white">{label}</span>
+        {typeof matched === 'boolean' && <MatchChip matched={matched} />}
+        {typeof score === 'number' && <ScoreBadge score={score} />}
+      </div>
+      {extra && <p className="text-[10px] text-gray-500 mt-0.5">{extra}</p>}
+      {feedback && <p className="text-[11px] text-gray-300 leading-snug mt-1">{feedback}</p>}
+    </div>
+  )
+}
+
+function AdAudienceAlignmentSection({ data }: { data: ComprehensiveAnalysis }) {
+  const a = data.angle_quality
+  const r = data.register_fit
+  const c = data.cognitive_load_fit
+  const p = data.placement_fit
+  const f = data.format_choice_fit
+  const t = data.audience_targeting_fit
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Ad–audience alignment</h3>
+        <p className="text-[10px] text-gray-500 mt-0.5">
+          Six lenses: did the angle, register, cognitive load, placement, format, and segment fit the audience's posture and capacity?
+        </p>
+      </div>
+      <div className="space-y-2.5">
+        {a && (
+          <AlignmentRow
+            label="Angle quality"
+            matched={a.interpretation_true && a.tension_resonated}
+            score={a.score}
+            extra={`interpretation true: ${a.interpretation_true ? 'yes' : 'no'} · tension resonated: ${a.tension_resonated ? 'yes' : 'no'}`}
+            feedback={a.feedback}
+          />
+        )}
+        {r && (
+          <AlignmentRow
+            label="Register fit"
+            matched={r.matched}
+            score={r.score}
+            extra={`used: ${r.register_used} · needed: ${r.register_needed}`}
+            feedback={r.feedback}
+          />
+        )}
+        {c && (
+          <AlignmentRow
+            label="Cognitive load fit"
+            matched={c.matched}
+            score={c.score}
+            extra={`format demanded: ${c.load_demanded} · audience capacity: ${c.capacity_available}`}
+            feedback={c.feedback}
+          />
+        )}
+        {p && (
+          <AlignmentRow
+            label="Placement fit"
+            matched={p.matched}
+            score={p.score}
+            extra={`likely state: ${p.likely_state_at_contact} · format assumes: ${p.format_assumes_state}`}
+            feedback={p.feedback}
+          />
+        )}
+        {f && (
+          <AlignmentRow
+            label="Format choice fit"
+            matched={f.carries_angle_psychology && f.carries_cognitive_load}
+            score={f.score}
+            extra={`carries angle psychology: ${f.carries_angle_psychology ? 'yes' : 'no'} · carries cognitive load: ${f.carries_cognitive_load ? 'yes' : 'no'}`}
+            feedback={f.feedback}
+          />
+        )}
+        {t && (
+          <AlignmentRow
+            label="Audience targeting fit"
+            matched={t.is_right_segment}
+            score={t.score}
+            extra={t.segment_critique}
+            feedback={t.feedback}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+const FAILURE_MODE_LABELS: Record<string, string> = {
+  comprehension_collapse: 'Comprehension collapse',
+  resistance_spike:       'Resistance spike',
+  abandonment:            'Abandonment',
+  trust_erosion:          'Trust erosion',
+}
+
+function FormatFailureModeBanner({ data }: { data: NonNullable<ComprehensiveAnalysis['format_failure_mode']> }) {
+  const label = FAILURE_MODE_LABELS[data.mode] ?? data.mode
+  return (
+    <div className="bg-red-950/30 border border-red-900/60 rounded-2xl p-5 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#ff2a2b] bg-red-950/60 border border-red-900/60 rounded px-1.5 py-0.5">
+          Format failure
+        </span>
+        <h3 className="text-sm font-semibold text-red-200">{label}</h3>
+      </div>
+      <p className="text-[11px] text-red-200/80 leading-snug">{data.reasoning}</p>
+      <div className="border-t border-red-900/40 pt-2 mt-1">
+        <p className="text-[10px] uppercase tracking-wide text-red-400 font-semibold mb-1">Fix</p>
+        <p className="text-[11px] text-red-100 leading-snug">{data.fix}</p>
+      </div>
     </div>
   )
 }
@@ -605,7 +878,7 @@ function TLDRCard({ data, isHistorical }: { data: ComprehensiveAnalysis; isHisto
   )
 }
 
-function ComprehensiveSections({ data, isHistorical, isLoser }: { data: ComprehensiveAnalysis; isHistorical?: boolean; isLoser?: boolean }) {
+function ComprehensiveSections({ data, isHistorical, isLoser, token, productId }: { data: ComprehensiveAnalysis; isHistorical?: boolean; isLoser?: boolean; token?: string; productId?: string }) {
   return (
     <>
       {/* TL;DR — verdict + top 3 rewrites + copy-full-brief. First read of the modal. */}
@@ -614,7 +887,19 @@ function ComprehensiveSections({ data, isHistorical, isLoser }: { data: Comprehe
       {/* Targeting fit — the Meta algorithm test. Right under the TL;DR so
           targeting failures don't get buried under copy analysis. */}
       {(data.audience_inference || data.audience_match) && (
-        <TargetingFitSection data={data} />
+        <TargetingFitSection data={data} token={token} productId={productId} />
+      )}
+
+      {/* Ad–audience alignment — six lenses (angle, register, cognitive load,
+          placement, format choice, audience targeting). */}
+      {(data.angle_quality || data.register_fit || data.cognitive_load_fit ||
+        data.placement_fit || data.format_choice_fit || data.audience_targeting_fit) && (
+        <AdAudienceAlignmentSection data={data} />
+      )}
+
+      {/* Format failure mode banner — only renders when a failure mode actually fired. */}
+      {data.format_failure_mode && data.format_failure_mode.mode !== 'none' && (
+        <FormatFailureModeBanner data={data.format_failure_mode} />
       )}
 
       {/* Concept clarity — A8 from brutal-audit-v2. Catches the "two competing

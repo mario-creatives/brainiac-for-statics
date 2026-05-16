@@ -74,9 +74,9 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
   const [extractionLoading, setExtractionLoading] = useState<Record<string, boolean>>({})
   const [extractionError, setExtractionError] = useState<Record<string, string>>({})
   const [confirmedElements, setConfirmedElements] = useState<Record<string, ExtractedElements>>({})
-  // W-flow3: reviewingCard replaces awaitingConfirmation — panel opens only on explicit user request
   const [reviewingCard, setReviewingCard] = useState<ImageCard | null>(null)
   const [showExtractionPanel, setShowExtractionPanel] = useState(false)
+  const [pendingReviewQueue, setPendingReviewQueue] = useState<ImageCard[]>([])
   const [userAdCount, setUserAdCount] = useState<number | null>(null)
   const [baselineStatus, setBaselineStatus] = useState<{
     has_evolution: boolean
@@ -287,10 +287,15 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
         } else if (data.extracted) {
           const extracted = data.extracted as ExtractedElements
           setExtractedElements(prev => ({ ...prev, [card.id]: extracted }))
-          // W-flow3: Auto-confirm — proceed directly to comprehensive without
-          // waiting for user confirmation. The "review ↗" badge lets users
-          // inspect/edit the extraction after the fact if they want to.
-          runComprehensive(card, freshToken, extracted)
+          // Show review panel before running comprehensive; queue if another panel is already open.
+          setReviewingCard(prev => {
+            if (!prev) {
+              setShowExtractionPanel(true)
+              return card
+            }
+            setPendingReviewQueue(q => [...q, card])
+            return prev
+          })
         } else {
           setExtractionError(prev => ({ ...prev, [card.id]: 'Extraction returned no data' }))
         }
@@ -472,6 +477,24 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
     fetchAdCount()
   }
 
+  // Auto-trigger analysis inside Product Tracker: as soon as every uploaded
+  // card has a valid spend, kick off handleAnalyze after a short debounce so
+  // users don't have to click an extra button.
+  const handleAnalyzeRef = useRef<() => void>(() => {})
+  handleAnalyzeRef.current = handleAnalyze
+  useEffect(() => {
+    if (!productId) return
+    if (analyzing) return
+    if (cards.length === 0) return
+    if (cards.some(c => c.status !== 'pending')) return
+    const allHaveValidSpend = cards.every(
+      c => c.spend !== undefined && !isNaN(c.spend) && c.spend >= 0,
+    )
+    if (!allHaveValidSpend) return
+    const t = setTimeout(() => handleAnalyzeRef.current(), 1200)
+    return () => clearTimeout(t)
+  }, [cards, productId, analyzing])
+
   async function handleCardClick(card: ImageCard) {
     if (extractionLoading[card.id]) return
     if (confirmedElements[card.id] || cardComprehensive[card.id] || cardLoading[card.id]) {
@@ -489,31 +512,42 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
     }
   }
 
-  // W-flow3: Open the review panel explicitly (user opts in, not auto-shown).
   function handleReviewExtraction(card: ImageCard) {
     setReviewingCard(card)
     setShowExtractionPanel(true)
+  }
+
+  function advanceReviewQueue() {
+    setPendingReviewQueue(q => {
+      const [next, ...rest] = q
+      if (next) {
+        setReviewingCard(next)
+        setShowExtractionPanel(true)
+        return rest
+      }
+      setReviewingCard(null)
+      setShowExtractionPanel(false)
+      return []
+    })
   }
 
   async function handleExtractionConfirm(confirmed: ExtractedElements) {
     const card = reviewingCard
     if (!card) return
     setConfirmedElements(prev => ({ ...prev, [card.id]: confirmed }))
-    setReviewingCard(null)
-    setShowExtractionPanel(false)
     const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
     runComprehensive(card, freshToken, confirmed)
+    advanceReviewQueue()
   }
 
   function handleExtractionSkip() {
     const card = reviewingCard
     if (!card) return
-    setReviewingCard(null)
-    setShowExtractionPanel(false)
     const auto = extractedElements[card.id]
     supabase.auth.getSession().then(({ data: { session } }) => {
       runComprehensive(card, session?.access_token ?? token, auto)
     })
+    advanceReviewQueue()
   }
 
   const doneCount = cards.filter(c => c.status === 'complete' || c.status === 'failed').length
@@ -521,90 +555,94 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
 
   return (
     <div className="space-y-6">
-      {/* Mode toggle */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex gap-1 bg-gray-950 border border-gray-800 rounded-lg p-1">
-          {(['feedback', 'historical'] as Mode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              disabled={analyzing || (m === 'feedback' && feedbackLocked) || (m === 'historical' && milestoneLockActive)}
-              className={[
-                'px-3 py-1.5 rounded-md text-xs font-medium transition-all capitalize',
-                mode === m ? 'bg-indigo-600 text-[#fff] shadow-sm' : 'text-gray-400 hover:text-gray-200',
-                (m === 'feedback' && feedbackLocked) || (m === 'historical' && milestoneLockActive) ? 'opacity-40 cursor-not-allowed' : '',
-              ].join(' ')}
-            >
-              {m === 'feedback' ? 'Feedback Mode' : 'Historical Mode'}
-            </button>
-          ))}
-        </div>
-        {!feedbackLocked && !milestoneLockActive && (
-          <p className="text-[11px] text-gray-500 max-w-md leading-relaxed">
-            {mode === 'historical'
-              ? `Upload past ads with spend data. Ads with $${WINNER_THRESHOLD_USD}+ spend feed the shared winning-pattern library.`
-              : 'Upload new ads for review. Results include winning patterns from the shared library as reference.'}
-          </p>
-        )}
-      </div>
-
-      {/* W-flow2: Prominent lock-state banners — replaces the tiny inline captions */}
-      {feedbackLocked && (
-        <div className="rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3 flex items-start gap-4">
-          <div className="shrink-0 mt-1">
-            <div className="w-20 bg-gray-800 rounded-full h-1.5">
-              <div
-                className="bg-amber-500 h-1.5 rounded-full transition-all"
-                style={{ width: `${Math.min(((userAdCount ?? 0) / 10) * 100, 100)}%` }}
-              />
+      {!productId && (
+        <>
+          {/* Mode toggle */}
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex gap-1 bg-gray-950 border border-gray-800 rounded-lg p-1">
+              {(['feedback', 'historical'] as Mode[]).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  disabled={analyzing || (m === 'feedback' && feedbackLocked) || (m === 'historical' && milestoneLockActive)}
+                  className={[
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition-all capitalize',
+                    mode === m ? 'bg-indigo-600 text-[#fff] shadow-sm' : 'text-gray-400 hover:text-gray-200',
+                    (m === 'feedback' && feedbackLocked) || (m === 'historical' && milestoneLockActive) ? 'opacity-40 cursor-not-allowed' : '',
+                  ].join(' ')}
+                >
+                  {m === 'feedback' ? 'Feedback Mode' : 'Historical Mode'}
+                </button>
+              ))}
             </div>
-            <p className="text-[9px] text-amber-600 mt-1 tabular-nums text-center">{userAdCount ?? 0} / 10</p>
+            {!feedbackLocked && !milestoneLockActive && (
+              <p className="text-[11px] text-gray-500 max-w-md leading-relaxed">
+                {mode === 'historical'
+                  ? `Upload past ads with spend data. Ads with $${WINNER_THRESHOLD_USD}+ spend feed the shared winning-pattern library.`
+                  : 'Upload new ads for review. Results include winning patterns from the shared library as reference.'}
+              </p>
+            )}
           </div>
-          <div>
-            <p className="text-xs font-semibold text-amber-300">Feedback mode is locked</p>
-            <p className="text-[11px] text-amber-400/70 mt-0.5 leading-relaxed">
-              Upload {10 - (userAdCount ?? 0)} more historical ad{(10 - (userAdCount ?? 0)) !== 1 ? 's' : ''} with spend data to unlock.
-              Feedback mode needs at least 10 ads to build a useful reference baseline.
-            </p>
-          </div>
-        </div>
-      )}
-      {milestoneLockActive && (
-        <div className="rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3">
-          <p className="text-xs font-semibold text-amber-300">Historical uploads are locked — baseline update required</p>
-          <p className="text-[11px] text-amber-400/70 mt-0.5 leading-relaxed">
-            A 50-ad milestone was reached. Update the feedback baseline to keep the pattern library in sync.
-            Historical uploads resume automatically after the update.
-          </p>
-          <div className="mt-2 flex items-center gap-3">
-            <button
-              onClick={handleBaselineUpdate}
-              disabled={updatingBaseline}
-              className="text-[11px] px-3 py-1.5 rounded-lg border bg-amber-900/40 border-amber-700/60 text-amber-200 hover:bg-amber-900/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-            >
-              {updatingBaseline && <RefreshCw className="w-3 h-3 animate-spin" />}
-              {updatingBaseline ? 'Updating…' : `Update baseline now (v${baselineStatus?.current_milestone ?? '?'} ready · ${baselineStatus?.ads_analyzed ?? '?'} ads)`}
-            </button>
-            {baselineError && <p className="text-[10px] text-red-400">{baselineError}</p>}
-          </div>
-        </div>
-      )}
 
-      {/* Feedback baseline status */}
-      {mode === 'feedback' && !feedbackLocked && baselineStatus && (
-        <div className="-mt-4">
-          {baselineStatus.has_evolution ? (
-            <p className="text-[10px] text-gray-600">
-              Feedback mode last updated {formatLastUpdated(baselineStatus.last_updated_at)}
-              <span className="text-gray-700"> · v{baselineStatus.version} ({baselineStatus.ads_analyzed} historical ads)</span>
-            </p>
-          ) : (
-            <p className="text-[10px] text-gray-700">
-              Feedback principles evolve after every 50 historical ads
-              {baselineStatus.ads_analyzed < 50 ? ` · ${50 - baselineStatus.ads_analyzed} more needed` : ' · update pending'}
-            </p>
+          {/* W-flow2: Prominent lock-state banners — replaces the tiny inline captions */}
+          {feedbackLocked && (
+            <div className="rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3 flex items-start gap-4">
+              <div className="shrink-0 mt-1">
+                <div className="w-20 bg-gray-800 rounded-full h-1.5">
+                  <div
+                    className="bg-amber-500 h-1.5 rounded-full transition-all"
+                    style={{ width: `${Math.min(((userAdCount ?? 0) / 10) * 100, 100)}%` }}
+                  />
+                </div>
+                <p className="text-[9px] text-amber-600 mt-1 tabular-nums text-center">{userAdCount ?? 0} / 10</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-amber-300">Feedback mode is locked</p>
+                <p className="text-[11px] text-amber-400/70 mt-0.5 leading-relaxed">
+                  Upload {10 - (userAdCount ?? 0)} more historical ad{(10 - (userAdCount ?? 0)) !== 1 ? 's' : ''} with spend data to unlock.
+                  Feedback mode needs at least 10 ads to build a useful reference baseline.
+                </p>
+              </div>
+            </div>
           )}
-        </div>
+          {milestoneLockActive && (
+            <div className="rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3">
+              <p className="text-xs font-semibold text-amber-300">Historical uploads are locked — baseline update required</p>
+              <p className="text-[11px] text-amber-400/70 mt-0.5 leading-relaxed">
+                A 50-ad milestone was reached. Update the feedback baseline to keep the pattern library in sync.
+                Historical uploads resume automatically after the update.
+              </p>
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  onClick={handleBaselineUpdate}
+                  disabled={updatingBaseline}
+                  className="text-[11px] px-3 py-1.5 rounded-lg border bg-amber-900/40 border-amber-700/60 text-amber-200 hover:bg-amber-900/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  {updatingBaseline && <RefreshCw className="w-3 h-3 animate-spin" />}
+                  {updatingBaseline ? 'Updating…' : `Update baseline now (v${baselineStatus?.current_milestone ?? '?'} ready · ${baselineStatus?.ads_analyzed ?? '?'} ads)`}
+                </button>
+                {baselineError && <p className="text-[10px] text-red-400">{baselineError}</p>}
+              </div>
+            </div>
+          )}
+
+          {/* Feedback baseline status */}
+          {mode === 'feedback' && !feedbackLocked && baselineStatus && (
+            <div className="-mt-4">
+              {baselineStatus.has_evolution ? (
+                <p className="text-[10px] text-gray-600">
+                  Feedback mode last updated {formatLastUpdated(baselineStatus.last_updated_at)}
+                  <span className="text-gray-700"> · v{baselineStatus.version} ({baselineStatus.ads_analyzed} historical ads)</span>
+                </p>
+              ) : (
+                <p className="text-[10px] text-gray-700">
+                  Feedback principles evolve after every 50 historical ads
+                  {baselineStatus.ads_analyzed < 50 ? ` · ${50 - baselineStatus.ads_analyzed} more needed` : ' · update pending'}
+                </p>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {/* Upload zone */}
@@ -644,12 +682,20 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
       )}
 
       {cards.length > 0 && !analyzing && doneCount === 0 && (
-        <button
-          onClick={handleAnalyze}
-          className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm font-medium transition-all shadow-sm hover:shadow-md"
-        >
-          Analyze {cards.length} ad{cards.length > 1 ? 's' : ''}
-        </button>
+        productId ? (
+          cards.every(c => c.spend !== undefined && !isNaN(c.spend) && c.spend >= 0) ? (
+            <p className="text-center text-xs text-gray-500 py-3">Starting analysis…</p>
+          ) : (
+            <p className="text-center text-xs text-gray-500 py-3">Enter spend for every ad to start analysis</p>
+          )
+        ) : (
+          <button
+            onClick={handleAnalyze}
+            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm font-medium transition-all shadow-sm hover:shadow-md"
+          >
+            Analyze {cards.length} ad{cards.length > 1 ? 's' : ''}
+          </button>
+        )
       )}
 
       {cards.length > 0 && (analyzing || doneCount > 0) && (
@@ -736,7 +782,6 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
 
       {roiAverages && <AttributionFooter />}
 
-      {/* W-flow3: Review panel — opened only on explicit user request via "review ↗" button */}
       {reviewingCard && showExtractionPanel && extractedElements[reviewingCard.id] && (
         <ExtractionConfirmPanel
           fileName={reviewingCard.file.name}
@@ -764,6 +809,7 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
           error={cardError[selectedCard.id]}
           isHistorical={mode === 'historical'}
           token={token}
+          productId={productId}
           onClose={() => setSelectedCard(null)}
           onRetry={async () => {
             const card = selectedCard
@@ -847,7 +893,7 @@ function ImageResultCard({
           {card.status === 'complete' && extractionError && !extractionLoading && (
             <span className="text-[10px] bg-red-900/80 text-red-300 px-1.5 py-0.5 rounded">extract failed</span>
           )}
-          {/* W-flow3: optional review badge — extraction is auto-confirmed, but user can inspect/correct */}
+          {/* Review badge — lets user re-open the extraction panel after initial confirm */}
           {card.status === 'complete' && hasExtractedElements && !extractionLoading && onReviewExtraction && (
             <button
               onClick={(e) => { e.stopPropagation(); onReviewExtraction() }}

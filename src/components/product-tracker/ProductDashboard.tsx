@@ -8,8 +8,9 @@ import { AdAnalysisModal } from '@/components/AdAnalysisModal'
 import { ActionPlanCard } from './ActionPlanCard'
 import { AdTrackerTable } from './AdTrackerTable'
 import { SpendCpaScatter } from './SpendCpaScatter'
-import { CtrFatigueChart } from './CtrFatigueChart'
 import { FormatBreakdownBar } from './FormatBreakdownBar'
+import { WinnerReasonsPie } from './WinnerReasonsPie'
+import { AudienceProfileMap } from './AudienceProfileMap'
 import { DiagnosisPie } from './DiagnosisPie'
 import type { ProductDashboardPayload } from '@/app/api/products/[id]/dashboard/route'
 import type { ProductRecommendationReport } from '@/app/api/products/[id]/recommendations/route'
@@ -173,11 +174,14 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
         onChanged={() => { load(); onProductChanged() }}
       />
 
+      {/* Audience profile map — built from Claude's inferences across all ads */}
+      <AudienceProfileMap productName={product.name} ads={ads} />
+
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <SpendCpaScatter ads={ads} targetCpa={targetCpa} />
-        <CtrFatigueChart ads={ads} />
         <FormatBreakdownBar ads={ads} />
+        <WinnerReasonsPie ads={ads} />
         <DiagnosisPie report={report} />
       </div>
 
@@ -236,6 +240,7 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
           loading={openedLoading}
           isHistorical={opened.spend != null}
           token={token}
+          productId={productId}
           onClose={() => setOpened(null)}
         />
       )}

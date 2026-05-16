@@ -3,6 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
 import { keepAliveStream } from '@/lib/streaming'
 import { parseClaudeJson } from '@/lib/parseClaudeJson'
+import { autoPopulateFromInference } from '@/lib/audience-auto-populate'
 import {
   getWinningPatterns,
   getAllWinningAnalyses,
@@ -282,10 +283,12 @@ export interface ComprehensiveAnalysis {
   // This is the "Meta algorithm test" — if Claude can't tell who an ad is for,
   // neither can Meta's algorithm.
   audience_inference?: {
+    inferred_tam_label: string
     inferred_persona: string
     inferred_micro_persona: string
     inferred_concept: string
     inferred_angle: string
+    inferred_age_range: string
     inferred_tam_signal: 'narrow' | 'medium' | 'broad' | 'unclear'
     confidence: number
     reasoning: string
@@ -305,6 +308,51 @@ export interface ComprehensiveAnalysis {
     concept_summary: string
     competing_concepts: string[]
     score: number
+  }
+  // ── Ad–audience alignment dimensions ──────────────────────────────────────
+  angle_quality?: {
+    interpretation_true: boolean
+    tension_resonated: boolean
+    score: number
+    feedback: string
+  }
+  register_fit?: {
+    register_used: string
+    register_needed: string
+    matched: boolean
+    score: number
+    feedback: string
+  }
+  cognitive_load_fit?: {
+    load_demanded: 'low' | 'medium' | 'high'
+    capacity_available: 'low' | 'medium' | 'high'
+    matched: boolean
+    score: number
+    feedback: string
+  }
+  placement_fit?: {
+    likely_state_at_contact: string
+    format_assumes_state: string
+    matched: boolean
+    score: number
+    feedback: string
+  }
+  format_choice_fit?: {
+    carries_angle_psychology: boolean
+    carries_cognitive_load: boolean
+    score: number
+    feedback: string
+  }
+  audience_targeting_fit?: {
+    is_right_segment: boolean
+    segment_critique: string
+    score: number
+    feedback: string
+  }
+  format_failure_mode?: {
+    mode: 'comprehension_collapse' | 'resistance_spike' | 'abandonment' | 'trust_erosion' | 'none'
+    reasoning: string
+    fix: string
   }
 }
 
@@ -857,10 +905,12 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "feedback": "<one-two sentences — capture the qualitative gap between a '365-day no-questions-asked' guarantee and 'we promise quality' — they are not the same boolean>"
   },
   "audience_inference": {
+    "inferred_tam_label": "<ONE concrete TAM name — e.g. 'Sleep-deprived working moms' or 'Biohackers chasing peak performance'. Must be a real human-readable label, not a signal width.>",
     "inferred_persona": "<ONE sentence — who this ad reads as targeting, from visual + copy ALONE. Fill this BEFORE looking at any stated_* values below.>",
     "inferred_micro_persona": "<ONE sentence — narrower: specific identity, life-stage, situational context the ad reads as speaking to>",
     "inferred_concept": "<ONE sentence — the single big idea the ad expresses>",
     "inferred_angle": "<ONE sentence — the lead/hook angle (mechanism reveal | identity claim | before/after | curiosity gap | etc.)>",
+    "inferred_age_range": "<e.g. '30-45' or '25-34' — your best read of the age band this ad targets, from visual cues (faces, lifestyle, setting) + copy register>",
     "inferred_tam_signal": "<narrow | medium | broad | unclear — how tightly the ad signals a specific audience to a stranger>",
     "confidence": <1-10 — how clearly the ad communicates an audience to someone with zero context>,
     "reasoning": "<≤2 sentences citing specific visual and copy evidence>"
@@ -876,6 +926,50 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "concept_summary": "<one line — the single thing this ad argues>",
     "competing_concepts": ["<each competing promise as a short string; empty array when has_single_concept=true>"],
     "score": <1-10 — 10=laser-focused single concept; 1=three+ competing promises>
+  },
+  "angle_quality": {
+    "interpretation_true": <true/false — did the underlying read of the audience's tension actually hold?>,
+    "tension_resonated": <true/false — did the angle's tension land?>,
+    "score": <1-10>,
+    "feedback": "<one sentence — what about the angle interpretation worked or didn't>"
+  },
+  "register_fit": {
+    "register_used": "<e.g. authoritative | conspiratorial | empathetic | playful | clinical | confessional | peer>",
+    "register_needed": "<what the audience's posture demanded>",
+    "matched": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "cognitive_load_fit": {
+    "load_demanded": "<low | medium | high>",
+    "capacity_available": "<low | medium | high — what cognitive capacity the audience had at the moment of contact>",
+    "matched": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "placement_fit": {
+    "likely_state_at_contact": "<e.g. 'scroll-distracted social feed', 'intent-driven search', 'lean-back evening browse'>",
+    "format_assumes_state": "<what cognitive state the format assumes the viewer is in>",
+    "matched": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "format_choice_fit": {
+    "carries_angle_psychology": <true/false>,
+    "carries_cognitive_load": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "audience_targeting_fit": {
+    "is_right_segment": <true/false>,
+    "segment_critique": "<one sentence — if the segment is wrong, what would be right>",
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "format_failure_mode": {
+    "mode": "<comprehension_collapse | resistance_spike | abandonment | trust_erosion | none — pick 'none' if format_choice_fit didn't fail>",
+    "reasoning": "<one sentence — why this mode fired>",
+    "fix": "<one sentence — what to change>"
   }
 }`
 
@@ -1054,10 +1148,12 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "feedback": "<one-two sentences: what this winner's risk reversal reveals about the perceived purchase friction in this category>"
   },
   "audience_inference": {
+    "inferred_tam_label": "<ONE concrete TAM label, e.g. 'Sleep-deprived working moms'>",
     "inferred_persona": "<ONE sentence — who this winning ad reads as targeting, from visual + copy ALONE. Fill this BEFORE looking at any stated_* values below.>",
     "inferred_micro_persona": "<ONE sentence — narrower: specific identity, life-stage, situational context the winner speaks to>",
     "inferred_concept": "<ONE sentence — the single big idea the winner expresses>",
     "inferred_angle": "<ONE sentence — the lead/hook angle that worked>",
+    "inferred_age_range": "<e.g. '30-45'>",
     "inferred_tam_signal": "<narrow | medium | broad | unclear>",
     "confidence": <1-10>,
     "reasoning": "<≤2 sentences citing the visual and copy evidence that made the audience legible>"
@@ -1073,6 +1169,50 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "concept_summary": "<one line — the single thing this winner argues>",
     "competing_concepts": ["<empty if single>"],
     "score": <1-10>
+  },
+  "angle_quality": {
+    "interpretation_true": <true/false>,
+    "tension_resonated": <true/false — should be true for winners>,
+    "score": <1-10>,
+    "feedback": "<one sentence — name what about the angle interpretation worked>"
+  },
+  "register_fit": {
+    "register_used": "<e.g. authoritative | conspiratorial | empathetic | playful | clinical | confessional | peer>",
+    "register_needed": "<what the audience's posture demanded>",
+    "matched": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "cognitive_load_fit": {
+    "load_demanded": "<low | medium | high>",
+    "capacity_available": "<low | medium | high>",
+    "matched": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "placement_fit": {
+    "likely_state_at_contact": "<e.g. 'scroll-distracted social feed'>",
+    "format_assumes_state": "<what cognitive state the format assumes>",
+    "matched": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "format_choice_fit": {
+    "carries_angle_psychology": <true/false>,
+    "carries_cognitive_load": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "audience_targeting_fit": {
+    "is_right_segment": <true/false>,
+    "segment_critique": "<one sentence>",
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "format_failure_mode": {
+    "mode": "<comprehension_collapse | resistance_spike | abandonment | trust_erosion | none — winners are usually 'none'>",
+    "reasoning": "<one sentence>",
+    "fix": "<one sentence — for winners, often 'none — keep this format paired with this angle'>"
   }
 }`
 
@@ -1252,10 +1392,12 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "feedback": "<one-two sentences: how the absence or weakness of risk reversal contributed to the failure>"
   },
   "audience_inference": {
+    "inferred_tam_label": "<ONE concrete TAM label, e.g. 'Sleep-deprived working moms' — even for losers, give your best read>",
     "inferred_persona": "<ONE sentence — who this losing ad reads as targeting from visual + copy ALONE. Fill this BEFORE looking at any stated_* values.>",
     "inferred_micro_persona": "<ONE sentence — narrower>",
     "inferred_concept": "<ONE sentence — the single big idea, or 'no clear concept' if the ad fails to express one>",
     "inferred_angle": "<ONE sentence — angle, or 'no clear angle'>",
+    "inferred_age_range": "<e.g. '30-45' — best read from visual + copy register>",
     "inferred_tam_signal": "<narrow | medium | broad | unclear — unclear is common in losers>",
     "confidence": <1-10 — losers often score low here>,
     "reasoning": "<≤2 sentences. If the ad doesn't communicate an audience, say so explicitly — this is the 'Meta algorithm test' failure mode.>"
@@ -1271,6 +1413,50 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "concept_summary": "<one line, or 'no clear concept'>",
     "competing_concepts": ["<each competing promise — losers commonly have 2+>"],
     "score": <1-10>
+  },
+  "angle_quality": {
+    "interpretation_true": <true/false — for losers, often false>,
+    "tension_resonated": <true/false — for losers, often false>,
+    "score": <1-10>,
+    "feedback": "<one sentence — name what about the angle interpretation failed>"
+  },
+  "register_fit": {
+    "register_used": "<e.g. authoritative | conspiratorial | empathetic | playful | clinical | confessional | peer>",
+    "register_needed": "<what the audience's posture demanded>",
+    "matched": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence — losers often have a register mismatch>"
+  },
+  "cognitive_load_fit": {
+    "load_demanded": "<low | medium | high>",
+    "capacity_available": "<low | medium | high>",
+    "matched": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "placement_fit": {
+    "likely_state_at_contact": "<e.g. 'scroll-distracted social feed'>",
+    "format_assumes_state": "<what cognitive state the format assumes>",
+    "matched": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "format_choice_fit": {
+    "carries_angle_psychology": <true/false>,
+    "carries_cognitive_load": <true/false>,
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "audience_targeting_fit": {
+    "is_right_segment": <true/false>,
+    "segment_critique": "<one sentence — if wrong, what would be right>",
+    "score": <1-10>,
+    "feedback": "<one sentence>"
+  },
+  "format_failure_mode": {
+    "mode": "<comprehension_collapse | resistance_spike | abandonment | trust_erosion | none — for losers, pick the one that fired most clearly>",
+    "reasoning": "<one sentence — why this mode fired>",
+    "fix": "<one sentence — what to change>"
   }
 }`
 
@@ -1308,6 +1494,18 @@ AUDIENCE CLARITY PROTOCOL — strict ordering, do not violate:
      : '- match_quality MUST be null, mismatches MUST be [], recommendation MUST be "no stated audience supplied".'}
 4. Fill "concept_clarity" — is this ad arguing ONE thing or multiple competing promises?
    List each competing promise as a separate string when has_single_concept=false.
+5. Fill the AD–AUDIENCE ALIGNMENT block — all six lenses, plus format failure mode:
+   - "angle_quality" — was the underlying interpretation true? did the tension resonate?
+   - "register_fit" — was the angle in the right emotional register for the audience's posture?
+   - "cognitive_load_fit" — did the format ask for more or less cognitive engagement than the audience could give?
+   - "placement_fit" — was the audience in the right cognitive state at the moment of contact?
+   - "format_choice_fit" — did the format carry the angle's psychology AND the cognitive load?
+   - "audience_targeting_fit" — was this the right segment?
+   - "format_failure_mode" — if format_choice_fit failed, name which of the four modes fired (otherwise 'none'):
+     * comprehension_collapse: low-capacity format + high-complexity claim. Fix: more cognitive room (carousel, advertorial) or compress the claim.
+     * resistance_spike: high-authority format + socially sensitive claim. Fix: drop into peer / confessional formats.
+     * abandonment: high-effort format + low perceived payoff. Fix: raise the payoff in the first two seconds, or shrink format effort.
+     * trust_erosion: high-polish format + authenticity-seeking audience. Fix: UGC / native / screenshot / "ugly" formats.
 `
 }
 
@@ -1707,6 +1905,25 @@ export async function POST(req: NextRequest) {
 
     if (analysis_id) {
       await storeComprehensiveAnalysis(analysis_id, comprehensive as unknown as Record<string, unknown>, spend_usd)
+
+      // Auto-populate audience hierarchy + per-ad concept/angle/age_range
+      // from Claude's inference when this ad belongs to a product.
+      // Never overwrites user-edited values.
+      if (comprehensive.audience_inference) {
+        try {
+          const { data: row } = await supabaseServer
+            .from('analyses')
+            .select('product_id')
+            .eq('id', analysis_id)
+            .maybeSingle()
+          const productId = (row as { product_id: string | null } | null)?.product_id
+          if (productId) {
+            await autoPopulateFromInference(analysis_id, productId, comprehensive.audience_inference)
+          }
+        } catch (e) {
+          console.error('autoPopulateFromInference failed', e)
+        }
+      }
 
       // Persist vertical_category from confirmed extraction so synthesis
       // and the Historical Analysis tab can scope by D2C vertical.

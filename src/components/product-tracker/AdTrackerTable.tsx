@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Pencil, Flame, Trash2, RefreshCw, GitCompare, Star } from 'lucide-react'
+import { Pencil, Flame, Trash2, RefreshCw, GitCompare } from 'lucide-react'
 import { QuadrantBadge } from './QuadrantBadge'
 import { AdMetricsEditor } from './AdMetricsEditor'
 import { AdCompareModal } from './AdCompareModal'
@@ -99,34 +99,40 @@ export function AdTrackerTable({ token, productId, ads, onOpenAd, onChanged }: P
     setBulkReanalyzing(true)
     setBulkError(null)
     setBulkProgress({ done: 0, total: ids.length })
-    let failed = 0
+    const failedIds: string[] = []
     for (const id of ids) {
+      let ok = false
       try {
         const res = await fetch('/api/analyze/reanalyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ analysis_id: id }),
         })
-        if (!res.ok) { failed++; continue }
-        // drain stream
-        const reader = res.body?.getReader()
-        if (reader) {
-          const decoder = new TextDecoder()
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            decoder.decode(value, { stream: !done })
+        if (res.ok) {
+          // drain stream
+          const reader = res.body?.getReader()
+          if (reader) {
+            const decoder = new TextDecoder()
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              decoder.decode(value, { stream: !done })
+            }
           }
+          ok = true
         }
-      } catch {
-        failed++
-      }
+      } catch { /* ok stays false */ }
+      if (!ok) failedIds.push(id)
       setBulkProgress(p => p ? { ...p, done: p.done + 1 } : null)
     }
     setBulkReanalyzing(false)
     setBulkProgress(null)
-    if (failed > 0) setBulkError(`${failed} re-analysis failure${failed !== 1 ? 's' : ''}`)
-    setSelected(new Set())
+    if (failedIds.length > 0) {
+      setBulkError(`${failedIds.length} re-analysis failure${failedIds.length !== 1 ? 's' : ''} — click Re-analyze to retry just those`)
+      setSelected(new Set(failedIds))
+    } else {
+      setSelected(new Set())
+    }
     onChanged()
   }
 
@@ -287,6 +293,7 @@ export function AdTrackerTable({ token, productId, ads, onOpenAd, onChanged }: P
                   onOpenAd={onOpenAd}
                   token={token}
                   productId={productId}
+                  onDeleted={onChanged}
                 />
               ))}
             </tbody>
@@ -305,11 +312,51 @@ export function AdTrackerTable({ token, productId, ads, onOpenAd, onChanged }: P
   )
 }
 
-function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEdit, onSaved, onOpenAd, token, productId }: {
+function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEdit, onSaved, onOpenAd, token, productId, onDeleted }: {
   row: ProductAdRow; selected: boolean; onToggleSelect: () => void
   editing: boolean; onEdit: () => void; onCloseEdit: () => void; onSaved: () => void;
-  onOpenAd: (id: string) => void; token: string; productId: string
+  onOpenAd: (id: string) => void; token: string; productId: string; onDeleted: () => void
 }) {
+  const [deleting, setDeleting] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!confirm('Delete this ad? This cannot be undone.')) return
+    setDeleting(true)
+    try {
+      await fetch(`/api/analyze/${row.analysis_id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+      onDeleted()
+    } catch { /* ignore */ }
+    setDeleting(false)
+  }
+
+  async function handleReanalyze(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (reanalyzing) return
+    setReanalyzing(true)
+    try {
+      const res = await fetch('/api/analyze/reanalyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ analysis_id: row.analysis_id }),
+      })
+      if (res.ok) {
+        const reader = res.body?.getReader()
+        if (reader) {
+          const decoder = new TextDecoder()
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            decoder.decode(value, { stream: !done })
+          }
+        }
+        onSaved()
+      }
+    } catch { /* ignore */ }
+    setReanalyzing(false)
+  }
+
   return (
     <>
       <tr className={`border-b border-gray-800/60 hover:bg-gray-800/30 transition-colors ${selected ? 'bg-indigo-950/20' : ''}`}>
@@ -331,9 +378,6 @@ function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEd
             )}
             <span className="min-w-0">
               <span className="block text-gray-200 truncate">
-                {row.is_reference_ad && (
-                  <Star className="w-3 h-3 fill-yellow-400 text-yellow-400 inline-block mr-1 shrink-0" />
-                )}
                 {row.headline_text ?? 'Untitled ad'}
               </span>
               <span className="block text-[9px] text-gray-500 truncate">{row.composition_tag ?? '—'}</span>
@@ -372,9 +416,17 @@ function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEd
           <TargetingDot quality={row.audience_match_quality} personaLabel={row.persona_label} />
         </td>
         <td className="py-2 px-3 text-right">
-          <button onClick={onEdit} className="text-gray-500 hover:text-indigo-400 p-1" aria-label="Edit metrics">
-            <Pencil className="w-3 h-3" />
-          </button>
+          <div className="flex items-center justify-end gap-1">
+            <button onClick={handleReanalyze} disabled={reanalyzing} className="text-gray-500 hover:text-indigo-400 p-1 disabled:opacity-40" aria-label="Re-analyze ad" title="Re-run comprehensive analysis">
+              <RefreshCw className={`w-3 h-3 ${reanalyzing ? 'animate-spin' : ''}`} />
+            </button>
+            <button onClick={onEdit} className="text-gray-500 hover:text-indigo-400 p-1" aria-label="Edit metrics">
+              <Pencil className="w-3 h-3" />
+            </button>
+            <button onClick={handleDelete} disabled={deleting} className="text-gray-700 hover:text-[#ff2a2b] p-1 disabled:opacity-40" aria-label="Delete ad">
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
         </td>
       </tr>
       {editing && (
@@ -414,9 +466,6 @@ function MobileAdCard({ row, selected, onToggleSelect, onOpenAd, onEdit, editing
           )}
           <div className="flex-1 min-w-0 space-y-1">
             <p className="text-xs text-gray-200 leading-snug truncate">
-              {row.is_reference_ad && (
-                <Star className="w-3 h-3 fill-yellow-400 text-yellow-400 inline-block mr-1 shrink-0" />
-              )}
               {row.headline_text ?? 'Untitled ad'}
             </p>
             <div className="flex items-center gap-1.5 flex-wrap">
