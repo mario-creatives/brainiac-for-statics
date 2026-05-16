@@ -18,6 +18,7 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
   const [bulkRunning, setBulkRunning] = useState(false)
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; currentId: string | null }>({ done: 0, total: 0, currentId: null })
   const [bulkErrors, setBulkErrors] = useState<Record<string, string>>({})
+  const [singleRunning, setSingleRunning] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!token) return
@@ -75,6 +76,51 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
       headline_text: (headline?.text as string) ?? a.headline_text,
     }))
   }
+
+  const handleSingleReanalyze = useCallback(async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!token || singleRunning || bulkRunning) return
+    setSingleRunning(id)
+    setBulkErrors(prev => { const next = { ...prev }; delete next[id]; return next })
+    try {
+      const res = await fetch('/api/analyze/reanalyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ analysis_id: id }),
+      })
+      if (!res.ok) {
+        setBulkErrors(prev => ({ ...prev, [id]: `Re-analysis failed (${res.status})` }))
+      } else {
+        const reader = res.body?.getReader()
+        const decoder = new TextDecoder()
+        let text = ''
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            text += decoder.decode(value, { stream: !done })
+          }
+        }
+        const last = text.split('\n').filter(l => l.trim()).pop() ?? '{}'
+        try {
+          const data = JSON.parse(last) as Record<string, unknown>
+          if (data.error) {
+            setBulkErrors(prev => ({ ...prev, [id]: data.error as string }))
+          } else if (data.comprehensive) {
+            mergeReanalyzed(id, data)
+            onReanalyze?.(id)
+          } else {
+            setBulkErrors(prev => ({ ...prev, [id]: 'Re-analysis returned no data' }))
+          }
+        } catch (parseErr) {
+          setBulkErrors(prev => ({ ...prev, [id]: `Parse error: ${parseErr instanceof Error ? parseErr.message : 'unknown'}` }))
+        }
+      }
+    } catch (err) {
+      setBulkErrors(prev => ({ ...prev, [id]: err instanceof Error ? err.message : 'Network error' }))
+    }
+    setSingleRunning(null)
+  }, [token, singleRunning, bulkRunning, onReanalyze])
 
   const handleBulkReanalyze = useCallback(async () => {
     if (!token || bulkRunning || analyses.length === 0) return
@@ -257,6 +303,17 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
                         )}
                       </div>
                     </div>
+                    </button>
+
+                    {/* Re-analyze single button */}
+                    <button
+                      onClick={(e) => handleSingleReanalyze(a.id, e)}
+                      disabled={singleRunning === a.id || bulkRunning}
+                      aria-label="Re-analyze"
+                      title="Re-run comprehensive analysis"
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-gray-500 hover:text-indigo-400 hover:bg-gray-900 transition-all shrink-0 disabled:opacity-40 disabled:cursor-wait"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${singleRunning === a.id ? 'animate-spin' : ''}`} />
                     </button>
 
                     {/* Delete button */}
