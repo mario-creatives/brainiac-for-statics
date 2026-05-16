@@ -318,6 +318,7 @@ function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEd
   onOpenAd: (id: string) => void; token: string; productId: string; onDeleted: () => void
 }) {
   const [deleting, setDeleting] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
 
   async function handleDelete(e: React.MouseEvent) {
     e.stopPropagation()
@@ -328,6 +329,32 @@ function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEd
       onDeleted()
     } catch { /* ignore */ }
     setDeleting(false)
+  }
+
+  async function handleReanalyze(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (reanalyzing) return
+    setReanalyzing(true)
+    try {
+      const res = await fetch('/api/analyze/reanalyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ analysis_id: row.analysis_id }),
+      })
+      if (res.ok) {
+        const reader = res.body?.getReader()
+        if (reader) {
+          const decoder = new TextDecoder()
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            decoder.decode(value, { stream: !done })
+          }
+        }
+        onSaved()
+      }
+    } catch { /* ignore */ }
+    setReanalyzing(false)
   }
 
   return (
@@ -390,6 +417,9 @@ function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEd
         </td>
         <td className="py-2 px-3 text-right">
           <div className="flex items-center justify-end gap-1">
+            <button onClick={handleReanalyze} disabled={reanalyzing} className="text-gray-500 hover:text-indigo-400 p-1 disabled:opacity-40" aria-label="Re-analyze ad" title="Re-run comprehensive analysis">
+              <RefreshCw className={`w-3 h-3 ${reanalyzing ? 'animate-spin' : ''}`} />
+            </button>
             <button onClick={onEdit} className="text-gray-500 hover:text-indigo-400 p-1" aria-label="Edit metrics">
               <Pencil className="w-3 h-3" />
             </button>
