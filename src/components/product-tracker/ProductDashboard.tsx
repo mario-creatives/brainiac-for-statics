@@ -205,6 +205,7 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
               <ImageBatchTab
                 token={token}
                 productId={productId}
+                forceMode="historical"
                 onStatsUpdate={() => { load() }}
               />
             </div>
