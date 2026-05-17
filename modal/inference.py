@@ -74,24 +74,10 @@ BERG_REGISTRY = {
     "VWFA":  {"label": "Text Processing",           "description": "Text in this image is legible and occupying visual attention."},
 }
 
-# ── ROI registry — mirrors src/lib/roi.ts ────────────────────────────────────
-ROI_REGISTRY = {
-    "FFA":      {"label": "Face Detection",           "description": "A face or face-like element is visually dominant in this image."},
-    "V1_V2":    {"label": "Low-Level Visual Signal",   "description": "Strong contrast, edges, or luminance variation is present."},
-    "V4":       {"label": "Color and Form Processing", "description": "Color relationships and shape boundaries are being processed."},
-    "LO":       {"label": "Object Recognition",        "description": "Distinct objects or elements are registering as meaningful visual units."},
-    "PPA":      {"label": "Scene Recognition",         "description": "The background or setting is being processed as contextual information."},
-    "STS":      {"label": "Social and Motion Cues",    "description": "Expressions, biological motion, or implied social action is present."},
-    "DAN":      {"label": "Spatial Attention",         "description": "The composition is directing spatial focus toward specific elements."},
-    "VWFA":     {"label": "Text Processing",           "description": "Text in this image is legible and occupying visual attention."},
-    "DMN":      {"label": "Default Mode Network",      "description": "Self-referential or mind-wandering processes are relatively active."},
-    "AV_ASSOC": {"label": "Audio-Visual Association",  "description": "Cross-modal binding regions are active."},
-}
-
 def mock_roi_scores(image_array) -> tuple[list[dict], float]:
     """
-    Fallback: derive plausible ROI scores from image statistics.
-    Used when MOCK_MODE=true. Not a brain model.
+    Fallback: derive plausible ROI scores from image statistics for the 6 BERG
+    visual-cortex ROIs. Used when MOCK_MODE=true. Not a brain model.
     """
     import numpy as np
 
@@ -108,24 +94,20 @@ def mock_roi_scores(image_array) -> tuple[list[dict], float]:
     top_brightness_var = float(top_strip.std())
 
     scores = {
-        "FFA":      min(1.0, center_contrast * 3.5 + 0.15),
-        "V1_V2":    min(1.0, contrast * 2.8 + 0.1),
-        "V4":       min(1.0, color_var * 2.2 + 0.2),
-        "LO":       min(1.0, (contrast + center_contrast) * 1.4 + 0.1),
-        "PPA":      min(1.0, (1.0 - center_contrast) * 0.8 + brightness * 0.4),
-        "STS":      min(1.0, center_contrast * 2.0 + 0.05),
-        "DAN":      min(1.0, contrast * 1.5 + 0.2),
-        "VWFA":     min(1.0, top_brightness_var * 3.0 + 0.08),
-        "DMN":      min(1.0, (1.0 - contrast) * 0.6 + 0.1),
-        "AV_ASSOC": min(1.0, color_var * 1.2 + 0.05),
+        "FFA":   min(1.0, center_contrast * 3.5 + 0.15),
+        "V1_V2": min(1.0, contrast * 2.8 + 0.1),
+        "V4":    min(1.0, color_var * 2.2 + 0.2),
+        "LO":    min(1.0, (contrast + center_contrast) * 1.4 + 0.1),
+        "PPA":   min(1.0, (1.0 - center_contrast) * 0.8 + brightness * 0.4),
+        "VWFA":  min(1.0, top_brightness_var * 3.0 + 0.08),
     }
 
     results = [
         {
             "region_key": key,
-            "label": ROI_REGISTRY[key]["label"],
+            "label": BERG_REGISTRY[key]["label"],
             "activation": round(val, 4),
-            "description": ROI_REGISTRY[key]["description"],
+            "description": BERG_REGISTRY[key]["description"],
         }
         for key, val in scores.items()
     ]
@@ -164,11 +146,7 @@ def generate_heatmap(image_bytes: bytes, roi_data: list[dict]) -> bytes:
     add_gaussian(spatial_map, 0.50, 0.50, 0.40, score.get("V4", 0))
     add_gaussian(spatial_map, 0.45, 0.50, 0.30, score.get("LO", 0))
     add_gaussian(spatial_map, 0.70, 0.50, 0.35, score.get("PPA", 0))
-    add_gaussian(spatial_map, 0.40, 0.50, 0.25, score.get("STS", 0))
-    add_gaussian(spatial_map, 0.35, 0.65, 0.20, score.get("DAN", 0))
     add_gaussian(spatial_map, 0.15, 0.50, 0.20, score.get("VWFA", 0))
-    add_gaussian(spatial_map, 0.50, 0.25, 0.25, score.get("DMN", 0))
-    add_gaussian(spatial_map, 0.50, 0.75, 0.20, score.get("AV_ASSOC", 0))
 
     spatial_map = gaussian_filter(spatial_map, sigma=min(h, w) * 0.08)
     mn, mx = spatial_map.min(), spatial_map.max()
@@ -484,9 +462,6 @@ class BrainiacThumbnailInference:
         # ── Inference ─────────────────────────────────────────────────────────
         if self.mock_mode:
             roi_data, mean_top_roi_score = mock_roi_scores(img_rgb)
-            berg_keys = set(BERG_REGISTRY.keys())
-            roi_data = [r for r in roi_data if r["region_key"] in berg_keys]
-            roi_data.sort(key=lambda x: x["activation"], reverse=True)
         else:
             if self.berg_load_error:
                 fail(f"BERG load error: {self.berg_load_error}"); return
