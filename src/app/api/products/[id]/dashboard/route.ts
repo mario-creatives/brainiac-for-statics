@@ -45,6 +45,8 @@ export interface ProductAdRow {
   is_reference_ad: boolean
   framework_score: number | null
   needs_reanalysis: boolean
+  status: string | null
+  error_message: string | null
   audience_inference: {
     inferred_tam_label?: string
     inferred_persona: string
@@ -99,7 +101,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { data: ads } = await supabaseServer
     .from('analyses')
-    .select('id, created_at, heatmap_url, comprehensive_analysis, mean_top_roi_score, spend_usd, cpa_usd, ctr_pct, age_range, date_range_start, date_range_end, ad_active, quadrant, quadrant_override, loss_reason, stated_concept, stated_angle, is_reference_ad, tam_id, persona_id, micro_persona_id, concept_id, angle_id')
+    .select('id, created_at, heatmap_url, comprehensive_analysis, mean_top_roi_score, spend_usd, cpa_usd, ctr_pct, age_range, date_range_start, date_range_end, ad_active, quadrant, quadrant_override, loss_reason, stated_concept, stated_angle, is_reference_ad, tam_id, persona_id, micro_persona_id, concept_id, angle_id, status, error_message')
     .eq('product_id', id)
     .order('created_at', { ascending: false })
 
@@ -115,6 +117,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     is_reference_ad: boolean
     tam_id: string | null; persona_id: string | null; micro_persona_id: string | null
     concept_id: string | null; angle_id: string | null
+    status: string | null; error_message: string | null
   }[]
 
   // Batched label hydration — collect distinct IDs across all ads, then one query per level.
@@ -214,6 +217,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       is_reference_ad: a.is_reference_ad ?? false,
       framework_score: (fwk?.overall_framework_score as number | null) ?? null,
       needs_reanalysis: !((ca as Record<string, unknown>).angle_quality),
+      status: a.status,
+      error_message: a.error_message,
       audience_inference: ((ca as Record<string, unknown>).audience_inference as ProductAdRow['audience_inference']) ?? null,
     }
   })
