@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { computeQuadrant } from '@/lib/quadrant'
+import { findOrCreateConcept, findOrCreateAngle } from '@/lib/audience-auto-populate'
 
 export const dynamic = 'force-dynamic'
 
@@ -71,6 +72,18 @@ export async function PATCH(
         update[key] = v
       }
     }
+  }
+
+  // Dual-write concept_id / angle_id when the user edits the text field, so
+  // manual edits dedup at the DB the same way autoPopulateFromInference does
+  // on fresh analyses. Empty/whitespace clears the FK.
+  if ('stated_concept' in body) {
+    const txt = typeof body.stated_concept === 'string' ? body.stated_concept.trim() : null
+    update.concept_id = txt ? await findOrCreateConcept(productId, txt) : null
+  }
+  if ('stated_angle' in body) {
+    const txt = typeof body.stated_angle === 'string' ? body.stated_angle.trim() : null
+    update.angle_id = txt ? await findOrCreateAngle(productId, txt) : null
   }
 
   // Validate audience FK chain belongs to this product, then apply.

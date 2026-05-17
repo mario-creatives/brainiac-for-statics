@@ -33,7 +33,12 @@ export interface ProductAdRow {
   tam_label: string | null
   persona_label: string | null
   micro_persona_label: string | null
-  // Creative-level free text (kept per-ad)
+  // Concept/angle — DB-deduplicated FKs + resolved labels
+  concept_id: string | null
+  angle_id: string | null
+  concept_label: string | null
+  angle_label: string | null
+  // Creative-level free text (kept per-ad; legacy fallback when FK is null)
   stated_concept: string | null
   stated_angle: string | null
   audience_match_quality: 'aligned' | 'partial_mismatch' | 'major_mismatch' | null
@@ -94,7 +99,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { data: ads } = await supabaseServer
     .from('analyses')
-    .select('id, created_at, heatmap_url, comprehensive_analysis, mean_top_roi_score, spend_usd, cpa_usd, ctr_pct, age_range, date_range_start, date_range_end, ad_active, quadrant, quadrant_override, loss_reason, stated_concept, stated_angle, is_reference_ad, tam_id, persona_id, micro_persona_id')
+    .select('id, created_at, heatmap_url, comprehensive_analysis, mean_top_roi_score, spend_usd, cpa_usd, ctr_pct, age_range, date_range_start, date_range_end, ad_active, quadrant, quadrant_override, loss_reason, stated_concept, stated_angle, is_reference_ad, tam_id, persona_id, micro_persona_id, concept_id, angle_id')
     .eq('product_id', id)
     .order('created_at', { ascending: false })
 
@@ -109,6 +114,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     stated_concept: string | null; stated_angle: string | null
     is_reference_ad: boolean
     tam_id: string | null; persona_id: string | null; micro_persona_id: string | null
+    concept_id: string | null; angle_id: string | null
   }[]
 
   // Batched label hydration — collect distinct IDs across all ads, then one query per level.
@@ -130,6 +136,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (microIds.length > 0) {
     const { data } = await supabaseServer.from('product_micro_personas').select('id, label').in('id', microIds)
     for (const r of (data ?? []) as { id: string; label: string }[]) microLabels.set(r.id, r.label)
+  }
+
+  const conceptIds = Array.from(new Set(adRows.map(a => a.concept_id).filter((x): x is string => !!x)))
+  const angleIds   = Array.from(new Set(adRows.map(a => a.angle_id).filter((x): x is string => !!x)))
+  const conceptLabels = new Map<string, string>()
+  const angleLabels   = new Map<string, string>()
+  if (conceptIds.length > 0) {
+    const { data } = await supabaseServer.from('product_concepts').select('id, label').in('id', conceptIds)
+    for (const r of (data ?? []) as { id: string; label: string }[]) conceptLabels.set(r.id, r.label)
+  }
+  if (angleIds.length > 0) {
+    const { data } = await supabaseServer.from('product_angles').select('id, label').in('id', angleIds)
+    for (const r of (data ?? []) as { id: string; label: string }[]) angleLabels.set(r.id, r.label)
   }
 
   // Pull metrics history for every ad in one query
@@ -185,6 +204,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       tam_label: a.tam_id ? tamLabels.get(a.tam_id) ?? null : null,
       persona_label: a.persona_id ? personaLabels.get(a.persona_id) ?? null : null,
       micro_persona_label: a.micro_persona_id ? microLabels.get(a.micro_persona_id) ?? null : null,
+      concept_id: a.concept_id,
+      angle_id: a.angle_id,
+      concept_label: a.concept_id ? conceptLabels.get(a.concept_id) ?? null : null,
+      angle_label:   a.angle_id   ? angleLabels.get(a.angle_id)     ?? null : null,
       stated_concept: a.stated_concept,
       stated_angle: a.stated_angle,
       audience_match_quality: ((ca as Record<string, unknown>).audience_match as Record<string, unknown> | undefined)?.match_quality as 'aligned' | 'partial_mismatch' | 'major_mismatch' | null ?? null,

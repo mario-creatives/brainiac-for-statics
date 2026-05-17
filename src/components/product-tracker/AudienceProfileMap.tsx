@@ -35,11 +35,19 @@ function bestLabel(s: string | null | undefined, fallback: string): string {
   return s?.trim() || fallback
 }
 
+const QUADRANT_RANK: Record<string, number> = { winner: 0, promising: 1, investigate: 2, loser: 3 }
+
 function dominantQuadrant(ads: AdLeafSlot[]): string | null {
   for (const q of ['winner', 'promising', 'investigate', 'loser']) {
     if (ads.some(a => a.quadrant === q)) return q
   }
   return null
+}
+
+function sortByQuadrantPriority(ads: AdLeafSlot[]): AdLeafSlot[] {
+  return [...ads].sort((a, b) =>
+    (a.quadrant ? QUADRANT_RANK[a.quadrant] ?? 4 : 4) -
+    (b.quadrant ? QUADRANT_RANK[b.quadrant] ?? 4 : 4))
 }
 
 function quadrantColor(q: string | null) {
@@ -76,8 +84,8 @@ export function AudienceProfileMap({ productName, ads }: Props) {
     const tamK     = norm(ad.tam_label)            || 'no_tam'
     const persK    = norm(ad.persona_label)        || 'no_persona'
     const microK   = norm(ad.micro_persona_label)  || 'unspecified'
-    const conceptRaw = ad.stated_concept ?? inf?.inferred_concept ?? null
-    const angleRaw   = ad.stated_angle   ?? inf?.inferred_angle   ?? null
+    const conceptRaw = ad.concept_label ?? ad.stated_concept ?? inf?.inferred_concept ?? null
+    const angleRaw   = ad.angle_label   ?? ad.stated_angle   ?? inf?.inferred_angle   ?? null
     const conceptK = norm(conceptRaw) || 'no_concept'
     const angleK   = norm(angleRaw)   || 'no_angle'
 
@@ -253,7 +261,7 @@ export function AudienceProfileMap({ productName, ads }: Props) {
 
                                       {isAngleOpen && (
                                         <div className="pl-4 ml-2 space-y-1 py-0.5">
-                                          {adSlots.map(slot => (
+                                          {sortByQuadrantPriority(adSlots).map(slot => (
                                             <AdChip key={slot.analysisId} slot={slot} />
                                           ))}
                                         </div>
