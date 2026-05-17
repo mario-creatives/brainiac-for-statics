@@ -288,7 +288,7 @@ export interface ComprehensiveAnalysis {
     inferred_micro_persona: string
     inferred_concept: string
     inferred_angle: string
-    inferred_age_range: string
+    inferred_age_range: '18–24' | '25–34' | '35–44' | '45–54' | '55–64' | '65+'
     inferred_tam_signal: 'narrow' | 'medium' | 'broad' | 'unclear'
     confidence: number
     reasoning: string
@@ -910,7 +910,7 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "inferred_micro_persona": "<ONE sentence — narrower: specific identity, life-stage, situational context the ad reads as speaking to>",
     "inferred_concept": "<ONE sentence — the single big idea the ad expresses>",
     "inferred_angle": "<ONE sentence — the lead/hook angle (mechanism reveal | identity claim | before/after | curiosity gap | etc.)>",
-    "inferred_age_range": "<e.g. '30-45' or '25-34' — your best read of the age band this ad targets, from visual cues (faces, lifestyle, setting) + copy register>",
+    "inferred_age_range": "<MUST be exactly one of: '18–24' | '25–34' | '35–44' | '45–54' | '55–64' | '65+' — pick the single bucket that best fits from visual cues (faces, lifestyle, setting) + copy register. Use en-dashes, not hyphens.>",
     "inferred_tam_signal": "<narrow | medium | broad | unclear — how tightly the ad signals a specific audience to a stranger>",
     "confidence": <1-10 — how clearly the ad communicates an audience to someone with zero context>,
     "reasoning": "<≤2 sentences citing specific visual and copy evidence>"
@@ -1153,7 +1153,7 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "inferred_micro_persona": "<ONE sentence — narrower: specific identity, life-stage, situational context the winner speaks to>",
     "inferred_concept": "<ONE sentence — the single big idea the winner expresses>",
     "inferred_angle": "<ONE sentence — the lead/hook angle that worked>",
-    "inferred_age_range": "<e.g. '30-45'>",
+    "inferred_age_range": "<MUST be exactly one of: '18–24' | '25–34' | '35–44' | '45–54' | '55–64' | '65+' — pick the single bucket that best fits.>",
     "inferred_tam_signal": "<narrow | medium | broad | unclear>",
     "confidence": <1-10>,
     "reasoning": "<≤2 sentences citing the visual and copy evidence that made the audience legible>"
@@ -1397,7 +1397,7 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "inferred_micro_persona": "<ONE sentence — narrower>",
     "inferred_concept": "<ONE sentence — the single big idea, or 'no clear concept' if the ad fails to express one>",
     "inferred_angle": "<ONE sentence — angle, or 'no clear angle'>",
-    "inferred_age_range": "<e.g. '30-45' — best read from visual + copy register>",
+    "inferred_age_range": "<MUST be exactly one of: '18–24' | '25–34' | '35–44' | '45–54' | '55–64' | '65+' — pick the single bucket that best fits.>",
     "inferred_tam_signal": "<narrow | medium | broad | unclear — unclear is common in losers>",
     "confidence": <1-10 — losers often score low here>,
     "reasoning": "<≤2 sentences. If the ad doesn't communicate an audience, say so explicitly — this is the 'Meta algorithm test' failure mode.>"

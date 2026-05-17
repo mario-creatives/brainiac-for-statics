@@ -6,7 +6,7 @@ export interface InferenceForAutoPopulate {
   inferred_micro_persona?: string
   inferred_concept?: string
   inferred_angle?: string
-  inferred_age_range?: string
+  inferred_age_range?: '18–24' | '25–34' | '35–44' | '45–54' | '55–64' | '65+'
 }
 
 async function findOrCreateTam(productId: string, label: string): Promise<string | null> {

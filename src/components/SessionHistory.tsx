@@ -122,16 +122,10 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
     setSingleRunning(null)
   }, [token, singleRunning, bulkRunning, onReanalyze])
 
-  const handleBulkReanalyze = useCallback(async () => {
-    if (!token || bulkRunning || analyses.length === 0) return
+  async function runBulkQueue(queue: typeof analyses) {
     setBulkRunning(true)
     setBulkErrors({})
-    setBulkProgress({ done: 0, total: analyses.length, currentId: null })
-
-    // Snapshot the list at start so insertions/deletions during the run
-    // don't shift indexes.
-    const queue = [...analyses]
-
+    setBulkProgress({ done: 0, total: queue.length, currentId: null })
     for (const a of queue) {
       setBulkProgress(p => ({ ...p, currentId: a.id }))
       try {
@@ -143,7 +137,6 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
         if (!res.ok) {
           setBulkErrors(prev => ({ ...prev, [a.id]: `Re-analysis failed (${res.status})` }))
         } else {
-          // Drain the keep-alive stream: real payload is the last non-empty line.
           const reader = res.body?.getReader()
           const decoder = new TextDecoder()
           let text = ''
@@ -174,10 +167,24 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
       }
       setBulkProgress(p => ({ ...p, done: p.done + 1 }))
     }
-
     setBulkRunning(false)
     setBulkProgress(p => ({ ...p, currentId: null }))
-  }, [token, bulkRunning, analyses, onReanalyze])
+    load()
+  }
+
+  const handleBulkReanalyze = useCallback(async () => {
+    if (!token || bulkRunning || analyses.length === 0) return
+    await runBulkQueue([...analyses])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, bulkRunning, analyses])
+
+  const handlePendingReanalyze = useCallback(async () => {
+    if (!token || bulkRunning) return
+    const pending = analyses.filter(a => a.needs_reanalysis)
+    if (pending.length === 0) return
+    await runBulkQueue(pending)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, bulkRunning, analyses])
 
   useEffect(() => {
     if (expanded) load()
@@ -206,7 +213,7 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
           {/* Bulk action bar */}
           {analyses.length > 0 && (
             <div className="mb-3 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={handleBulkReanalyze}
                   disabled={bulkRunning}
@@ -219,6 +226,19 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
                   <RefreshCw className={`w-3 h-3 ${bulkRunning ? 'animate-spin' : ''}`} />
                   {bulkRunning ? 'Re-analyzing…' : `Re-analyze all (${analyses.length})`}
                 </button>
+                {(() => {
+                  const pendingCount = analyses.filter(a => a.needs_reanalysis).length
+                  return pendingCount > 0 ? (
+                    <button
+                      onClick={handlePendingReanalyze}
+                      disabled={bulkRunning}
+                      className="text-xs px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 bg-amber-900/40 hover:bg-amber-900/60 border-amber-800/60 text-amber-300 disabled:opacity-40 disabled:cursor-wait"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Re-analyze pending ({pendingCount})
+                    </button>
+                  ) : null
+                })()}
                 {bulkRunning && (
                   <span className="text-[10px] text-gray-400">
                     {bulkProgress.done} of {bulkProgress.total}

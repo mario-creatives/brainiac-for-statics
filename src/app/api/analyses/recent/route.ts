@@ -15,6 +15,7 @@ export interface RecentAnalysis {
   composition_tag: string | null
   headline_text: string | null
   status: string
+  needs_reanalysis: boolean
 }
 
 export async function GET(req: NextRequest) {
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
       composition_tag: (ca?.composition_tag as string) ?? null,
       headline_text: (headline?.text as string) ?? null,
       status: r.status,
+      needs_reanalysis: !(ca?.angle_quality),
     }
   })
 

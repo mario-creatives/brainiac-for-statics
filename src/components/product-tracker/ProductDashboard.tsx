@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { Plus, Trash2, Settings2, X } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Plus, Trash2, Settings2, X, RefreshCw } from 'lucide-react'
 import { ImageBatchTab } from '@/components/ImageBatchTab'
 import { AudienceHierarchyEditor } from './AudienceHierarchyEditor'
 import { AdAnalysisModal } from '@/components/AdAnalysisModal'
@@ -42,6 +42,11 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
   const [reportGeneratedAt, setReportGeneratedAt] = useState<string | null>(null)
   const [opened, setOpened] = useState<OpenedAd | null>(null)
   const [openedLoading, setOpenedLoading] = useState(false)
+  const [reanalyzeRunning, setReanalyzeRunning] = useState(false)
+  const [reanalyzeProgress, setReanalyzeProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 })
+  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null)
+  const tokenRef = useRef(token)
+  tokenRef.current = token
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -74,6 +79,33 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
   }, [productId, token])
 
   useEffect(() => { load() }, [load])
+
+  async function runProductReanalyze(analysisIds: string[]) {
+    if (reanalyzeRunning || analysisIds.length === 0) return
+    setReanalyzeRunning(true)
+    setReanalyzeError(null)
+    setReanalyzeProgress({ done: 0, total: analysisIds.length })
+    let failed = 0
+    for (const id of analysisIds) {
+      try {
+        const res = await fetch('/api/analyze/reanalyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenRef.current}` },
+          body: JSON.stringify({ analysis_id: id }),
+        })
+        if (res.ok && res.body) {
+          const reader = res.body.getReader()
+          while (true) { const { done } = await reader.read(); if (done) break }
+        } else {
+          failed++
+        }
+      } catch { failed++ }
+      setReanalyzeProgress(p => ({ ...p, done: p.done + 1 }))
+    }
+    setReanalyzeRunning(false)
+    if (failed > 0) setReanalyzeError(`${failed} failed — use the per-row Re-analyze button to retry`)
+    load()
+  }
 
   async function handleOpenAd(analysisId: string) {
     setOpenedLoading(true)
@@ -164,6 +196,42 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
           Add ads
         </button>
       </div>
+
+      {/* Re-analyze controls */}
+      {ads.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => runProductReanalyze(ads.map(a => a.analysis_id))}
+            disabled={reanalyzeRunning}
+            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 ${
+              reanalyzeRunning
+                ? 'bg-gray-800 border-gray-700 text-gray-400 cursor-wait'
+                : 'bg-gray-800 hover:bg-gray-700 border-gray-700 text-gray-300'
+            }`}
+          >
+            <RefreshCw className={`w-3 h-3 ${reanalyzeRunning ? 'animate-spin' : ''}`} />
+            {reanalyzeRunning
+              ? `Re-analyzing… ${reanalyzeProgress.done}/${reanalyzeProgress.total}`
+              : `Re-analyze all (${ads.length})`}
+          </button>
+          {(() => {
+            const pendingIds = ads.filter(a => a.needs_reanalysis).map(a => a.analysis_id)
+            return pendingIds.length > 0 ? (
+              <button
+                onClick={() => runProductReanalyze(pendingIds)}
+                disabled={reanalyzeRunning}
+                className="text-xs px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 bg-amber-900/40 hover:bg-amber-900/60 border-amber-800/60 text-amber-300 disabled:opacity-40 disabled:cursor-wait"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Re-analyze pending ({pendingIds.length})
+              </button>
+            ) : null
+          })()}
+          {reanalyzeError && (
+            <span className="text-[10px] text-[#ff2a2b]">{reanalyzeError}</span>
+          )}
+        </div>
+      )}
 
       {/* Tracker table */}
       <AdTrackerTable
