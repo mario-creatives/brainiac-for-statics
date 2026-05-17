@@ -136,7 +136,8 @@ export async function autoPopulateFromInference(
     .maybeSingle()
   const row = existing as { age_range: string | null; stated_concept: string | null; stated_angle: string | null } | null
 
-  if (!row?.age_range && inf.inferred_age_range)       update.age_range      = inf.inferred_age_range
+  // Age range always refreshed from fresh inference — it's a fixed enum bucket, not user text.
+  if (inf.inferred_age_range)                          update.age_range      = inf.inferred_age_range
   if (!row?.stated_concept && inf.inferred_concept)    update.stated_concept = inf.inferred_concept
   if (!row?.stated_angle && inf.inferred_angle)        update.stated_angle   = inf.inferred_angle
 
