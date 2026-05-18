@@ -13,7 +13,7 @@ import {
   enqueueSynthesis,
 } from '@/lib/pattern-library'
 import { buildPatternContext, buildComprehensiveVisionPrompt, parseBergBullets, runBergAnalysis } from '../comprehensive/route'
-import type { ComprehensiveAnalysis } from '../comprehensive/route'
+import type { ComprehensiveAnalysis, StatedAudience } from '../comprehensive/route'
 import type { ExtractedElements, HeadlineDNA, SubheadlineDNA, TrustDNA, CtaDNA } from '../extract-elements/route'
 import { parseClaudeJson } from '@/lib/parseClaudeJson'
 
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   // Fetch the stored analysis — owned by this user only.
   const { data: row, error: fetchErr } = await supabaseServer
     .from('analyses')
-    .select('id, user_id, comprehensive_analysis, roi_data, spend_usd, is_winner, quadrant, quadrant_override')
+    .select('id, user_id, comprehensive_analysis, roi_data, spend_usd, is_winner, quadrant, quadrant_override, status, input_storage_key, product_id, stated_concept, stated_angle')
     .eq('id', analysisId)
     .eq('user_id', user.id)
     .single()
@@ -94,12 +94,23 @@ export async function POST(req: NextRequest) {
   if (fetchErr || !row) return NextResponse.json({ error: 'Analysis not found' }, { status: 404 })
 
   const existingCa = row.comprehensive_analysis as unknown as ComprehensiveAnalysis | null
-  if (!existingCa) return NextResponse.json({ error: 'No prior analysis data to re-analyze from' }, { status: 400 })
+  const isFailed = !existingCa
+
+  // For failed ads (no prior comprehensive_analysis), we need the original image.
+  if (isFailed) {
+    const storageKey = row.input_storage_key as string | null
+    if (!storageKey) {
+      return NextResponse.json(
+        { error: 'No original image saved — please delete this ad and re-upload' },
+        { status: 400 },
+      )
+    }
+  }
 
   const roiAverages = (row.roi_data as unknown as Array<{ region_key: string; label: string; description: string; activation: number }>) ?? []
   const spendUsd: number | undefined = row.spend_usd ?? undefined
   const effectiveQuadrant = ((row.quadrant_override as string | null) ?? (row.quadrant as string | null)) ?? null
-  const confirmedElements = reconstructFromComprehensive(existingCa)
+  const confirmedElements = existingCa ? reconstructFromComprehensive(existingCa) : undefined
 
   // Concurrent-run guard. Atomically claim the row by setting
   // reanalyze_locked_at = NOW() only if it's null or stale (>5 min). Two
@@ -138,29 +149,78 @@ export async function POST(req: NextRequest) {
     ])
 
     const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, evolvedBaseline?.created_at ?? null)
-
-    // Mode is just 'historical' or 'feedback' — the prompt builders use
-    // mode === 'historical' as the gate, and pass quadrant + spendUsd
-    // separately to pick the winner/loser branch. The previous
-    // 'historical_winner' / 'historical_loser' values bypassed every
-    // mode === 'historical' check and silently routed all re-analyses
-    // through the feedback path.
     const mode = spendUsd !== undefined ? 'historical' : 'feedback'
 
-    // Run BERG text summary and text-only vision analysis in parallel.
+    // For failed ads (no prior comprehensive_analysis): download the original
+    // image from storage and run the full vision pipeline from scratch.
+    let imageBase64: string | null = null
+    let mimeType = 'image/jpeg'
+    if (isFailed) {
+      const storageKey = row.input_storage_key as string
+      const { data: blob, error: dlErr } = await supabaseServer.storage
+        .from('creatives')
+        .download(storageKey)
+      if (dlErr || !blob) throw new Error('Failed to download original image from storage')
+      const buffer = await blob.arrayBuffer()
+      imageBase64 = Buffer.from(buffer).toString('base64')
+      if (storageKey.endsWith('.png')) mimeType = 'image/png'
+      else if (storageKey.endsWith('.webp')) mimeType = 'image/webp'
+      // Mark in-progress so the status cell shows something while we run
+      await supabaseServer.from('analyses').update({ status: 'processing' }).eq('id', analysisId)
+    }
+
+    // Build statedAudience from per-ad values, falling back to product defaults.
+    let statedAudience: StatedAudience | null = null
+    {
+      const productId = row.product_id as string | null
+      const adRow = row as unknown as { stated_concept: string | null; stated_angle: string | null }
+      const statedConcept = adRow.stated_concept ?? null
+      const statedAngle = adRow.stated_angle ?? null
+
+      let productTam: string | null = null
+      let productPersona: string | null = null
+      let productMicro: string | null = null
+      let productConcept: string | null = null
+      let productAngle: string | null = null
+      if (productId) {
+        const { data: prod } = await supabaseServer
+          .from('products')
+          .select('tam, default_persona, default_micro_persona, default_concept, default_angle')
+          .eq('id', productId)
+          .maybeSingle()
+        productTam = (prod?.tam as string | null) ?? null
+        productPersona = (prod?.default_persona as string | null) ?? null
+        productMicro = (prod?.default_micro_persona as string | null) ?? null
+        productConcept = (prod?.default_concept as string | null) ?? null
+        productAngle = (prod?.default_angle as string | null) ?? null
+      }
+
+      if (productTam || productPersona || statedConcept || statedAngle || productConcept || productAngle) {
+        statedAudience = {
+          tam: productTam,
+          persona: productPersona,
+          micro_persona: productMicro,
+          concept: statedConcept ?? productConcept,
+          angle: statedAngle ?? productAngle,
+        }
+      }
+    }
+
+    const visualDescription = confirmedElements?.visual_description
     const [bergText, visionResult] = await Promise.all([
-      runBergAnalysis(roiAverages, patternContext, confirmedElements.visual_description, mode, spendUsd, effectiveQuadrant),
+      runBergAnalysis(roiAverages, patternContext, visualDescription, mode, spendUsd, effectiveQuadrant),
       (async () => {
-        const prompt = buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline, effectiveQuadrant)
+        const prompt = buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline, effectiveQuadrant, statedAudience)
+        const content: Parameters<typeof anthropic.messages.create>[0]['messages'][0]['content'] = imageBase64
+          ? [
+              { type: 'image', source: { type: 'base64', media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/webp', data: imageBase64 } },
+              { type: 'text', text: prompt },
+            ]
+          : prompt
         const message = await anthropic.messages.create({
           model: 'claude-sonnet-4-6',
           max_tokens: 32000,
-          messages: [{
-            role: 'user',
-            // Text-only: no image available for re-analysis. Claude works from
-            // the confirmed extraction context and BERG scores.
-            content: prompt,
-          }],
+          messages: [{ role: 'user', content }],
         })
         const textBlock = message.content.find(b => b.type === 'text')
         const raw = textBlock?.type === 'text' ? textBlock.text : ''
@@ -172,6 +232,22 @@ export async function POST(req: NextRequest) {
     const comprehensive: ComprehensiveAnalysis = { ...visionResult, berg_recommendations: bergBullets }
 
     await storeComprehensiveAnalysis(analysisId, comprehensive as unknown as Record<string, unknown>, spendUsd)
+
+    // For ads that were previously failed, mark complete and clear error_message.
+    if (isFailed) {
+      await supabaseServer
+        .from('analyses')
+        .update({ status: 'complete', error_message: null })
+        .eq('id', analysisId)
+      // Auto-populate audience hierarchy from the fresh inference.
+      if (comprehensive.audience_inference) {
+        const productId = row.product_id as string | null
+        if (productId) {
+          const { autoPopulateFromInference } = await import('@/lib/audience-auto-populate')
+          await autoPopulateFromInference(analysisId, productId, comprehensive.audience_inference).catch(() => {})
+        }
+      }
+    }
 
     if (spendUsd !== undefined) {
       await enqueueSynthesis(analysisId)

@@ -43,6 +43,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     target_cpa_usd?: number | null
     winner_spend_threshold_usd?: number | null
     notes?: string | null
+    default_tam?: string | null
+    default_persona?: string | null
+    default_micro_persona?: string | null
+    default_concept?: string | null
+    default_angle?: string | null
   }
   const update: Record<string, unknown> = {}
   if (body.name !== undefined) update.name = body.name
@@ -57,6 +62,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         : 1000
   }
   if (body.notes !== undefined) update.notes = body.notes
+  if (body.default_tam !== undefined) update.tam = body.default_tam?.trim() || null
+  if (body.default_persona !== undefined) update.default_persona = body.default_persona?.trim() || null
+  if (body.default_micro_persona !== undefined) update.default_micro_persona = body.default_micro_persona?.trim() || null
+  if (body.default_concept !== undefined) update.default_concept = body.default_concept?.trim() || null
+  if (body.default_angle !== undefined) update.default_angle = body.default_angle?.trim() || null
 
   const { data, error } = await supabaseServer
     .from('products')

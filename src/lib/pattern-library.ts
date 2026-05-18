@@ -593,7 +593,7 @@ export interface BergDnaCorrelation {
 }
 
 const NUMERIC_METRICS: { label: string; read: (ca: Record<string, unknown>) => number | null }[] = [
-  { label: 'hook_analysis.scroll_stop_score', read: ca => num(((ca.hook_analysis as Record<string, unknown>)?.scroll_stop_score)) },
+  { label: 'hook_analysis.attention_score', read: ca => { const h = ca.hook_analysis as Record<string, unknown> | undefined; return num(h?.attention_score ?? h?.scroll_stop_score) } },
   { label: 'cognitive_load.score',           read: ca => num(((ca.cognitive_load as Record<string, unknown>)?.score)) },
   { label: 'congruence.overall_score',       read: ca => num(((ca.congruence as Record<string, unknown>)?.overall_score)) },
   { label: 'visual_dimensions.cta_strength', read: ca => num((((ca.visual_dimensions as Record<string, unknown>)?.cta_strength as Record<string, unknown>)?.score)) },
@@ -756,7 +756,7 @@ export async function getAllBaselineEvolutions(): Promise<BaselineEvolutionEntry
 export interface TrendPoint {
   created_at: string
   framework_grade: string | null
-  scroll_stop_score: number | null
+  attention_score: number | null
   congruence_score: number | null
   cognitive_load: number | null
   is_winner: boolean | null
@@ -778,7 +778,7 @@ export async function getTrendPoints(): Promise<TrendPoint[]> {
     return {
       created_at: r.created_at,
       framework_grade: ((ca.framework_score as Record<string, unknown>)?.overall_framework_grade as string) ?? null,
-      scroll_stop_score: num((ca.hook_analysis as Record<string, unknown>)?.scroll_stop_score),
+      attention_score: (() => { const h = ca.hook_analysis as Record<string, unknown> | undefined; return num(h?.attention_score ?? h?.scroll_stop_score) })(),
       congruence_score: num((ca.congruence as Record<string, unknown>)?.overall_score),
       cognitive_load: num((ca.cognitive_load as Record<string, unknown>)?.score),
       is_winner: q === 'winner' || q === 'promising' ? true : q === 'loser' || q === 'investigate' ? false : null,

@@ -61,7 +61,7 @@ function buildSourceAdContext(comprehensive: ComprehensiveAnalysis, confirmed?: 
   lines.push(`Sophistication: ${comprehensive.market_context?.sophistication_level ?? 'unknown'}/5`)
   lines.push(`Framework grade: ${comprehensive.framework_score?.overall_framework_grade ?? '?'}`)
   lines.push(`Congruence score: ${comprehensive.congruence?.overall_score ?? 'n/a'}/10`)
-  lines.push(`Hook/scroll-stop: ${comprehensive.hook_analysis?.scroll_stop_score ?? 'n/a'}/10`)
+  lines.push(`Attention score: ${comprehensive.hook_analysis?.attention_score ?? 'n/a'}/10`)
   lines.push(`Ad format type: ${comprehensive.ad_format?.type ?? 'unknown'}`)
   lines.push(`Overall verdict: ${comprehensive.overall?.verdict ?? 'n/a'}`)
   lines.push(`Critical weakness: ${comprehensive.overall?.critical_weakness ?? 'n/a'}`)

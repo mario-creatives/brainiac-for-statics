@@ -16,7 +16,14 @@ function TargetingDot({ quality, personaLabel }: {
   const suffix = personaLabel ? ` (${personaLabel})` : ''
   if (quality === 'aligned') return <span className="text-emerald-400 text-base leading-none" title={`Audience aligned${suffix}`}>●</span>
   if (quality === 'partial_mismatch') return <span className="text-amber-400 text-base leading-none" title={`Partial audience mismatch${suffix}`}>●</span>
-  if (quality === 'major_mismatch') return <span className="text-[#ff2a2b] text-base leading-none" title={`Major audience mismatch — ad reads as targeting a different audience than stated${suffix}`}>●</span>
+  if (quality === 'major_mismatch') return (
+    <span
+      title={`Major audience mismatch — ad reads as targeting a different audience than stated${suffix}`}
+      className="inline-flex items-center gap-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-[#ff2a2b] bg-[#ff2a2b]/10 border border-[#ff2a2b]/30 px-1.5 py-0.5 rounded-full whitespace-nowrap"
+    >
+      ✕ mismatch
+    </span>
+  )
   return <span className="text-gray-700 text-xs" title="No audience selected — select one in the editor to enable the targeting-fit check">—</span>
 }
 
@@ -26,12 +33,13 @@ interface Props {
   ads: ProductAdRow[]
   onOpenAd: (analysisId: string) => void
   onChanged: () => void
+  currentReanalyzeId?: string | null
 }
 
 type StatusFilter = 'all' | Quadrant
 type SortKey = 'created_at' | 'spend' | 'cpa' | 'ctr'
 
-export function AdTrackerTable({ token, productId, ads, onOpenAd, onChanged }: Props) {
+export function AdTrackerTable({ token, productId, ads, onOpenAd, onChanged, currentReanalyzeId }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sortKey, setSortKey] = useState<SortKey>('created_at')
@@ -243,6 +251,7 @@ export function AdTrackerTable({ token, productId, ads, onOpenAd, onChanged }: P
               onSaved={() => { setEditingId(null); onChanged() }}
               token={token}
               productId={productId}
+              isCurrent={currentReanalyzeId === a.analysis_id}
             />
           ))}
         </div>
@@ -294,6 +303,7 @@ export function AdTrackerTable({ token, productId, ads, onOpenAd, onChanged }: P
                   token={token}
                   productId={productId}
                   onDeleted={onChanged}
+                  isCurrent={currentReanalyzeId === a.analysis_id}
                 />
               ))}
             </tbody>
@@ -312,10 +322,11 @@ export function AdTrackerTable({ token, productId, ads, onOpenAd, onChanged }: P
   )
 }
 
-function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEdit, onSaved, onOpenAd, token, productId, onDeleted }: {
+function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEdit, onSaved, onOpenAd, token, productId, onDeleted, isCurrent }: {
   row: ProductAdRow; selected: boolean; onToggleSelect: () => void
   editing: boolean; onEdit: () => void; onCloseEdit: () => void; onSaved: () => void;
   onOpenAd: (id: string) => void; token: string; productId: string; onDeleted: () => void
+  isCurrent?: boolean
 }) {
   const [deleting, setDeleting] = useState(false)
   const [reanalyzing, setReanalyzing] = useState(false)
@@ -359,7 +370,7 @@ function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEd
 
   return (
     <>
-      <tr className={`border-b border-gray-800/60 hover:bg-gray-800/30 transition-colors ${selected ? 'bg-indigo-950/20' : ''}`}>
+      <tr className={`border-b border-gray-800/60 hover:bg-gray-800/30 transition-colors ${isCurrent ? 'bg-indigo-950/40 border border-indigo-900/60' : selected ? 'bg-indigo-950/20' : ''}`}>
         <td className="py-2 px-2" onClick={e => e.stopPropagation()}>
           <input
             type="checkbox"
@@ -386,7 +397,18 @@ function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEd
           </button>
         </td>
         <td className="py-2 px-3">
-          <QuadrantBadge quadrant={row.effective_quadrant} override={row.quadrant_override != null} />
+          {isCurrent ? (
+            <span className="text-[10px] text-indigo-300 animate-pulse font-mono">re-analyzing…</span>
+          ) : row.status === 'failed' ? (
+            <span
+              className="text-[10px] font-mono font-bold text-[#ff2a2b]"
+              title={row.error_message ?? 'Analysis failed'}
+            >
+              Failed
+            </span>
+          ) : (
+            <QuadrantBadge quadrant={row.effective_quadrant} override={row.quadrant_override != null} />
+          )}
         </td>
         <td className="py-2 px-3 text-right text-gray-300 tabular-nums">{row.spend_usd != null ? `$${row.spend_usd.toLocaleString()}` : '—'}</td>
         <td className="py-2 px-3 text-right text-gray-300 tabular-nums">{row.cpa_usd != null ? `$${row.cpa_usd.toFixed(2)}` : '—'}</td>
@@ -442,15 +464,15 @@ function FragmentRow({ row, selected, onToggleSelect, editing, onEdit, onCloseEd
   )
 }
 
-function MobileAdCard({ row, selected, onToggleSelect, onOpenAd, onEdit, editing, onCloseEdit, onSaved, token, productId }: {
+function MobileAdCard({ row, selected, onToggleSelect, onOpenAd, onEdit, editing, onCloseEdit, onSaved, token, productId, isCurrent }: {
   row: ProductAdRow; selected: boolean; onToggleSelect: () => void
   onOpenAd: (id: string) => void; onEdit: () => void
   editing: boolean; onCloseEdit: () => void; onSaved: () => void
-  token: string; productId: string
+  token: string; productId: string; isCurrent?: boolean
 }) {
   return (
     <>
-      <div className={`flex items-start gap-3 px-4 py-3 ${selected ? 'bg-indigo-950/20' : ''}`}>
+      <div className={`flex items-start gap-3 px-4 py-3 ${isCurrent ? 'bg-indigo-950/40' : selected ? 'bg-indigo-950/20' : ''}`}>
         <input
           type="checkbox"
           checked={selected}
@@ -469,7 +491,13 @@ function MobileAdCard({ row, selected, onToggleSelect, onOpenAd, onEdit, editing
               {row.headline_text ?? 'Untitled ad'}
             </p>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <QuadrantBadge quadrant={row.effective_quadrant} override={row.quadrant_override != null} />
+              {isCurrent ? (
+                <span className="text-[10px] text-indigo-300 animate-pulse font-mono">re-analyzing…</span>
+              ) : row.status === 'failed' ? (
+                <span className="text-[10px] font-mono font-bold text-[#ff2a2b]" title={row.error_message ?? 'Analysis failed'}>Failed</span>
+              ) : (
+                <QuadrantBadge quadrant={row.effective_quadrant} override={row.quadrant_override != null} />
+              )}
               {row.framework_grade && (
                 <span className={`text-[9px] font-mono font-bold ${
                   row.framework_grade === 'A' ? 'text-emerald-400' :

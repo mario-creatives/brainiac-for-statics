@@ -18,6 +18,7 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
   const [bulkRunning, setBulkRunning] = useState(false)
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; currentId: string | null }>({ done: 0, total: 0, currentId: null })
   const [bulkErrors, setBulkErrors] = useState<Record<string, string>>({})
+  const [singleRunning, setSingleRunning] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!token) return
@@ -76,16 +77,55 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
     }))
   }
 
-  const handleBulkReanalyze = useCallback(async () => {
-    if (!token || bulkRunning || analyses.length === 0) return
+  const handleSingleReanalyze = useCallback(async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!token || singleRunning || bulkRunning) return
+    setSingleRunning(id)
+    setBulkErrors(prev => { const next = { ...prev }; delete next[id]; return next })
+    try {
+      const res = await fetch('/api/analyze/reanalyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ analysis_id: id }),
+      })
+      if (!res.ok) {
+        setBulkErrors(prev => ({ ...prev, [id]: `Re-analysis failed (${res.status})` }))
+      } else {
+        const reader = res.body?.getReader()
+        const decoder = new TextDecoder()
+        let text = ''
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            text += decoder.decode(value, { stream: !done })
+          }
+        }
+        const last = text.split('\n').filter(l => l.trim()).pop() ?? '{}'
+        try {
+          const data = JSON.parse(last) as Record<string, unknown>
+          if (data.error) {
+            setBulkErrors(prev => ({ ...prev, [id]: data.error as string }))
+          } else if (data.comprehensive) {
+            mergeReanalyzed(id, data)
+            onReanalyze?.(id)
+          } else {
+            setBulkErrors(prev => ({ ...prev, [id]: 'Re-analysis returned no data' }))
+          }
+        } catch (parseErr) {
+          setBulkErrors(prev => ({ ...prev, [id]: `Parse error: ${parseErr instanceof Error ? parseErr.message : 'unknown'}` }))
+        }
+      }
+    } catch (err) {
+      setBulkErrors(prev => ({ ...prev, [id]: err instanceof Error ? err.message : 'Network error' }))
+    }
+    setSingleRunning(null)
+  }, [token, singleRunning, bulkRunning, onReanalyze])
+
+  async function runBulkQueue(queue: typeof analyses) {
     setBulkRunning(true)
     setBulkErrors({})
-    setBulkProgress({ done: 0, total: analyses.length, currentId: null })
-
-    // Snapshot the list at start so insertions/deletions during the run
-    // don't shift indexes.
-    const queue = [...analyses]
-
+    setBulkProgress({ done: 0, total: queue.length, currentId: null })
     for (const a of queue) {
       setBulkProgress(p => ({ ...p, currentId: a.id }))
       try {
@@ -97,7 +137,6 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
         if (!res.ok) {
           setBulkErrors(prev => ({ ...prev, [a.id]: `Re-analysis failed (${res.status})` }))
         } else {
-          // Drain the keep-alive stream: real payload is the last non-empty line.
           const reader = res.body?.getReader()
           const decoder = new TextDecoder()
           let text = ''
@@ -128,10 +167,24 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
       }
       setBulkProgress(p => ({ ...p, done: p.done + 1 }))
     }
-
     setBulkRunning(false)
     setBulkProgress(p => ({ ...p, currentId: null }))
-  }, [token, bulkRunning, analyses, onReanalyze])
+    load()
+  }
+
+  const handleBulkReanalyze = useCallback(async () => {
+    if (!token || bulkRunning || analyses.length === 0) return
+    await runBulkQueue([...analyses])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, bulkRunning, analyses])
+
+  const handlePendingReanalyze = useCallback(async () => {
+    if (!token || bulkRunning) return
+    const pending = analyses.filter(a => a.needs_reanalysis)
+    if (pending.length === 0) return
+    await runBulkQueue(pending)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, bulkRunning, analyses])
 
   useEffect(() => {
     if (expanded) load()
@@ -160,7 +213,7 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
           {/* Bulk action bar */}
           {analyses.length > 0 && (
             <div className="mb-3 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={handleBulkReanalyze}
                   disabled={bulkRunning}
@@ -173,6 +226,19 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
                   <RefreshCw className={`w-3 h-3 ${bulkRunning ? 'animate-spin' : ''}`} />
                   {bulkRunning ? 'Re-analyzing…' : `Re-analyze all (${analyses.length})`}
                 </button>
+                {(() => {
+                  const pendingCount = analyses.filter(a => a.needs_reanalysis).length
+                  return pendingCount > 0 ? (
+                    <button
+                      onClick={handlePendingReanalyze}
+                      disabled={bulkRunning}
+                      className="text-xs px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 bg-amber-900/40 hover:bg-amber-900/60 border-amber-800/60 text-amber-300 disabled:opacity-40 disabled:cursor-wait"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Re-analyze pending ({pendingCount})
+                    </button>
+                  ) : null
+                })()}
                 {bulkRunning && (
                   <span className="text-[10px] text-gray-400">
                     {bulkProgress.done} of {bulkProgress.total}
@@ -257,6 +323,17 @@ export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
                         )}
                       </div>
                     </div>
+                    </button>
+
+                    {/* Re-analyze single button */}
+                    <button
+                      onClick={(e) => handleSingleReanalyze(a.id, e)}
+                      disabled={singleRunning === a.id || bulkRunning}
+                      aria-label="Re-analyze"
+                      title="Re-run comprehensive analysis"
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-gray-500 hover:text-indigo-400 hover:bg-gray-900 transition-all shrink-0 disabled:opacity-40 disabled:cursor-wait"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${singleRunning === a.id ? 'animate-spin' : ''}`} />
                     </button>
 
                     {/* Delete button */}
