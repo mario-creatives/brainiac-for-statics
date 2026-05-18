@@ -535,43 +535,85 @@ function TestSpecCard({ index, spec }: { index: number; spec: TestSpec }) {
       </button>
 
       {open && (
-        <div className="px-3 pb-3 space-y-3 border-t border-gray-800 pt-3">
+        <div className="px-4 pb-4 space-y-4 border-t border-gray-800 pt-4">
+          <div className="flex items-center justify-end">
+            <CopyBriefButton spec={spec} />
+          </div>
+
+          {/* The Ad — final copy, designer-ready */}
+          <SpecBlock title="The ad">
+            <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Headline</p>
+                <CopyButton text={spec.headline} />
+              </div>
+              <p className="text-base text-white font-semibold leading-tight">{spec.headline}</p>
+
+              {spec.subheadline_role !== 'absent' && spec.subheadline && (
+                <>
+                  <div className="border-t border-gray-800 pt-3 flex items-start justify-between gap-2">
+                    <p className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Subheadline</p>
+                    <CopyButton text={spec.subheadline} />
+                  </div>
+                  <p className="text-sm text-gray-200 leading-snug">{spec.subheadline}</p>
+                </>
+              )}
+
+              {spec.body_role !== 'absent' && spec.body_copy && (
+                <>
+                  <div className="border-t border-gray-800 pt-3 flex items-start justify-between gap-2">
+                    <p className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Body</p>
+                    <CopyButton text={spec.body_copy} />
+                  </div>
+                  <p className="text-[13px] text-gray-200 leading-relaxed whitespace-pre-wrap">{spec.body_copy}</p>
+                </>
+              )}
+
+              <div className="border-t border-gray-800 pt-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <p className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">CTA</p>
+                  <span className="text-xs bg-indigo-600 text-white px-3 py-1 rounded font-medium">{spec.cta}</span>
+                </div>
+                <CopyButton text={spec.cta} />
+              </div>
+            </div>
+
+            {spec.brand_voice_notes && (
+              <p className="text-[11px] text-gray-400 italic leading-relaxed mt-2">
+                <span className="text-gray-500 not-italic font-mono uppercase text-[9px] tracking-wider">Voice — </span>
+                {spec.brand_voice_notes}
+              </p>
+            )}
+          </SpecBlock>
+
           <SpecBlock title="Audience">
-            <Row k="TAM"           v={spec.tam} />
-            <Row k="Persona"       v={spec.persona} />
-            <Row k="Micro-persona" v={spec.micro_persona} />
-            <Row k="Desire/pain"   v={spec.desire} />
-            <Row k="Awareness"     v={spec.awareness_level} />
+            <Row k="TAM"            v={spec.tam} />
+            <Row k="Persona"        v={spec.persona} />
+            <Row k="Micro-persona"  v={spec.micro_persona} />
+            <Row k="Desire / pain"  v={spec.desire} />
+            <Row k="Awareness"      v={spec.awareness_level} />
             <Row k="Sophistication" v={spec.sophistication_level} />
           </SpecBlock>
 
-          <SpecBlock title="Concept">
-            <Row k="Concept" v={spec.concept} />
-            <Row k="Angle"   v={spec.angle} />
-            <Row k="Format"  v={spec.ad_format} />
+          <SpecBlock title="Strategy">
+            <Row k="Concept"     v={spec.concept} />
+            <Row k="Angle"       v={spec.angle} />
+            <Row k="Format"      v={spec.ad_format} />
             <Row k="Composition" v={spec.composition} />
+            <Row k="Headline structure" v={spec.headline_structure} />
+            {spec.subheadline_role && spec.subheadline_role !== 'absent' && <Row k="Subheadline role" v={spec.subheadline_role} />}
+            {spec.body_role && spec.body_role !== 'absent' && <Row k="Body role" v={spec.body_role} />}
+            <Row k="CTA framing" v={spec.cta_framing} />
           </SpecBlock>
 
-          <SpecBlock title="Copy">
-            <Row k="Headline" v={`${spec.headline_structure} (${spec.headline_word_count})`} />
-            <div className="bg-gray-900 border border-gray-800 rounded px-2 py-1.5 mt-0.5">
-              <p className="text-xs text-white font-medium leading-snug">{spec.headline_example}</p>
-            </div>
-            {spec.subheadline_role !== 'absent' && (
-              <>
-                <Row k="Subheadline" v={spec.subheadline_role} />
-                {spec.subheadline_example && (
-                  <div className="bg-gray-900 border border-gray-800 rounded px-2 py-1.5 mt-0.5">
-                    <p className="text-[11px] text-gray-200 leading-snug">{spec.subheadline_example}</p>
-                  </div>
-                )}
-              </>
+          <SpecBlock title="Visual brief">
+            <p className="text-[12px] text-gray-200 leading-relaxed">{spec.visual_direction}</p>
+            {spec.production_notes && (
+              <p className="text-[11px] text-gray-400 leading-relaxed mt-2">
+                <span className="text-gray-500 font-mono uppercase text-[9px] tracking-wider">Production — </span>
+                {spec.production_notes}
+              </p>
             )}
-            <Row k="CTA" v={spec.cta_framing} />
-            <div className="bg-gray-900 border border-gray-800 rounded px-2 py-1.5 mt-0.5">
-              <p className="text-[11px] text-gray-200 leading-snug">{spec.cta_example}</p>
-            </div>
-            {spec.body_role !== 'absent' && <Row k="Body" v={spec.body_role} />}
           </SpecBlock>
 
           <SpecBlock title="Reinforcement">
@@ -581,11 +623,10 @@ function TestSpecCard({ index, spec }: { index: number; spec: TestSpec }) {
             {spec.trust_signals.length > 0 && (
               <Row k="Trust signals" v={spec.trust_signals.join(', ')} />
             )}
-            <Row k="Visual" v={spec.visual_direction} />
           </SpecBlock>
 
           {spec.why_this_test && (
-            <div className="border-t border-gray-800 pt-2">
+            <div className="border-t border-gray-800 pt-3">
               <p className="text-[9px] uppercase tracking-wider text-emerald-300 font-semibold mb-1">Why this test</p>
               <p className="text-[11px] text-gray-300 leading-relaxed">{spec.why_this_test}</p>
             </div>
@@ -594,6 +635,72 @@ function TestSpecCard({ index, spec }: { index: number; spec: TestSpec }) {
       )}
     </li>
   )
+}
+
+function CopyBriefButton({ spec }: { spec: TestSpec }) {
+  const [copied, setCopied] = useState(false)
+  async function handle() {
+    const brief = buildSpecBriefText(spec)
+    try { await navigator.clipboard.writeText(brief); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* clipboard blocked */ }
+  }
+  return (
+    <button
+      onClick={handle}
+      className="text-[10px] inline-flex items-center gap-1 text-gray-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-800"
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Download className="w-3 h-3" />}
+      {copied ? 'Copied brief' : 'Copy full brief'}
+    </button>
+  )
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  async function handle() {
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* clipboard blocked */ }
+  }
+  return (
+    <button onClick={handle} className="text-[10px] inline-flex items-center gap-1 text-gray-500 hover:text-gray-200 transition-colors">
+      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : null}
+      {copied ? 'copied' : 'copy'}
+    </button>
+  )
+}
+
+function buildSpecBriefText(s: TestSpec): string {
+  const lines: string[] = []
+  lines.push(`# ${s.name}`, '')
+  lines.push('## Audience')
+  lines.push(`TAM: ${s.tam}`)
+  lines.push(`Persona: ${s.persona}`)
+  lines.push(`Micro-persona: ${s.micro_persona}`)
+  lines.push(`Desire / pain: ${s.desire}`)
+  lines.push(`Awareness: ${s.awareness_level}  ·  Sophistication: ${s.sophistication_level}`, '')
+  lines.push('## Strategy')
+  lines.push(`Concept: ${s.concept}`)
+  lines.push(`Angle: ${s.angle}`)
+  lines.push(`Format: ${s.ad_format}  ·  Composition: ${s.composition}`, '')
+  lines.push('## Copy')
+  lines.push(`Headline (${s.headline_structure}):`)
+  lines.push(`  ${s.headline}`)
+  if (s.subheadline_role !== 'absent' && s.subheadline) {
+    lines.push(`Subheadline (${s.subheadline_role}):`)
+    lines.push(`  ${s.subheadline}`)
+  }
+  if (s.body_role !== 'absent' && s.body_copy) {
+    lines.push(`Body (${s.body_role}):`)
+    lines.push(`  ${s.body_copy}`)
+  }
+  lines.push(`CTA (${s.cta_framing}): ${s.cta}`, '')
+  if (s.brand_voice_notes) lines.push(`Voice: ${s.brand_voice_notes}`, '')
+  lines.push('## Visual')
+  lines.push(s.visual_direction)
+  if (s.production_notes) lines.push('', `Production: ${s.production_notes}`)
+  lines.push('')
+  if (s.behavioral_economics.length > 0) lines.push(`Behavioral economics: ${s.behavioral_economics.join(', ')}`)
+  if (s.trust_signals.length > 0) lines.push(`Trust signals: ${s.trust_signals.join(', ')}`)
+  if (s.why_this_test) lines.push('', `Why: ${s.why_this_test}`)
+  return lines.join('\n')
 }
 
 function SpecBlock({ title, children }: { title: string; children: React.ReactNode }) {

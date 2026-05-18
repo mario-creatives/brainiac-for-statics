@@ -53,26 +53,38 @@ export interface TestSpec {
   name: string                       // short label — "Mechanism reveal for sleep-deprived moms"
   ad_format: string                  // e.g. "lifestyle photo with text overlay", "product hero", "testimonial card"
   composition: string                // "visual+text", "text-dominant", "visual_only", "split-screen"
-  tam: string                        // total addressable market
-  persona: string                    // one-sentence target
-  micro_persona: string              // narrow situational target
-  desire: string                     // underlying desire or pain to lead with
-  awareness_level: string            // unaware | problem-aware | solution-aware | product-aware | most-aware
-  sophistication_level: string       // "1 — first to market" through "5 — saturated, identity-led"
-  concept: string                    // the big idea
-  angle: string                      // hook mechanism — mechanism reveal | identity claim | before/after | contrarian | proof-led
-  headline_structure: string         // mechanism-reveal | outcome-claim | question | identity | command | etc.
-  headline_word_count: string        // e.g. "5-9 words"
-  headline_example: string           // a usable draft
-  subheadline_role: string           // amplify | specify | credentialize | tonal-shift | absent
-  subheadline_example: string        // empty if role=absent
-  cta_framing: string                // direct | soft | value | curiosity
-  cta_example: string                // e.g. "Try Beam tonight"
-  body_role: string                  // benefits | social_proof | story | mechanism | absent
-  behavioral_economics: string[]     // e.g. ["social_proof", "authority", "scarcity"]
-  trust_signals: string[]            // e.g. ["clinical_study", "doctor_endorsement", "user_count"]
-  visual_direction: string           // short brief for the designer
-  why_this_test: string              // 1-2 sentences citing winning patterns from the plan
+
+  // Audience
+  tam: string
+  persona: string
+  micro_persona: string
+  desire: string
+  awareness_level: string
+  sophistication_level: string
+
+  // Concept
+  concept: string
+  angle: string
+
+  // FINAL COPY — written in this brand's voice, ready to hand off. Not examples.
+  brand_voice_notes: string          // 1-2 sentences on the voice this spec uses, derived from cohort winners
+  headline: string                   // the actual final headline
+  headline_structure: string         // metadata — what structure pattern this headline embodies
+  subheadline: string                // the actual final subheadline, or empty string if absent
+  subheadline_role: string           // metadata — "amplify | specify | credentialize | tonal-shift | absent"
+  body_copy: string                  // the actual final body copy, or empty string if body_role is absent
+  body_role: string                  // "benefits | social_proof | story | mechanism | absent"
+  cta: string                        // the actual final CTA text
+  cta_framing: string                // metadata — "direct | soft | value | curiosity"
+
+  // Production direction
+  behavioral_economics: string[]
+  trust_signals: string[]
+  visual_direction: string           // detailed brief for the designer — composition, palette, key visual, focal point
+  production_notes: string           // any specific layering, urgency cues, or layout instructions (empty if none)
+
+  // Justification
+  why_this_test: string              // 1-2 sentences citing specific winning ad IDs from the cohort
 }
 
 async function getUserOr401(req: NextRequest) {
@@ -206,7 +218,21 @@ summary_actions — 3-5 top-level actions, each a full sentence citing specific 
 
 breakdown — proper sentences in EVERY "finding" field. For each section, state WHAT wins (or loses) AND WHY in one breath, citing ad IDs. For sections where the cohort doesn't have enough data to draw a conclusion, write a sentence explaining that explicitly (e.g. "Only 3 ads have age_range data — too thin to draw a winning pattern; collect targeting data to enable this finding"). Never leave a finding blank.
 
-next_test_batch.specs — 3-5 fully-briefed test specs. Each is a SHOPPING LIST for the strategist and designer — fill TAM, persona, micro-persona, desire, awareness level, sophistication level, concept, angle, headline structure with a usable example, subheadline role with example (or "absent"), CTA framing with example, body role, behavioral economics, trust signals, visual direction, and why_this_test citing specific winning ad IDs. Specs MUST differ in angle OR persona OR awareness level — not just reword the same concept. variations_per_spec is typically 3-5.
+next_test_batch.specs — 3-5 FINISHED CREATIVE BRIEFS, not templated forms. You are this brand's senior copywriter. You have read every winning ad's headline, subheadline, body, and CTA in the cohort. You know this brand's voice — its cadence, vocabulary, level of formality, sentence length, what it always says, what it never says. WRITE the final copy in that voice, not example placeholders:
+
+  - headline: the actual headline that goes in the ad. Match the cohort's voice exactly — same syntax patterns, same tone register, same level of specificity. If winners use 6-word outcome claims, write a 6-word outcome claim. Don't invent a foreign voice.
+  - subheadline: the actual subheadline (empty string ONLY if subheadline_role is "absent"). Same voice match.
+  - body_copy: the actual body copy (empty string ONLY if body_role is "absent").
+  - cta: the actual CTA text.
+  - brand_voice_notes: 1-2 sentences naming THIS brand's voice attributes as you observed them in the cohort (e.g. "Beam's winners use second-person direct address, present-tense outcome claims, 6-8 words max, never use exclamation points, lean on time-bound specifics like '12 minutes' over vague claims like 'fast'").
+  - visual_direction: a real designer brief — composition, palette, key visual, focal point. Not "show product clearly" — say "tight close-up of woman 35-44 with relaxed expression in soft warm bedroom lighting, product bottle in lower-right third, copy left-aligned over upper third with the relaxed face as primary focal point". Specific enough to design from.
+  - production_notes: any specific layering, urgency cues, layout instructions. Empty string if none.
+
+Plus the metadata fields (TAM, persona, micro_persona, desire, awareness, sophistication, concept, angle, headline_structure, subheadline_role, body_role, cta_framing, behavioral_economics, trust_signals, ad_format, composition) — these describe what the copy IS doing strategically. Both the copy AND the metadata get filled.
+
+Specs MUST differ in angle OR persona OR awareness level — not just reword the same concept with different headlines. variations_per_spec is typically 3-5 (sub-variations the strategist makes from each finished brief).
+
+why_this_test cites specific winning ad IDs from the cohort (e.g. "A3 and A7 prove that 6-word outcome-claim headlines for solution-aware sleep-deprived adults convert at $32-40 CPA; this spec extends that pattern to the perimenopausal micro-persona which has no winner yet").
 
 Call submit_action_plan now.`
 
@@ -310,10 +336,14 @@ function detectEmptyReport(p: Partial<ProductRecommendationReport>): string | nu
   const populated = findings.filter(f => typeof f === 'string' && f.trim().length >= 20).length
   if (populated < 7) return `only ${populated}/10 breakdown findings have substantive content`
   if (!p.next_test_batch?.specs?.length) return 'no next_test_batch.specs'
-  // Spot-check that the specs aren't all empty strings either
+  // Spot-check that the specs are actually written, not skeleton placeholders.
   const firstSpec = p.next_test_batch.specs[0]
-  if (!firstSpec?.headline_example?.trim() || !firstSpec?.tam?.trim() || !firstSpec?.concept?.trim()) {
-    return 'next_test_batch.specs contain empty fields'
+  if (!firstSpec?.headline?.trim() || !firstSpec?.tam?.trim() || !firstSpec?.concept?.trim() || !firstSpec?.visual_direction?.trim()) {
+    return 'next_test_batch.specs contain empty required fields (headline / tam / concept / visual_direction)'
+  }
+  // Reject placeholder-style copy that some weaker schema submissions produce
+  if (firstSpec.headline.length < 6 || /^<.+>$/.test(firstSpec.headline.trim())) {
+    return 'first spec headline looks like a placeholder, not real copy'
   }
   return null
 }
@@ -378,11 +408,16 @@ const ACTION_PLAN_SCHEMA = {
           items: {
             type: 'object',
             required: [
-              'name', 'ad_format', 'composition', 'tam', 'persona', 'micro_persona',
-              'desire', 'awareness_level', 'sophistication_level', 'concept', 'angle',
-              'headline_structure', 'headline_word_count', 'headline_example',
-              'subheadline_role', 'subheadline_example', 'cta_framing', 'cta_example',
-              'body_role', 'behavioral_economics', 'trust_signals', 'visual_direction',
+              'name', 'ad_format', 'composition',
+              'tam', 'persona', 'micro_persona', 'desire', 'awareness_level', 'sophistication_level',
+              'concept', 'angle',
+              'brand_voice_notes',
+              'headline', 'headline_structure',
+              'subheadline', 'subheadline_role',
+              'body_copy', 'body_role',
+              'cta', 'cta_framing',
+              'behavioral_economics', 'trust_signals',
+              'visual_direction', 'production_notes',
               'why_this_test',
             ],
             properties: {
@@ -397,17 +432,19 @@ const ACTION_PLAN_SCHEMA = {
               sophistication_level: { type: 'string' },
               concept: { type: 'string' },
               angle: { type: 'string' },
+              brand_voice_notes: { type: 'string' },
+              headline: { type: 'string' },
               headline_structure: { type: 'string' },
-              headline_word_count: { type: 'string' },
-              headline_example: { type: 'string' },
+              subheadline: { type: 'string' },
               subheadline_role: { type: 'string' },
-              subheadline_example: { type: 'string' },
-              cta_framing: { type: 'string' },
-              cta_example: { type: 'string' },
+              body_copy: { type: 'string' },
               body_role: { type: 'string' },
+              cta: { type: 'string' },
+              cta_framing: { type: 'string' },
               behavioral_economics: { type: 'array', items: { type: 'string' } },
               trust_signals: { type: 'array', items: { type: 'string' } },
               visual_direction: { type: 'string' },
+              production_notes: { type: 'string' },
               why_this_test: { type: 'string' },
             },
           },
