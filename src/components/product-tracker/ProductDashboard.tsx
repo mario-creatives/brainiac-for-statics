@@ -12,6 +12,7 @@ import { FormatBreakdownBar } from './FormatBreakdownBar'
 import { WinnerReasonsPie } from './WinnerReasonsPie'
 import { AudienceDropdown } from './AudienceDropdown'
 import { DiagnosisPie } from './DiagnosisPie'
+import { supabase } from '@/lib/supabase'
 import type { ProductDashboardPayload } from '@/app/api/products/[id]/dashboard/route'
 import type { ProductRecommendationReport } from '@/app/api/products/[id]/recommendations/route'
 import type { AnalysisResult } from '@/types'
@@ -45,6 +46,7 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
   const [reanalyzeRunning, setReanalyzeRunning] = useState(false)
   const [reanalyzeProgress, setReanalyzeProgress] = useState<{ done: number; total: number; currentId: string | null }>({ done: 0, total: 0, currentId: null })
   const [reanalyzeError, setReanalyzeError] = useState<string | null>(null)
+  const [currentRunFailedIds, setCurrentRunFailedIds] = useState<string[]>([])
   const tokenRef = useRef(token)
   tokenRef.current = token
 
@@ -80,32 +82,38 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
 
   useEffect(() => { load() }, [load])
 
-  async function runProductReanalyze(analysisIds: string[]) {
+  async function runProductReanalyze(analysisIds: string[], isRetry = false) {
     if (reanalyzeRunning || analysisIds.length === 0) return
     setReanalyzeRunning(true)
     setReanalyzeError(null)
+    if (!isRetry) setCurrentRunFailedIds([])
     setReanalyzeProgress({ done: 0, total: analysisIds.length, currentId: null })
-    let failed = 0
+    const runFailed: string[] = []
     for (const id of analysisIds) {
       setReanalyzeProgress(p => ({ ...p, currentId: id }))
       try {
+        // Refresh token before each request so long runs don't hit 401s after JWT expiry
+        const { data: { session } } = await supabase.auth.getSession()
+        const freshToken = session?.access_token ?? tokenRef.current
         const res = await fetch('/api/analyze/reanalyze', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenRef.current}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
           body: JSON.stringify({ analysis_id: id }),
         })
         if (res.ok && res.body) {
           const reader = res.body.getReader()
           while (true) { const { done } = await reader.read(); if (done) break }
         } else {
-          failed++
+          runFailed.push(id)
         }
-      } catch { failed++ }
+      } catch { runFailed.push(id) }
       setReanalyzeProgress(p => ({ ...p, done: p.done + 1 }))
     }
     setReanalyzeProgress(p => ({ ...p, currentId: null }))
     setReanalyzeRunning(false)
-    if (failed > 0) setReanalyzeError(`${failed} failed — use the per-row Re-analyze button to retry`)
+    setCurrentRunFailedIds(runFailed)
+    if (runFailed.length > 0) setReanalyzeError(`${runFailed.length} failed — click "Retry last run failures" to try again`)
+    else setReanalyzeError(null)
     load()
   }
 
@@ -204,7 +212,7 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
         const currentRow = reanalyzeProgress.currentId ? ads.find(a => a.analysis_id === reanalyzeProgress.currentId) : null
         const currentLabel = currentRow?.headline_text?.slice(0, 32) ?? reanalyzeProgress.currentId?.slice(0, 8) ?? ''
         const pendingIds = ads.filter(a => a.needs_reanalysis).map(a => a.analysis_id)
-        const failedIds = ads.filter(a => a.status === 'failed').map(a => a.analysis_id)
+        const dbFailedIds = ads.filter(a => a.status === 'failed').map(a => a.analysis_id)
         return (
           <div className="flex items-center gap-3 flex-wrap">
             <button
@@ -231,14 +239,22 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
                 Re-analyze pending ({pendingIds.length})
               </button>
             )}
-            {failedIds.length > 0 && (
+            {currentRunFailedIds.length > 0 && !reanalyzeRunning && (
               <button
-                onClick={() => runProductReanalyze(failedIds)}
-                disabled={reanalyzeRunning}
-                className="text-xs px-3 py-1.5 rounded-lg border flex items-center gap-1.5 bg-[#ff2a2b]/10 hover:bg-[#ff2a2b]/20 border-[#ff2a2b]/40 text-[#ff2a2b] disabled:opacity-40 disabled:cursor-wait"
+                onClick={() => runProductReanalyze(currentRunFailedIds, true)}
+                className="text-xs px-3 py-1.5 rounded-lg border flex items-center gap-1.5 bg-[#ff2a2b]/10 hover:bg-[#ff2a2b]/20 border-[#ff2a2b]/40 text-[#ff2a2b]"
               >
                 <RefreshCw className="w-3 h-3" />
-                Re-analyze failed ({failedIds.length})
+                Retry last run failures ({currentRunFailedIds.length})
+              </button>
+            )}
+            {dbFailedIds.length > 0 && currentRunFailedIds.length === 0 && !reanalyzeRunning && (
+              <button
+                onClick={() => runProductReanalyze(dbFailedIds)}
+                className="text-xs px-3 py-1.5 rounded-lg border flex items-center gap-1.5 bg-[#ff2a2b]/10 hover:bg-[#ff2a2b]/20 border-[#ff2a2b]/40 text-[#ff2a2b]"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Re-analyze failed ({dbFailedIds.length})
               </button>
             )}
             {reanalyzeError && (
