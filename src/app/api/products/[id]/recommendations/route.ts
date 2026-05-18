@@ -176,87 +176,19 @@ QUADRANT DEFINITIONS:
 - investigate: spend ≥ $1k AND cpa > target — diagnose and fix
 - loser: spend < $1k AND cpa > target — salvage test or kill
 
-OUTPUT RULES:
-- Every claim must reference specific ad IDs (e.g. "A3, A7, A11").
-- The "breakdown" section must contain proper sentences, not bullet fragments. State what wins and WHY in one breath. No fluff phrases ("the data shows", "winners typically").
-- Per-ad recommendations: tailored to that ad's quadrant. Winners get scale + iteration ideas. Losers get salvage test text + failure reason. Investigate gets root-cause direction.
-- next_test_batch.specs are 3-5 fully-briefed test specs derived from this product's winning patterns. Each spec is a SHOPPING LIST for the strategist — TAM, persona, micro-persona, desire, awareness level, sophistication level, concept, angle, headline structure with a usable example, subheadline role, CTA framing with example, body role, behavioral economics, trust signals, visual direction. Specs must be DIFFERENT from each other (different angle OR different persona OR different awareness level — not just rewording the same concept). Cite winning patterns from the breakdown by name in why_this_test (e.g. "winners W2, W4, W7 all use mechanism-reveal headlines for solution-aware moms — this spec extends that to the perimenopausal micro-persona which has no representation yet").
-- variations_per_spec is how many sub-variations the strategist should produce per spec (typically 3-5).
+You MUST call the submit_action_plan tool with your complete analysis. Do not respond with text. Populate every required field with substantive content — empty strings, single words, or placeholder text are rejected and force a regenerate.
 
-Return ONLY a JSON object (no markdown fences):
-{
-  "summary_actions": [
-    "<top-level action 1 — cite specific ads>",
-    "<top-level action 2>",
-    "<top-level action 3>",
-    "<top-level action 4>"
-  ],
-  "per_ad_recommendations": [
-    {
-      "analysis_id": "<ad uuid>",
-      "quadrant": "<winner|promising|investigate|loser>",
-      "actions": ["<action 1>", "<action 2>", "..."],
-      "iteration_ideas": ["<specific iteration idea>", "..."],   // winner/promising only; omit for others
-      "salvage_test": "<one specific swap to test>",              // loser/investigate only
-      "failure_reason": "<one sentence: WHY this failed>"         // loser/investigate only
-    }
-  ],
-  "breakdown": {
-    "winning_formats": { "finding": "<full sentence>", "examples": ["A1","A4"] },
-    "winning_age_ranges": { "finding": "<full sentence>", "examples": [] },
-    "winning_angles_hooks": { "finding": "<full sentence>", "examples": [] },
-    "winning_visuals": { "finding": "<full sentence>", "examples": [] },
-    "winning_headlines": {
-      "finding": "<full sentence>",
-      "structure": "<dominant headline_structure_type>",
-      "word_count_range": "<e.g. 5-9 words>",
-      "examples": []
-    },
-    "winning_subheadlines": { "finding": "<full sentence describing role / presence / absence>" },
-    "winning_body": { "finding": "<full sentence>" },
-    "cta_presence": {
-      "with_cta": "<sentence describing winning ads with CTA>",
-      "without_cta": "<sentence describing winning ads without CTA>",
-      "verdict": "<one sentence verdict>"
-    },
-    "winning_combinations": {
-      "finding": "<full sentence>",
-      "top_stacks": ["<composition_tag> — <why>", "..."]
-    },
-    "losing_patterns": { "finding": "<full sentence>", "examples": [] }
-  },
-  "next_test_batch": {
-    "rationale": "<two-sentence rationale grounded in this product's data>",
-    "variations_per_spec": 4,
-    "specs": [
-      {
-        "name": "<short spec label>",
-        "ad_format": "<lifestyle photo with text overlay | product hero | testimonial card | before/after split | etc.>",
-        "composition": "<visual+text | text-dominant | visual_only | split-screen>",
-        "tam": "<the broad addressable market>",
-        "persona": "<one-sentence target>",
-        "micro_persona": "<narrow life stage / situational context>",
-        "desire": "<the underlying desire or pain to lead with>",
-        "awareness_level": "<unaware | problem-aware | solution-aware | product-aware | most-aware>",
-        "sophistication_level": "<1-5 with descriptor>",
-        "concept": "<the single big idea>",
-        "angle": "<mechanism-reveal | identity-claim | before-after | contrarian | proof-led | etc.>",
-        "headline_structure": "<mechanism-reveal | outcome-claim | question | identity | command | etc.>",
-        "headline_word_count": "<e.g. 5-9 words>",
-        "headline_example": "<usable draft headline>",
-        "subheadline_role": "<amplify | specify | credentialize | tonal-shift | absent>",
-        "subheadline_example": "<usable draft, or empty string if absent>",
-        "cta_framing": "<direct | soft | value | curiosity>",
-        "cta_example": "<e.g. Try Beam tonight>",
-        "body_role": "<benefits | social_proof | story | mechanism | absent>",
-        "behavioral_economics": ["<e.g. social_proof>", "<authority>"],
-        "trust_signals": ["<e.g. clinical_study>", "<doctor_endorsement>"],
-        "visual_direction": "<brief brief for the designer>",
-        "why_this_test": "<1-2 sentences citing winning patterns from the plan>"
-      }
-    ]
-  }
-}`
+CONTENT REQUIREMENTS (when calling submit_action_plan):
+
+summary_actions — 3-5 top-level actions, each a full sentence citing specific ad IDs (e.g. "Scale A3, A7, A11 immediately — they're at $32, $38, $40 CPA and validated past $1k spend"). No fluff openers like "the data shows" or "winners typically".
+
+per_ad_recommendations — one entry for EVERY ad in the list above, no exceptions. Use the ad's analysis_id verbatim from the AD lines. Each entry's quadrant matches the value shown in the AD line. Actions are tailored to that quadrant: winners get scale + iteration ideas; promising gets the single best confirm-test; investigate gets root-cause diagnosis + a salvage_test; losers get failure_reason + salvage_test.
+
+breakdown — proper sentences in every "finding" field. State WHAT wins AND WHY in one breath. For sections where the cohort doesn't have enough data to draw a conclusion, write a sentence explaining that explicitly (e.g. "Only 3 ads have age_range data — too thin to draw a winning pattern; collect targeting data for the rest to enable this finding") rather than leaving the field blank. Cite ad IDs in "examples" arrays.
+
+next_test_batch.specs — 3-5 fully-briefed test specs. Each spec is a SHOPPING LIST for the strategist and designer — fill TAM, persona, micro-persona, desire, awareness level, sophistication level, concept, angle, headline structure with a usable example, subheadline role, CTA framing with example, body role, behavioral economics, trust signals, visual direction, and why_this_test citing winning ad IDs by name. Specs MUST differ in angle OR persona OR awareness level — not just reword the same concept. variations_per_spec is typically 3-5.
+
+Call submit_action_plan now.`
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
@@ -295,6 +227,11 @@ Return ONLY a JSON object (no markdown fences):
 
     const partial = toolUse.input as Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>
 
+    const emptyReason = detectEmptyReport(partial)
+    if (emptyReason) {
+      return { error: `Model returned an incomplete plan (${emptyReason}). Click Regenerate to try again.` }
+    }
+
     const report: ProductRecommendationReport = {
       ...partial,
       generated_at: new Date().toISOString(),
@@ -312,6 +249,35 @@ Return ONLY a JSON object (no markdown fences):
 
     return report
   })
+}
+
+// Returns a human-readable reason if the report is missing substantive content,
+// or null if the report has the minimum required substance to be saved.
+// Without this check the server saved Claude's skeleton submissions during the
+// earlier tool_use/text-mode prompt conflict, producing an action plan that
+// rendered as bare section titles with no findings under them.
+function detectEmptyReport(p: Partial<ProductRecommendationReport>): string | null {
+  if (!p.summary_actions?.length) return 'no summary_actions'
+  if (p.summary_actions.some(s => !s?.trim() || s.trim().length < 10)) return 'summary_actions contain empty/placeholder strings'
+  if (!p.per_ad_recommendations?.length) return 'no per_ad_recommendations'
+  const b = p.breakdown
+  if (!b) return 'no breakdown'
+  const findings = [
+    b.winning_formats?.finding,
+    b.winning_age_ranges?.finding,
+    b.winning_angles_hooks?.finding,
+    b.winning_visuals?.finding,
+    b.winning_headlines?.finding,
+    b.winning_subheadlines?.finding,
+    b.winning_body?.finding,
+    b.cta_presence?.verdict,
+    b.winning_combinations?.finding,
+    b.losing_patterns?.finding,
+  ]
+  const populated = findings.filter(f => typeof f === 'string' && f.trim().length >= 10).length
+  if (populated < 6) return `only ${populated}/10 breakdown findings populated`
+  if (!p.next_test_batch?.specs?.length) return 'no next_test_batch.specs'
+  return null
 }
 
 const ACTION_PLAN_SCHEMA = {

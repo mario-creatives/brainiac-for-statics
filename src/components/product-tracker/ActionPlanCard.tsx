@@ -145,7 +145,8 @@ export function ActionPlanCard({ token, productId, report, generatedAt, onRegene
           <div>
             <h3 className="text-sm font-semibold text-white">Action plan</h3>
             <p className="text-[10px] text-gray-500 mt-0.5">
-              Generated {generatedAt ? new Date(generatedAt).toLocaleString() : 'recently'} · {report.ads_analyzed} ads
+              Generated {generatedAt ? new Date(generatedAt).toLocaleString() : 'recently'}
+              {report.ads_analyzed != null && report.ads_analyzed > 0 ? ` · ${report.ads_analyzed} ads` : ''}
             </p>
           </div>
         </div>
@@ -460,13 +461,16 @@ function ListBlock({ title, hint, items, accent }: { title: string; hint: string
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  if (!children || (typeof children === 'string' && !children.trim())) return null
+  const isEmptyString = typeof children === 'string' && !children.trim()
+  const isEmpty = !children || isEmptyString
   return (
     <div>
       <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-1.5">{title}</p>
-      {typeof children === 'string'
-        ? <p className="text-xs text-gray-300 leading-relaxed">{children}</p>
-        : children}
+      {isEmpty
+        ? <p className="text-xs text-gray-600 italic leading-relaxed">— no finding generated for this section. Click Regenerate.</p>
+        : typeof children === 'string'
+          ? <p className="text-xs text-gray-300 leading-relaxed">{children}</p>
+          : children}
     </div>
   )
 }
