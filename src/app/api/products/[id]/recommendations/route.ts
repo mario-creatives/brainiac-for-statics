@@ -16,7 +16,9 @@ export interface ProductRecommendationReport {
   generated_at: string
   ads_analyzed: number
   summary_actions: string[]
-  per_ad_recommendations: {
+  // Removed from generation: redundant with the per-ad "What to test next"
+  // feature. Kept as an optional field so legacy cached reports still read.
+  per_ad_recommendations?: {
     analysis_id: string
     quadrant: Quadrant
     actions: string[]
@@ -136,8 +138,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return { insufficient_data: true, ads_count: rows.length }
     }
 
-    // Pull metrics history per ad for fatigue detection
-    const adIds = rows.map(r => r.id)
+    // Cap input to the most informative ads so the model can do quality
+    // synthesis instead of choking on 79+ entries. Take all winners + all
+    // investigates (high-spend signal, both kinds), plus top losers by spend
+    // (the failures that actually got tested). This keeps total input under
+    // ~30 ads, which keeps the LLM call reliable and the response complete.
+    const SAMPLE_CAP = 30
+    const winners      = rows.filter(r => (r.quadrant_override ?? r.quadrant) === 'winner').sort((a, b) => (b.spend_usd ?? 0) - (a.spend_usd ?? 0))
+    const investigates = rows.filter(r => (r.quadrant_override ?? r.quadrant) === 'investigate').sort((a, b) => (b.spend_usd ?? 0) - (a.spend_usd ?? 0))
+    const promising   = rows.filter(r => (r.quadrant_override ?? r.quadrant) === 'promising').sort((a, b) => (b.spend_usd ?? 0) - (a.spend_usd ?? 0))
+    const losers      = rows.filter(r => (r.quadrant_override ?? r.quadrant) === 'loser').sort((a, b) => (b.spend_usd ?? 0) - (a.spend_usd ?? 0))
+    const sampled = [
+      ...winners,
+      ...investigates,
+      ...promising.slice(0, 5),
+      ...losers.slice(0, Math.max(0, SAMPLE_CAP - winners.length - investigates.length - 5)),
+    ].slice(0, SAMPLE_CAP)
+    const sampleNote = sampled.length < rows.length
+      ? `(sampled the most informative ${sampled.length} of ${rows.length} total ads: all winners + all investigates + top losers by spend)`
+      : ''
+
+    // Pull metrics history per sampled ad for fatigue detection
+    const adIds = sampled.map(r => r.id)
     const historyByAd = new Map<string, { recorded_at: string; ctr_pct: number | null }[]>()
     if (adIds.length > 0) {
       const { data: history } = await supabaseServer
@@ -152,7 +174,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
-    const adSummaries = rows.map((r, i) => {
+    const adSummaries = sampled.map((r, i) => {
       const effective = r.quadrant_override ?? r.quadrant
       const fatigue = detectFatigue(historyByAd.get(r.id) ?? [])
       const fingerprint = buildAdSummary(
@@ -165,7 +187,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     })
 
     const targetCpa = product.target_cpa_usd ?? null
-    const prompt = `You are a senior performance creative strategist. You have ${rows.length} static ads for product "${product.name}"${product.vertical_category ? ` (${product.vertical_category})` : ''}${targetCpa != null ? ` with target CPA of $${targetCpa}` : ''}. Your job is to produce a concrete, no-fluff action plan grounded in this exact data.
+    const prompt = `You are a senior performance creative strategist. You have ${sampled.length} static ads for product "${product.name}"${product.vertical_category ? ` (${product.vertical_category})` : ''}${targetCpa != null ? ` with target CPA of $${targetCpa}` : ''} ${sampleNote}. Your job is to produce a concrete, no-fluff action plan grounded in this exact data.
 
 ADS:
 ${adSummaries.join('\n\n')}
@@ -176,23 +198,26 @@ QUADRANT DEFINITIONS:
 - investigate: spend ≥ $1k AND cpa > target — diagnose and fix
 - loser: spend < $1k AND cpa > target — salvage test or kill
 
-You MUST call the submit_action_plan tool with your complete analysis. Do not respond with text. Populate every required field with substantive content — empty strings, single words, or placeholder text are rejected and force a regenerate.
+You MUST call the submit_action_plan tool. Do not respond with text. Empty strings, single words, or skeleton placeholders in any required field will be rejected and force a regenerate.
 
-CONTENT REQUIREMENTS (when calling submit_action_plan):
+CONTENT REQUIREMENTS:
 
 summary_actions — 3-5 top-level actions, each a full sentence citing specific ad IDs (e.g. "Scale A3, A7, A11 immediately — they're at $32, $38, $40 CPA and validated past $1k spend"). No fluff openers like "the data shows" or "winners typically".
 
-per_ad_recommendations — one entry for EVERY ad in the list above, no exceptions. Use the ad's analysis_id verbatim from the AD lines. Each entry's quadrant matches the value shown in the AD line. Actions are tailored to that quadrant: winners get scale + iteration ideas; promising gets the single best confirm-test; investigate gets root-cause diagnosis + a salvage_test; losers get failure_reason + salvage_test.
+breakdown — proper sentences in EVERY "finding" field. For each section, state WHAT wins (or loses) AND WHY in one breath, citing ad IDs. For sections where the cohort doesn't have enough data to draw a conclusion, write a sentence explaining that explicitly (e.g. "Only 3 ads have age_range data — too thin to draw a winning pattern; collect targeting data to enable this finding"). Never leave a finding blank.
 
-breakdown — proper sentences in every "finding" field. State WHAT wins AND WHY in one breath. For sections where the cohort doesn't have enough data to draw a conclusion, write a sentence explaining that explicitly (e.g. "Only 3 ads have age_range data — too thin to draw a winning pattern; collect targeting data for the rest to enable this finding") rather than leaving the field blank. Cite ad IDs in "examples" arrays.
-
-next_test_batch.specs — 3-5 fully-briefed test specs. Each spec is a SHOPPING LIST for the strategist and designer — fill TAM, persona, micro-persona, desire, awareness level, sophistication level, concept, angle, headline structure with a usable example, subheadline role, CTA framing with example, body role, behavioral economics, trust signals, visual direction, and why_this_test citing winning ad IDs by name. Specs MUST differ in angle OR persona OR awareness level — not just reword the same concept. variations_per_spec is typically 3-5.
+next_test_batch.specs — 3-5 fully-briefed test specs. Each is a SHOPPING LIST for the strategist and designer — fill TAM, persona, micro-persona, desire, awareness level, sophistication level, concept, angle, headline structure with a usable example, subheadline role with example (or "absent"), CTA framing with example, body role, behavioral economics, trust signals, visual direction, and why_this_test citing specific winning ad IDs. Specs MUST differ in angle OR persona OR awareness level — not just reword the same concept. variations_per_spec is typically 3-5.
 
 Call submit_action_plan now.`
 
+    // Opus 4.7 is materially more reliable at filling complex tool_use schemas
+    // with substantive content. Sonnet was returning skeleton submissions
+    // (empty strings, single words) when the schema was this large; for an
+    // infrequent, quality-critical synthesis like the action plan, Opus is
+    // worth the cost.
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 32000,
+      model: 'claude-opus-4-7',
+      max_tokens: 16000,
       tools: [{
         name: 'submit_action_plan',
         description: 'Submit the structured product action plan.',
@@ -203,39 +228,47 @@ Call submit_action_plan now.`
     })
 
     if (message.stop_reason === 'max_tokens') {
-      return {
-        error: `Response truncated at the model token ceiling. Product has ${rows.length} ads — try archiving stale ads or splitting into sub-products.`,
-      }
+      await deleteCachedReport(productId)
+      return { error: 'Response truncated at the model token ceiling. Click Regenerate to try again.' }
     }
 
     const toolUse = message.content.find(b => b.type === 'tool_use')
     if (!toolUse || toolUse.type !== 'tool_use') {
       const textBlock = message.content.find(b => b.type === 'text')
       const raw = textBlock?.type === 'text' ? textBlock.text : ''
-      // Fallback: try to parse text in case the model returned text instead.
-      const partial = parseClaudeJson<Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>>(raw)
-      const report: ProductRecommendationReport = {
-        ...partial,
-        generated_at: new Date().toISOString(),
-        ads_analyzed: rows.length,
+      try {
+        const partial = parseClaudeJson<Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>>(raw)
+        const emptyReason = detectEmptyReport(partial)
+        if (emptyReason) {
+          await deleteCachedReport(productId)
+          return { error: `Model returned an incomplete plan (${emptyReason}). Click Regenerate.` }
+        }
+        const report: ProductRecommendationReport = { ...partial, generated_at: new Date().toISOString(), ads_analyzed: sampled.length }
+        await supabaseServer
+          .from('product_recommendations')
+          .upsert({ product_id: productId, generated_at: report.generated_at, ads_analyzed: report.ads_analyzed, report }, { onConflict: 'product_id' })
+        return report
+      } catch {
+        await deleteCachedReport(productId)
+        return { error: 'Model did not return structured data. Click Regenerate.' }
       }
-      await supabaseServer
-        .from('product_recommendations')
-        .upsert({ product_id: productId, generated_at: report.generated_at, ads_analyzed: report.ads_analyzed, report }, { onConflict: 'product_id' })
-      return report
     }
 
     const partial = toolUse.input as Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>
 
     const emptyReason = detectEmptyReport(partial)
     if (emptyReason) {
-      return { error: `Model returned an incomplete plan (${emptyReason}). Click Regenerate to try again.` }
+      // Delete stale cached report so the user sees the empty state on next
+      // load instead of the previous broken version. Without this, repeated
+      // regenerate failures keep showing the original garbage report.
+      await deleteCachedReport(productId)
+      return { error: `Model returned an incomplete plan (${emptyReason}). Click Regenerate.` }
     }
 
     const report: ProductRecommendationReport = {
       ...partial,
       generated_at: new Date().toISOString(),
-      ads_analyzed: rows.length,
+      ads_analyzed: sampled.length,
     }
 
     await supabaseServer
@@ -251,15 +284,15 @@ Call submit_action_plan now.`
   })
 }
 
+async function deleteCachedReport(productId: string): Promise<void> {
+  await supabaseServer.from('product_recommendations').delete().eq('product_id', productId)
+}
+
 // Returns a human-readable reason if the report is missing substantive content,
-// or null if the report has the minimum required substance to be saved.
-// Without this check the server saved Claude's skeleton submissions during the
-// earlier tool_use/text-mode prompt conflict, producing an action plan that
-// rendered as bare section titles with no findings under them.
+// or null if it has the minimum required substance to be saved.
 function detectEmptyReport(p: Partial<ProductRecommendationReport>): string | null {
   if (!p.summary_actions?.length) return 'no summary_actions'
   if (p.summary_actions.some(s => !s?.trim() || s.trim().length < 10)) return 'summary_actions contain empty/placeholder strings'
-  if (!p.per_ad_recommendations?.length) return 'no per_ad_recommendations'
   const b = p.breakdown
   if (!b) return 'no breakdown'
   const findings = [
@@ -274,35 +307,25 @@ function detectEmptyReport(p: Partial<ProductRecommendationReport>): string | nu
     b.winning_combinations?.finding,
     b.losing_patterns?.finding,
   ]
-  const populated = findings.filter(f => typeof f === 'string' && f.trim().length >= 10).length
-  if (populated < 6) return `only ${populated}/10 breakdown findings populated`
+  const populated = findings.filter(f => typeof f === 'string' && f.trim().length >= 20).length
+  if (populated < 7) return `only ${populated}/10 breakdown findings have substantive content`
   if (!p.next_test_batch?.specs?.length) return 'no next_test_batch.specs'
+  // Spot-check that the specs aren't all empty strings either
+  const firstSpec = p.next_test_batch.specs[0]
+  if (!firstSpec?.headline_example?.trim() || !firstSpec?.tam?.trim() || !firstSpec?.concept?.trim()) {
+    return 'next_test_batch.specs contain empty fields'
+  }
   return null
 }
 
 const ACTION_PLAN_SCHEMA = {
   type: 'object',
-  required: ['summary_actions', 'per_ad_recommendations', 'breakdown', 'next_test_batch'],
+  required: ['summary_actions', 'breakdown', 'next_test_batch'],
   properties: {
     summary_actions: {
       type: 'array',
       items: { type: 'string' },
       description: '3-5 top-level actions, each citing specific ad IDs',
-    },
-    per_ad_recommendations: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['analysis_id', 'quadrant', 'actions'],
-        properties: {
-          analysis_id: { type: 'string' },
-          quadrant: { type: 'string', enum: ['winner', 'promising', 'investigate', 'loser'] },
-          actions: { type: 'array', items: { type: 'string' } },
-          iteration_ideas: { type: 'array', items: { type: 'string' } },
-          salvage_test: { type: 'string' },
-          failure_reason: { type: 'string' },
-        },
-      },
     },
     breakdown: {
       type: 'object',

@@ -190,6 +190,7 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
         report={report}
         generatedAt={reportGeneratedAt}
         onRegenerated={r => { setReport(r); setReportGeneratedAt(r.generated_at) }}
+        onCleared={() => { setReport(null); setReportGeneratedAt(null) }}
       />
 
       {/* Add ads CTA */}

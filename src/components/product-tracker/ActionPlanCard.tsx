@@ -64,6 +64,7 @@ interface Props {
   report: ProductRecommendationReport | null
   generatedAt: string | null
   onRegenerated: (r: ProductRecommendationReport) => void
+  onCleared?: () => void
 }
 
 async function readJsonStream(res: Response): Promise<Record<string, unknown>> {
@@ -79,7 +80,7 @@ async function readJsonStream(res: Response): Promise<Record<string, unknown>> {
   return JSON.parse(last)
 }
 
-export function ActionPlanCard({ token, productId, report, generatedAt, onRegenerated }: Props) {
+export function ActionPlanCard({ token, productId, report, generatedAt, onRegenerated, onCleared }: Props) {
   const [generating, setGenerating] = useState(false)
   const [scoringOpen, setScoringOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -96,14 +97,20 @@ export function ActionPlanCard({ token, productId, report, generatedAt, onRegene
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setError(data.error ?? `Request failed (${res.status})`)
+        onCleared?.()
         setGenerating(false)
         return
       }
       const data = await readJsonStream(res)
       if (data.insufficient_data) {
         setError('Not enough ads yet — add at least one with comprehensive analysis first.')
+        onCleared?.()
       } else if (data.error) {
+        // Server rejected an incomplete submission and deleted the stale
+        // cached report. Clear the displayed report so the user sees the
+        // empty "Generate action plan" state, not the previous broken one.
         setError(data.error as string)
+        onCleared?.()
       } else {
         onRegenerated(data as unknown as ProductRecommendationReport)
       }
@@ -220,8 +227,10 @@ export function ActionPlanCard({ token, productId, report, generatedAt, onRegene
       {/* Next test batch — rich per-spec briefs (with legacy angle_themes fallback) */}
       {report.next_test_batch && <NextTestBatchSection batch={report.next_test_batch} />}
 
-      {/* Per-ad recommendations (collapsed) */}
-      {report.per_ad_recommendations?.length > 0 && (
+      {/* Per-ad recommendations — only renders for legacy cached reports that
+          still have this section. New action plans rely on the per-ad
+          "What to test next" feature for ad-level guidance. */}
+      {report.per_ad_recommendations && report.per_ad_recommendations.length > 0 && (
         <PerAdSection items={report.per_ad_recommendations} />
       )}
 
@@ -606,7 +615,7 @@ function Row({ k, v }: { k: string; v: string }) {
   )
 }
 
-function PerAdSection({ items }: { items: ProductRecommendationReport['per_ad_recommendations'] }) {
+function PerAdSection({ items }: { items: NonNullable<ProductRecommendationReport['per_ad_recommendations']> }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="border-t border-gray-800 pt-4">
