@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Sparkles, RefreshCw, ChevronDown, ChevronUp, Download, FlaskConical, X, Check, Pencil, Trash2 } from 'lucide-react'
-import type { ProductRecommendationReport } from '@/app/api/products/[id]/recommendations/route'
+import type { ProductRecommendationReport, TestSpec } from '@/app/api/products/[id]/recommendations/route'
 import type { ScoreAgainstPlanReport, CandidateVerdict } from '@/app/api/products/[id]/score-against-plan/route'
 import { ImageBatchTab } from '@/components/ImageBatchTab'
 
@@ -216,23 +216,8 @@ export function ActionPlanCard({ token, productId, report, generatedAt, onRegene
       </Section>
       <Section title="Losing patterns">{report.breakdown?.losing_patterns?.finding}</Section>
 
-      {/* Next test batch */}
-      {report.next_test_batch && (
-        <div className="bg-emerald-950/20 border border-emerald-900/40 rounded-xl p-4 space-y-2">
-          <p className="text-[10px] uppercase tracking-wider text-emerald-300 font-medium">Next test batch</p>
-          <p className="text-xs text-gray-300 leading-relaxed">{report.next_test_batch.rationale}</p>
-          <div className="flex flex-wrap gap-2 mt-1">
-            {report.next_test_batch.angle_themes?.map((a, i) => (
-              <span key={i} className="text-[10px] text-emerald-300 bg-gray-900 border border-emerald-900/60 rounded px-2 py-0.5">
-                Angle: {a}
-              </span>
-            ))}
-            <span className="text-[10px] text-gray-400 bg-gray-900 border border-gray-800 rounded px-2 py-0.5">
-              {report.next_test_batch.variations_per_angle} variations × angle
-            </span>
-          </div>
-        </div>
-      )}
+      {/* Next test batch — rich per-spec briefs (with legacy angle_themes fallback) */}
+      {report.next_test_batch && <NextTestBatchSection batch={report.next_test_batch} />}
 
       {/* Per-ad recommendations (collapsed) */}
       {report.per_ad_recommendations?.length > 0 && (
@@ -482,6 +467,137 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       {typeof children === 'string'
         ? <p className="text-xs text-gray-300 leading-relaxed">{children}</p>
         : children}
+    </div>
+  )
+}
+
+function NextTestBatchSection({ batch }: { batch: ProductRecommendationReport['next_test_batch'] }) {
+  const specs = batch.specs ?? []
+  const variations = batch.variations_per_spec ?? batch.variations_per_angle ?? 4
+  const hasLegacyOnly = specs.length === 0 && (batch.angle_themes?.length ?? 0) > 0
+  return (
+    <div className="bg-emerald-950/20 border border-emerald-900/40 rounded-xl p-4 space-y-3">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <p className="text-[10px] uppercase tracking-wider text-emerald-300 font-medium">Next test batch</p>
+        <span className="text-[10px] text-gray-400">{variations} variations × spec</span>
+      </div>
+      {batch.rationale && <p className="text-xs text-gray-300 leading-relaxed">{batch.rationale}</p>}
+
+      {specs.length > 0 && (
+        <ul className="space-y-3 mt-1">
+          {specs.map((s, i) => <TestSpecCard key={i} index={i} spec={s} />)}
+        </ul>
+      )}
+
+      {hasLegacyOnly && (
+        <div className="flex flex-wrap gap-2 mt-1">
+          {batch.angle_themes?.map((a, i) => (
+            <span key={i} className="text-[10px] text-emerald-300 bg-gray-900 border border-emerald-900/60 rounded px-2 py-0.5">
+              Angle: {a}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TestSpecCard({ index, spec }: { index: number; spec: TestSpec }) {
+  const [open, setOpen] = useState(index === 0)
+  return (
+    <li className="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-gray-900/50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] font-mono font-bold text-emerald-400 tabular-nums shrink-0">#{index + 1}</span>
+          <span className="text-xs text-white font-medium truncate">{spec.name}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[10px] text-gray-500 font-mono">{spec.angle}</span>
+          {open ? <ChevronUp className="w-3 h-3 text-gray-500" /> : <ChevronDown className="w-3 h-3 text-gray-500" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 space-y-3 border-t border-gray-800 pt-3">
+          <SpecBlock title="Audience">
+            <Row k="TAM"           v={spec.tam} />
+            <Row k="Persona"       v={spec.persona} />
+            <Row k="Micro-persona" v={spec.micro_persona} />
+            <Row k="Desire/pain"   v={spec.desire} />
+            <Row k="Awareness"     v={spec.awareness_level} />
+            <Row k="Sophistication" v={spec.sophistication_level} />
+          </SpecBlock>
+
+          <SpecBlock title="Concept">
+            <Row k="Concept" v={spec.concept} />
+            <Row k="Angle"   v={spec.angle} />
+            <Row k="Format"  v={spec.ad_format} />
+            <Row k="Composition" v={spec.composition} />
+          </SpecBlock>
+
+          <SpecBlock title="Copy">
+            <Row k="Headline" v={`${spec.headline_structure} (${spec.headline_word_count})`} />
+            <div className="bg-gray-900 border border-gray-800 rounded px-2 py-1.5 mt-0.5">
+              <p className="text-xs text-white font-medium leading-snug">{spec.headline_example}</p>
+            </div>
+            {spec.subheadline_role !== 'absent' && (
+              <>
+                <Row k="Subheadline" v={spec.subheadline_role} />
+                {spec.subheadline_example && (
+                  <div className="bg-gray-900 border border-gray-800 rounded px-2 py-1.5 mt-0.5">
+                    <p className="text-[11px] text-gray-200 leading-snug">{spec.subheadline_example}</p>
+                  </div>
+                )}
+              </>
+            )}
+            <Row k="CTA" v={spec.cta_framing} />
+            <div className="bg-gray-900 border border-gray-800 rounded px-2 py-1.5 mt-0.5">
+              <p className="text-[11px] text-gray-200 leading-snug">{spec.cta_example}</p>
+            </div>
+            {spec.body_role !== 'absent' && <Row k="Body" v={spec.body_role} />}
+          </SpecBlock>
+
+          <SpecBlock title="Reinforcement">
+            {spec.behavioral_economics.length > 0 && (
+              <Row k="Behavioral econ" v={spec.behavioral_economics.join(', ')} />
+            )}
+            {spec.trust_signals.length > 0 && (
+              <Row k="Trust signals" v={spec.trust_signals.join(', ')} />
+            )}
+            <Row k="Visual" v={spec.visual_direction} />
+          </SpecBlock>
+
+          {spec.why_this_test && (
+            <div className="border-t border-gray-800 pt-2">
+              <p className="text-[9px] uppercase tracking-wider text-emerald-300 font-semibold mb-1">Why this test</p>
+              <p className="text-[11px] text-gray-300 leading-relaxed">{spec.why_this_test}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
+
+function SpecBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold mb-1.5">{title}</p>
+      <div className="space-y-1">{children}</div>
+    </div>
+  )
+}
+
+function Row({ k, v }: { k: string; v: string }) {
+  if (!v) return null
+  return (
+    <div className="grid grid-cols-[80px_1fr] gap-x-2 text-[11px]">
+      <span className="text-gray-500">{k}</span>
+      <span className="text-gray-200">{v}</span>
     </div>
   )
 }

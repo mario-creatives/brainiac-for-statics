@@ -37,10 +37,40 @@ export interface ProductRecommendationReport {
     losing_patterns:      { finding: string; examples: string[] }
   }
   next_test_batch: {
-    angle_themes: string[]
-    variations_per_angle: number
     rationale: string
+    variations_per_spec: number
+    specs: TestSpec[]
+    // Back-compat: older cached reports use a flat angle_themes list.
+    // Renderers should prefer `specs` and fall back to `angle_themes`.
+    angle_themes?: string[]
+    variations_per_angle?: number
   }
+}
+
+export interface TestSpec {
+  name: string                       // short label — "Mechanism reveal for sleep-deprived moms"
+  ad_format: string                  // e.g. "lifestyle photo with text overlay", "product hero", "testimonial card"
+  composition: string                // "visual+text", "text-dominant", "visual_only", "split-screen"
+  tam: string                        // total addressable market
+  persona: string                    // one-sentence target
+  micro_persona: string              // narrow situational target
+  desire: string                     // underlying desire or pain to lead with
+  awareness_level: string            // unaware | problem-aware | solution-aware | product-aware | most-aware
+  sophistication_level: string       // "1 — first to market" through "5 — saturated, identity-led"
+  concept: string                    // the big idea
+  angle: string                      // hook mechanism — mechanism reveal | identity claim | before/after | contrarian | proof-led
+  headline_structure: string         // mechanism-reveal | outcome-claim | question | identity | command | etc.
+  headline_word_count: string        // e.g. "5-9 words"
+  headline_example: string           // a usable draft
+  subheadline_role: string           // amplify | specify | credentialize | tonal-shift | absent
+  subheadline_example: string        // empty if role=absent
+  cta_framing: string                // direct | soft | value | curiosity
+  cta_example: string                // e.g. "Try Beam tonight"
+  body_role: string                  // benefits | social_proof | story | mechanism | absent
+  behavioral_economics: string[]     // e.g. ["social_proof", "authority", "scarcity"]
+  trust_signals: string[]            // e.g. ["clinical_study", "doctor_endorsement", "user_count"]
+  visual_direction: string           // short brief for the designer
+  why_this_test: string              // 1-2 sentences citing winning patterns from the plan
 }
 
 async function getUserOr401(req: NextRequest) {
@@ -150,7 +180,8 @@ OUTPUT RULES:
 - Every claim must reference specific ad IDs (e.g. "A3, A7, A11").
 - The "breakdown" section must contain proper sentences, not bullet fragments. State what wins and WHY in one breath. No fluff phrases ("the data shows", "winners typically").
 - Per-ad recommendations: tailored to that ad's quadrant. Winners get scale + iteration ideas. Losers get salvage test text + failure reason. Investigate gets root-cause direction.
-- next_test_batch.angle_themes are 3 distinct creative angles derived from this product's winning ads — name them concretely (e.g. "Time-poor mom solves dinner in 5 min" not "convenience angle").
+- next_test_batch.specs are 3-5 fully-briefed test specs derived from this product's winning patterns. Each spec is a SHOPPING LIST for the strategist — TAM, persona, micro-persona, desire, awareness level, sophistication level, concept, angle, headline structure with a usable example, subheadline role, CTA framing with example, body role, behavioral economics, trust signals, visual direction. Specs must be DIFFERENT from each other (different angle OR different persona OR different awareness level — not just rewording the same concept). Cite winning patterns from the breakdown by name in why_this_test (e.g. "winners W2, W4, W7 all use mechanism-reveal headlines for solution-aware moms — this spec extends that to the perimenopausal micro-persona which has no representation yet").
+- variations_per_spec is how many sub-variations the strategist should produce per spec (typically 3-5).
 
 Return ONLY a JSON object (no markdown fences):
 {
@@ -195,9 +226,35 @@ Return ONLY a JSON object (no markdown fences):
     "losing_patterns": { "finding": "<full sentence>", "examples": [] }
   },
   "next_test_batch": {
-    "angle_themes": ["<angle 1>", "<angle 2>", "<angle 3>"],
-    "variations_per_angle": 4,
-    "rationale": "<two-sentence rationale grounded in this product's data>"
+    "rationale": "<two-sentence rationale grounded in this product's data>",
+    "variations_per_spec": 4,
+    "specs": [
+      {
+        "name": "<short spec label>",
+        "ad_format": "<lifestyle photo with text overlay | product hero | testimonial card | before/after split | etc.>",
+        "composition": "<visual+text | text-dominant | visual_only | split-screen>",
+        "tam": "<the broad addressable market>",
+        "persona": "<one-sentence target>",
+        "micro_persona": "<narrow life stage / situational context>",
+        "desire": "<the underlying desire or pain to lead with>",
+        "awareness_level": "<unaware | problem-aware | solution-aware | product-aware | most-aware>",
+        "sophistication_level": "<1-5 with descriptor>",
+        "concept": "<the single big idea>",
+        "angle": "<mechanism-reveal | identity-claim | before-after | contrarian | proof-led | etc.>",
+        "headline_structure": "<mechanism-reveal | outcome-claim | question | identity | command | etc.>",
+        "headline_word_count": "<e.g. 5-9 words>",
+        "headline_example": "<usable draft headline>",
+        "subheadline_role": "<amplify | specify | credentialize | tonal-shift | absent>",
+        "subheadline_example": "<usable draft, or empty string if absent>",
+        "cta_framing": "<direct | soft | value | curiosity>",
+        "cta_example": "<e.g. Try Beam tonight>",
+        "body_role": "<benefits | social_proof | story | mechanism | absent>",
+        "behavioral_economics": ["<e.g. social_proof>", "<authority>"],
+        "trust_signals": ["<e.g. clinical_study>", "<doctor_endorsement>"],
+        "visual_direction": "<brief brief for the designer>",
+        "why_this_test": "<1-2 sentences citing winning patterns from the plan>"
+      }
+    ]
   }
 }`
 
@@ -323,11 +380,49 @@ const ACTION_PLAN_SCHEMA = {
     },
     next_test_batch: {
       type: 'object',
-      required: ['angle_themes', 'variations_per_angle', 'rationale'],
+      required: ['rationale', 'variations_per_spec', 'specs'],
       properties: {
-        angle_themes: { type: 'array', items: { type: 'string' } },
-        variations_per_angle: { type: 'number' },
         rationale: { type: 'string' },
+        variations_per_spec: { type: 'number' },
+        specs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: [
+              'name', 'ad_format', 'composition', 'tam', 'persona', 'micro_persona',
+              'desire', 'awareness_level', 'sophistication_level', 'concept', 'angle',
+              'headline_structure', 'headline_word_count', 'headline_example',
+              'subheadline_role', 'subheadline_example', 'cta_framing', 'cta_example',
+              'body_role', 'behavioral_economics', 'trust_signals', 'visual_direction',
+              'why_this_test',
+            ],
+            properties: {
+              name: { type: 'string' },
+              ad_format: { type: 'string' },
+              composition: { type: 'string' },
+              tam: { type: 'string' },
+              persona: { type: 'string' },
+              micro_persona: { type: 'string' },
+              desire: { type: 'string' },
+              awareness_level: { type: 'string' },
+              sophistication_level: { type: 'string' },
+              concept: { type: 'string' },
+              angle: { type: 'string' },
+              headline_structure: { type: 'string' },
+              headline_word_count: { type: 'string' },
+              headline_example: { type: 'string' },
+              subheadline_role: { type: 'string' },
+              subheadline_example: { type: 'string' },
+              cta_framing: { type: 'string' },
+              cta_example: { type: 'string' },
+              body_role: { type: 'string' },
+              behavioral_economics: { type: 'array', items: { type: 'string' } },
+              trust_signals: { type: 'array', items: { type: 'string' } },
+              visual_direction: { type: 'string' },
+              why_this_test: { type: 'string' },
+            },
+          },
+        },
       },
     },
   },

@@ -192,9 +192,29 @@ function condensePlan(plan: ProductRecommendationReport): string {
   if (plan.breakdown?.losing_patterns?.finding) lines.push(`  ${plan.breakdown.losing_patterns.finding}`)
   lines.push('')
   if (plan.next_test_batch) {
-    lines.push('NEXT-TEST ANGLES THE PLAN CALLS FOR:')
-    for (const a of plan.next_test_batch.angle_themes ?? []) lines.push(`  - ${a}`)
+    lines.push('NEXT-TEST SPECS THE PLAN CALLS FOR:')
     if (plan.next_test_batch.rationale) lines.push(`  rationale: ${plan.next_test_batch.rationale}`)
+    // Prefer the rich specs shape; fall back to the legacy angle_themes list
+    // for cached reports generated before the schema was expanded.
+    const specs = plan.next_test_batch.specs ?? []
+    if (specs.length > 0) {
+      for (const s of specs) {
+        lines.push(`  · ${s.name}`)
+        lines.push(`      tam=${s.tam} | persona=${s.persona} | micro=${s.micro_persona}`)
+        lines.push(`      desire=${s.desire} | aware=${s.awareness_level} | soph=${s.sophistication_level}`)
+        lines.push(`      concept=${s.concept} | angle=${s.angle}`)
+        lines.push(`      format=${s.ad_format} | composition=${s.composition}`)
+        lines.push(`      headline=${s.headline_structure} (${s.headline_word_count}): "${s.headline_example}"`)
+        if (s.subheadline_role !== 'absent') lines.push(`      subheadline=${s.subheadline_role}: "${s.subheadline_example}"`)
+        lines.push(`      cta=${s.cta_framing}: "${s.cta_example}"`)
+        if (s.body_role !== 'absent') lines.push(`      body=${s.body_role}`)
+        if (s.behavioral_economics.length > 0) lines.push(`      BE=[${s.behavioral_economics.join(', ')}]`)
+        if (s.trust_signals.length > 0) lines.push(`      trust=[${s.trust_signals.join(', ')}]`)
+        lines.push(`      visual=${s.visual_direction}`)
+      }
+    } else if (plan.next_test_batch.angle_themes) {
+      for (const a of plan.next_test_batch.angle_themes) lines.push(`  - ${a}`)
+    }
   }
   return lines.join('\n')
 }
