@@ -1,8 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { Sparkles, RefreshCw, ChevronDown, ChevronUp, Download } from 'lucide-react'
+import { Sparkles, RefreshCw, ChevronDown, ChevronUp, Download, FlaskConical, X, Check, Pencil, Trash2 } from 'lucide-react'
 import type { ProductRecommendationReport } from '@/app/api/products/[id]/recommendations/route'
+import type { ScoreAgainstPlanReport, CandidateVerdict } from '@/app/api/products/[id]/score-against-plan/route'
+import { ImageBatchTab } from '@/components/ImageBatchTab'
 
 function csvEscape(s: string): string {
   if (s == null) return ''
@@ -79,6 +81,7 @@ async function readJsonStream(res: Response): Promise<Record<string, unknown>> {
 
 export function ActionPlanCard({ token, productId, report, generatedAt, onRegenerated }: Props) {
   const [generating, setGenerating] = useState(false)
+  const [scoringOpen, setScoringOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleGenerate() {
@@ -235,6 +238,238 @@ export function ActionPlanCard({ token, productId, report, generatedAt, onRegene
       {report.per_ad_recommendations?.length > 0 && (
         <PerAdSection items={report.per_ad_recommendations} />
       )}
+
+      {/* Test new candidates against this plan */}
+      <div className="border-t border-gray-800 pt-4 flex items-start justify-between gap-3 flex-wrap">
+        <div className="max-w-md">
+          <p className="text-xs text-white font-semibold">Test new candidates against this plan</p>
+          <p className="text-[11px] text-gray-500 leading-relaxed mt-0.5">
+            Upload up to 25 pre-launch ad concepts. Each gets graded ship / iterate / kill against the patterns above, plus a global read on gaps, redundancies, and what to add.
+          </p>
+        </div>
+        <button
+          onClick={() => setScoringOpen(true)}
+          className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium px-4 py-2 rounded-lg flex items-center gap-1.5 shrink-0"
+        >
+          <FlaskConical className="w-3.5 h-3.5" />
+          Score candidates
+        </button>
+      </div>
+
+      {scoringOpen && (
+        <ScoreCandidatesModal
+          token={token}
+          productId={productId}
+          onClose={() => setScoringOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+interface CandidateCard {
+  id: string
+  analysisId: string | null
+  status: string
+  hasComprehensive: boolean
+}
+
+function ScoreCandidatesModal({ token, productId, onClose }: { token: string; productId: string; onClose: () => void }) {
+  const [cards, setCards] = useState<CandidateCard[]>([])
+  const [scoring, setScoring] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [report, setReport] = useState<ScoreAgainstPlanReport | null>(null)
+
+  const ready = cards.filter(c => c.hasComprehensive && c.analysisId)
+  const stillRunning = cards.filter(c => c.analysisId && !c.hasComprehensive && c.status !== 'failed')
+  const failed = cards.filter(c => c.status === 'failed')
+
+  async function handleScore() {
+    if (scoring || ready.length === 0) return
+    setScoring(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/products/${productId}/score-against-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ candidate_ids: ready.map(c => c.analysisId).filter(Boolean) }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error ?? `Request failed (${res.status})`)
+        setScoring(false)
+        return
+      }
+      const data = await readJsonStream(res)
+      if (data.error) {
+        setError(data.error as string)
+      } else {
+        setReport(data as unknown as ScoreAgainstPlanReport)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Network error')
+    }
+    setScoring(false)
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-950 border border-gray-700 sm:rounded-2xl w-full max-w-5xl h-full sm:h-auto sm:max-h-[92vh] flex flex-col shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 shrink-0">
+          <div>
+            <h2 className="text-sm font-semibold text-white">Score candidates against action plan</h2>
+            <p className="text-[11px] text-gray-500 mt-0.5">Upload pre-launch ads. Each gets analyzed, then graded against the plan&apos;s winning patterns.</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-6 space-y-6">
+          {!report && (
+            <ImageBatchTab
+              token={token}
+              productId={productId}
+              forceMode="historical"
+              onCardsUpdate={setCards}
+            />
+          )}
+
+          {!report && (
+            <div className="border-t border-gray-800 pt-4 flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-[11px] text-gray-400">
+                {cards.length === 0
+                  ? 'Upload candidates above to get started.'
+                  : `${ready.length} ready · ${stillRunning.length} analyzing · ${failed.length} failed`}
+              </div>
+              <button
+                onClick={handleScore}
+                disabled={scoring || ready.length === 0}
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium px-4 py-2 rounded-lg flex items-center gap-1.5"
+              >
+                <FlaskConical className="w-3.5 h-3.5" />
+                {scoring ? 'Scoring…' : `Score ${ready.length} against plan`}
+              </button>
+            </div>
+          )}
+
+          {error && <p className="text-xs text-[#ff2a2b]">{error}</p>}
+
+          {report && <ScoreReportView report={report} onClear={() => setReport(null)} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ScoreReportView({ report, onClear }: { report: ScoreAgainstPlanReport; onClear: () => void }) {
+  const shipCount     = report.per_candidate.filter(c => c.verdict === 'ship').length
+  const iterateCount  = report.per_candidate.filter(c => c.verdict === 'iterate').length
+  const killCount     = report.per_candidate.filter(c => c.verdict === 'kill').length
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Verdict</h3>
+          <p className="text-[10px] text-gray-500 mt-0.5">
+            {report.candidates_scored} candidates · generated {new Date(report.generated_at).toLocaleString()}
+          </p>
+        </div>
+        <button onClick={onClear} className="text-[11px] text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800">
+          Score another batch
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-200 leading-relaxed bg-indigo-950/30 border border-indigo-900/40 rounded-xl px-4 py-3">
+        {report.global_verdict}
+      </p>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Tally label="Ship"    n={shipCount}    accent="emerald" />
+        <Tally label="Iterate" n={iterateCount} accent="amber" />
+        <Tally label="Kill"    n={killCount}    accent="red" />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Per candidate</p>
+        <ul className="space-y-2">
+          {report.per_candidate.map(c => <CandidateRow key={c.analysis_id} c={c} />)}
+        </ul>
+      </div>
+
+      <ListBlock title="Gaps" hint="Winning patterns from the plan that NO candidate addresses" items={report.gaps}      accent="amber" />
+      <ListBlock title="Redundancies" hint="Candidates that duplicate each other"                              items={report.redundancies} accent="gray" />
+      <ListBlock title="Additions" hint="Angles the plan suggests but the batch is missing"                    items={report.additions} accent="emerald" />
+    </div>
+  )
+}
+
+function Tally({ label, n, accent }: { label: string; n: number; accent: 'emerald' | 'amber' | 'red' }) {
+  const color =
+    accent === 'emerald' ? 'text-emerald-400 border-emerald-900/50' :
+    accent === 'amber'   ? 'text-amber-400 border-amber-900/50' :
+                            'text-[#ff2a2b] border-red-900/50'
+  return (
+    <div className={`bg-gray-900 rounded-xl border ${color} px-4 py-3`}>
+      <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium">{label}</p>
+      <p className={`text-2xl font-semibold tabular-nums mt-0.5 ${color}`}>{n}</p>
+    </div>
+  )
+}
+
+function CandidateRow({ c }: { c: CandidateVerdict }) {
+  const meta = c.verdict === 'ship'
+    ? { color: 'border-emerald-900/50 bg-emerald-950/10', label: 'SHIP',    text: 'text-emerald-400', Icon: Check }
+    : c.verdict === 'iterate'
+    ? { color: 'border-amber-900/50 bg-amber-950/10',     label: 'ITERATE', text: 'text-amber-400',   Icon: Pencil }
+    :                                                       { color: 'border-red-900/50 bg-red-950/10', label: 'KILL', text: 'text-[#ff2a2b]', Icon: Trash2 }
+  const Icon = meta.Icon
+  return (
+    <li className={`rounded-lg border ${meta.color} px-3 py-2.5`}>
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-bold uppercase tracking-widest ${meta.text} flex items-center gap-1`}>
+            <Icon className="w-3 h-3" />
+            {meta.label}
+          </span>
+          <span className="text-[10px] font-mono text-gray-500">{c.analysis_id.slice(0, 8)}</span>
+        </div>
+      </div>
+      <p className="text-xs text-gray-200 leading-relaxed">{c.rationale}</p>
+      <p className="text-[11px] text-gray-400 leading-relaxed mt-1">{c.plan_alignment}</p>
+      {c.changes.length > 0 && (
+        <ul className="mt-2 space-y-0.5">
+          {c.changes.map((ch, i) => (
+            <li key={i} className="text-[11px] text-gray-300 leading-snug">→ {ch}</li>
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
+function ListBlock({ title, hint, items, accent }: { title: string; hint: string; items: string[]; accent: 'amber' | 'gray' | 'emerald' }) {
+  if (!items?.length) return null
+  const headColor =
+    accent === 'amber'   ? 'text-amber-300' :
+    accent === 'emerald' ? 'text-emerald-300' :
+                           'text-gray-300'
+  return (
+    <div className="border-t border-gray-800 pt-4">
+      <p className={`text-[10px] uppercase tracking-wider font-semibold ${headColor}`}>{title}</p>
+      <p className="text-[10px] text-gray-600 mt-0.5">{hint}</p>
+      <ul className="mt-2 space-y-1">
+        {items.map((s, i) => (
+          <li key={i} className="text-xs text-gray-300 leading-relaxed">• {s}</li>
+        ))}
+      </ul>
     </div>
   )
 }

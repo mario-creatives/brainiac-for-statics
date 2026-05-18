@@ -203,13 +203,40 @@ Return ONLY a JSON object (no markdown fences):
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 12000,
+      max_tokens: 32000,
+      tools: [{
+        name: 'submit_action_plan',
+        description: 'Submit the structured product action plan.',
+        input_schema: ACTION_PLAN_SCHEMA,
+      }],
+      tool_choice: { type: 'tool', name: 'submit_action_plan' },
       messages: [{ role: 'user', content: prompt }],
     })
 
-    const textBlock = message.content.find(b => b.type === 'text')
-    const raw = textBlock?.type === 'text' ? textBlock.text : ''
-    const partial = parseClaudeJson<Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>>(raw)
+    if (message.stop_reason === 'max_tokens') {
+      return {
+        error: `Response truncated at the model token ceiling. Product has ${rows.length} ads — try archiving stale ads or splitting into sub-products.`,
+      }
+    }
+
+    const toolUse = message.content.find(b => b.type === 'tool_use')
+    if (!toolUse || toolUse.type !== 'tool_use') {
+      const textBlock = message.content.find(b => b.type === 'text')
+      const raw = textBlock?.type === 'text' ? textBlock.text : ''
+      // Fallback: try to parse text in case the model returned text instead.
+      const partial = parseClaudeJson<Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>>(raw)
+      const report: ProductRecommendationReport = {
+        ...partial,
+        generated_at: new Date().toISOString(),
+        ads_analyzed: rows.length,
+      }
+      await supabaseServer
+        .from('product_recommendations')
+        .upsert({ product_id: productId, generated_at: report.generated_at, ads_analyzed: report.ads_analyzed, report }, { onConflict: 'product_id' })
+      return report
+    }
+
+    const partial = toolUse.input as Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>
 
     const report: ProductRecommendationReport = {
       ...partial,
@@ -229,3 +256,79 @@ Return ONLY a JSON object (no markdown fences):
     return report
   })
 }
+
+const ACTION_PLAN_SCHEMA = {
+  type: 'object',
+  required: ['summary_actions', 'per_ad_recommendations', 'breakdown', 'next_test_batch'],
+  properties: {
+    summary_actions: {
+      type: 'array',
+      items: { type: 'string' },
+      description: '3-5 top-level actions, each citing specific ad IDs',
+    },
+    per_ad_recommendations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['analysis_id', 'quadrant', 'actions'],
+        properties: {
+          analysis_id: { type: 'string' },
+          quadrant: { type: 'string', enum: ['winner', 'promising', 'investigate', 'loser'] },
+          actions: { type: 'array', items: { type: 'string' } },
+          iteration_ideas: { type: 'array', items: { type: 'string' } },
+          salvage_test: { type: 'string' },
+          failure_reason: { type: 'string' },
+        },
+      },
+    },
+    breakdown: {
+      type: 'object',
+      required: ['winning_formats', 'winning_age_ranges', 'winning_angles_hooks', 'winning_visuals', 'winning_headlines', 'winning_subheadlines', 'winning_body', 'cta_presence', 'winning_combinations', 'losing_patterns'],
+      properties: {
+        winning_formats:      { type: 'object', properties: { finding: { type: 'string' }, examples: { type: 'array', items: { type: 'string' } } }, required: ['finding', 'examples'] },
+        winning_age_ranges:   { type: 'object', properties: { finding: { type: 'string' }, examples: { type: 'array', items: { type: 'string' } } }, required: ['finding', 'examples'] },
+        winning_angles_hooks: { type: 'object', properties: { finding: { type: 'string' }, examples: { type: 'array', items: { type: 'string' } } }, required: ['finding', 'examples'] },
+        winning_visuals:      { type: 'object', properties: { finding: { type: 'string' }, examples: { type: 'array', items: { type: 'string' } } }, required: ['finding', 'examples'] },
+        winning_headlines:    {
+          type: 'object',
+          properties: {
+            finding: { type: 'string' },
+            structure: { type: 'string' },
+            word_count_range: { type: 'string' },
+            examples: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['finding', 'structure', 'word_count_range', 'examples'],
+        },
+        winning_subheadlines: { type: 'object', properties: { finding: { type: 'string' } }, required: ['finding'] },
+        winning_body:         { type: 'object', properties: { finding: { type: 'string' } }, required: ['finding'] },
+        cta_presence: {
+          type: 'object',
+          properties: {
+            with_cta: { type: 'string' },
+            without_cta: { type: 'string' },
+            verdict: { type: 'string' },
+          },
+          required: ['with_cta', 'without_cta', 'verdict'],
+        },
+        winning_combinations: {
+          type: 'object',
+          properties: {
+            finding: { type: 'string' },
+            top_stacks: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['finding', 'top_stacks'],
+        },
+        losing_patterns: { type: 'object', properties: { finding: { type: 'string' }, examples: { type: 'array', items: { type: 'string' } } }, required: ['finding', 'examples'] },
+      },
+    },
+    next_test_batch: {
+      type: 'object',
+      required: ['angle_themes', 'variations_per_angle', 'rationale'],
+      properties: {
+        angle_themes: { type: 'array', items: { type: 'string' } },
+        variations_per_angle: { type: 'number' },
+        rationale: { type: 'string' },
+      },
+    },
+  },
+} as const

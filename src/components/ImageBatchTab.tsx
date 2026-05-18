@@ -45,6 +45,10 @@ interface Props {
   onStatsUpdate?: () => void
   productId?: string
   forceMode?: Mode
+  // Surfaces the current set of cards every time it changes so a parent can
+  // track which analysis IDs have completed comprehensive analysis. Used by
+  // the candidate-scoring flow to know when its Score button should activate.
+  onCardsUpdate?: (cards: Array<{ id: string; analysisId: string | null; status: ImageCard['status']; hasComprehensive: boolean }>) => void
 }
 
 async function fileToBase64(file: File): Promise<{ base64: string; mime_type: string }> {
@@ -61,7 +65,7 @@ async function fileToBase64(file: File): Promise<{ base64: string; mime_type: st
   })
 }
 
-export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Props) {
+export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode, onCardsUpdate }: Props) {
   const [mode, setMode] = useState<Mode>(forceMode ?? 'feedback')
   const [cards, setCards] = useState<ImageCard[]>([])
   const [analyzing, setAnalyzing] = useState(false)
@@ -94,6 +98,16 @@ export function ImageBatchTab({ token, onStatsUpdate, productId, forceMode }: Pr
   cardsRef.current = cards
   const stoppedRef = useRef(false)
   const intervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map())
+
+  useEffect(() => {
+    if (!onCardsUpdate) return
+    onCardsUpdate(cards.map(c => ({
+      id: c.id,
+      analysisId: c.analysisId,
+      status: c.status,
+      hasComprehensive: c.analysisId ? !!cardComprehensive[c.analysisId] : false,
+    })))
+  }, [cards, cardComprehensive, onCardsUpdate])
 
   async function fetchAdCount() {
     const { data } = await supabase
