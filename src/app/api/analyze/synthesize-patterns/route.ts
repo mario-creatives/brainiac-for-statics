@@ -34,7 +34,7 @@ async function classifyLossReason(ca: ComprehensiveAnalysis, spendUsd: number): 
   const prompt = `Classify why this losing ad ($${spendUsd} spend) failed. Pick EXACTLY ONE reason from the enum.
 
 Creative-side enum:
-- weak_hook: scroll-stop score is low; pattern interrupt absent or generic
+- weak_hook: attention score is low; no visual element dominates the eye; attention disruptor absent or generic
 - no_offer: offer architecture missing or unclear; no price anchor / guarantee / urgency
 - no_proof: no trust/proof signals; audience cannot validate the claim
 - wrong_audience: awareness or sophistication mismatch with the messaging
@@ -104,7 +104,8 @@ export function buildAdSummary(
   const awareness = ca.market_context?.awareness_level ?? 'unknown'
   const soph = ca.market_context?.sophistication_level ?? '?'
   const format = ca.ad_format?.type ?? '?'
-  const scrollStop = ca.hook_analysis?.scroll_stop_score ?? 0
+  const hookBlock = ca.hook_analysis as Record<string, unknown> | undefined
+  const scrollStop = (hookBlock?.attention_score ?? hookBlock?.scroll_stop_score ?? 0) as number
   const cogLoad = ca.cognitive_load?.score ?? 0
   const congruence = ca.congruence?.overall_score ?? '?'
   const combo = ca.composition_tag ?? '?'
@@ -121,7 +122,7 @@ export function buildAdSummary(
       ].filter(Boolean).join(' ')
     : ''
   lines.push(`($${spendUsd} spend, ${awareness}, soph=${soph}, format=${format}${reasonTag}${perfTag ? ' · ' + perfTag : ''})`)
-  lines.push(`  combo=${combo} | grade=${grade} | scroll_stop=${scrollStop} | cog_load=${cogLoad} | congruence=${congruence} | BE=[${activeBE}]`)
+  lines.push(`  combo=${combo} | grade=${grade} | attention=${scrollStop} | cog_load=${cogLoad} | congruence=${congruence} | BE=[${activeBE}]`)
 
   // BERG ROI activations — fMRI-derived brain-region attention scores. The
   // recommendation engine has no other way to reason about which DNA choices
@@ -287,7 +288,7 @@ Return ONLY a JSON array with no markdown fences:
 
     const loserPrompt = `You are analyzing ${losers.length} losing ads (each with <$${WINNER_THRESHOLD_USD} spend) to extract anti-patterns — creative choices that consistently underperform.
 
-${loserBaselineNote}Each loser is tagged with a single reason for failure: ${LOSS_REASONS.join(' | ')}. Group your anti-patterns BY reason — do not mix losers from different failure modes when deriving a rule. A "weak_hook" pattern should not be contaminated by "no_offer" losers.
+${loserBaselineNote}Each loser is tagged with a single reason for failure: ${LOSS_REASONS.join(' | ')}. Group your anti-patterns BY reason — do not mix losers from different failure modes when deriving a rule. A "weak_hook" (low attention score) pattern should not be contaminated by "no_offer" losers.
 
 CRITICAL RULES:
 - Frame every rule as "avoid X" or "X consistently underperforms when Y" — these are warnings, not absolute prohibitions.

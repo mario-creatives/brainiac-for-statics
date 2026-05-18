@@ -13,7 +13,7 @@ import {
   enqueueSynthesis,
 } from '@/lib/pattern-library'
 import { buildPatternContext, buildComprehensiveVisionPrompt, parseBergBullets, runBergAnalysis } from '../comprehensive/route'
-import type { ComprehensiveAnalysis } from '../comprehensive/route'
+import type { ComprehensiveAnalysis, StatedAudience } from '../comprehensive/route'
 import type { ExtractedElements, HeadlineDNA, SubheadlineDNA, TrustDNA, CtaDNA } from '../extract-elements/route'
 import { parseClaudeJson } from '@/lib/parseClaudeJson'
 
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   // Fetch the stored analysis — owned by this user only.
   const { data: row, error: fetchErr } = await supabaseServer
     .from('analyses')
-    .select('id, user_id, comprehensive_analysis, roi_data, spend_usd, is_winner, quadrant, quadrant_override, status, input_storage_key, product_id')
+    .select('id, user_id, comprehensive_analysis, roi_data, spend_usd, is_winner, quadrant, quadrant_override, status, input_storage_key, product_id, stated_concept, stated_angle')
     .eq('id', analysisId)
     .eq('user_id', user.id)
     .single()
@@ -169,11 +169,48 @@ export async function POST(req: NextRequest) {
       await supabaseServer.from('analyses').update({ status: 'processing' }).eq('id', analysisId)
     }
 
+    // Build statedAudience from per-ad values, falling back to product defaults.
+    let statedAudience: StatedAudience | null = null
+    {
+      const productId = row.product_id as string | null
+      const adRow = row as unknown as { stated_concept: string | null; stated_angle: string | null }
+      const statedConcept = adRow.stated_concept ?? null
+      const statedAngle = adRow.stated_angle ?? null
+
+      let productTam: string | null = null
+      let productPersona: string | null = null
+      let productMicro: string | null = null
+      let productConcept: string | null = null
+      let productAngle: string | null = null
+      if (productId) {
+        const { data: prod } = await supabaseServer
+          .from('products')
+          .select('tam, default_persona, default_micro_persona, default_concept, default_angle')
+          .eq('id', productId)
+          .maybeSingle()
+        productTam = (prod?.tam as string | null) ?? null
+        productPersona = (prod?.default_persona as string | null) ?? null
+        productMicro = (prod?.default_micro_persona as string | null) ?? null
+        productConcept = (prod?.default_concept as string | null) ?? null
+        productAngle = (prod?.default_angle as string | null) ?? null
+      }
+
+      if (productTam || productPersona || statedConcept || statedAngle || productConcept || productAngle) {
+        statedAudience = {
+          tam: productTam,
+          persona: productPersona,
+          micro_persona: productMicro,
+          concept: statedConcept ?? productConcept,
+          angle: statedAngle ?? productAngle,
+        }
+      }
+    }
+
     const visualDescription = confirmedElements?.visual_description
     const [bergText, visionResult] = await Promise.all([
       runBergAnalysis(roiAverages, patternContext, visualDescription, mode, spendUsd, effectiveQuadrant),
       (async () => {
-        const prompt = buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline, effectiveQuadrant)
+        const prompt = buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline, effectiveQuadrant, statedAudience)
         const content: Parameters<typeof anthropic.messages.create>[0]['messages'][0]['content'] = imageBase64
           ? [
               { type: 'image', source: { type: 'base64', media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/webp', data: imageBase64 } },

@@ -16,7 +16,14 @@ function TargetingDot({ quality, personaLabel }: {
   const suffix = personaLabel ? ` (${personaLabel})` : ''
   if (quality === 'aligned') return <span className="text-emerald-400 text-base leading-none" title={`Audience aligned${suffix}`}>●</span>
   if (quality === 'partial_mismatch') return <span className="text-amber-400 text-base leading-none" title={`Partial audience mismatch${suffix}`}>●</span>
-  if (quality === 'major_mismatch') return <span className="text-[#ff2a2b] text-base leading-none" title={`Major audience mismatch — ad reads as targeting a different audience than stated${suffix}`}>●</span>
+  if (quality === 'major_mismatch') return (
+    <span
+      title={`Major audience mismatch — ad reads as targeting a different audience than stated${suffix}`}
+      className="inline-flex items-center gap-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-[#ff2a2b] bg-[#ff2a2b]/10 border border-[#ff2a2b]/30 px-1.5 py-0.5 rounded-full whitespace-nowrap"
+    >
+      ✕ mismatch
+    </span>
+  )
   return <span className="text-gray-700 text-xs" title="No audience selected — select one in the editor to enable the targeting-fit check">—</span>
 }
 

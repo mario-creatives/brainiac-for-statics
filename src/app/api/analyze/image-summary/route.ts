@@ -39,9 +39,9 @@ function buildBergPrompt(body: Record<string, unknown>): string {
     const viewport = context === 'webpage_desktop' ? 'desktop (1280×720)' : 'mobile (390×844, iPhone UA)'
     const lines = roi_data.map(r => `- ${r.label}: ${r.activation.toFixed(3)} — ${r.description}`).join('\n')
 
-    return `You are interpreting BERG fMRI brain activation predictions for an ad landing page screenshot captured on ${viewport}.
+    return `You are interpreting BERG fMRI brain activation measurements for an ad landing page screenshot captured on ${viewport}.
 
-BERG predicts which visual cortex regions activate when a person views the page above the fold. Scores are normalized 0–1. Higher scores mean stronger predicted neural engagement with that type of visual processing.
+BERG models which visual cortex regions respond to the low-level visual properties of the page above the fold. Scores are normalized 0–1. Higher scores mean stronger predicted neural engagement with that type of visual processing.
 
 Page: ${page_url}
 Viewport: ${viewport}
@@ -59,9 +59,9 @@ Do not skip any region with a notably high or low score. Format as a markdown bu
   const scoreLines = roi_averages.map(r => `- ${r.label}: ${r.activation.toFixed(3)} — ${r.description}`).join('\n')
 
   return image_count === 1
-    ? `You are interpreting BERG fMRI brain activation predictions for a static ad image.
+    ? `You are interpreting BERG fMRI brain activation measurements for a static ad image.
 
-BERG predicts which visual cortex regions activate when a viewer sees this ad. Scores are normalized 0–1.
+BERG models which visual cortex regions respond to the low-level visual properties of this ad. Scores are normalized 0–1.
 
 Brain activation scores:
 ${scoreLines}
@@ -69,7 +69,7 @@ ${scoreLines}
 Give 4–5 specific, actionable suggestions to improve this ad's visual impact for paid media performance. For each suggestion, name the region, quote the score, explain what it means about the creative, and state the specific change to make. Do not skip any region with a notably high or low score.
 
 Format as a markdown bulleted list. Each bullet is two to three sentences. Do not guarantee outcomes.`
-    : `You are interpreting BERG fMRI brain activation predictions for a batch of ${image_count} static ad images.
+    : `You are interpreting BERG fMRI brain activation measurements for a batch of ${image_count} static ad images.
 
 Average activation across all ${image_count} ads:
 ${scoreLines}

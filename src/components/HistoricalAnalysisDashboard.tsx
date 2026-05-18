@@ -559,7 +559,7 @@ function TrendsSection({ rows }: { rows: TrendPoint[] }) {
   const series = rows.map((r, i) => ({
     idx: i + 1,
     framework_grade_num: r.framework_grade ? GRADE_TO_NUM[r.framework_grade] ?? null : null,
-    scroll_stop: r.scroll_stop_score,
+    attention: r.attention_score,
     congruence: r.congruence_score,
     cognitive_load: r.cognitive_load,
   }))
@@ -578,9 +578,9 @@ function TrendsSection({ rows }: { rows: TrendPoint[] }) {
           domain={[1, 4]}
         />
         <TrendChart
-          title="Scroll-stop score"
+          title="Attention score"
           data={series}
-          dataKey="scroll_stop"
+          dataKey="attention"
           color="#34d399"
           domain={[0, 10]}
         />

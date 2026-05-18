@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { X } from 'lucide-react'
+import { X, ChevronDown, ChevronRight } from 'lucide-react'
 
 const VERTICAL_OPTIONS = [
   '', 'health', 'beauty_skincare', 'apparel', 'food_beverage', 'home_lifestyle',
@@ -20,6 +20,12 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
   const [targetCpa, setTargetCpa] = useState('')
   const [winnerThreshold, setWinnerThreshold] = useState('1000')
   const [notes, setNotes] = useState('')
+  const [audienceOpen, setAudienceOpen] = useState(false)
+  const [defaultTam, setDefaultTam] = useState('')
+  const [defaultPersona, setDefaultPersona] = useState('')
+  const [defaultMicro, setDefaultMicro] = useState('')
+  const [defaultConcept, setDefaultConcept] = useState('')
+  const [defaultAngle, setDefaultAngle] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -43,6 +49,11 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
           target_cpa_usd: targetCpa ? Number(targetCpa) : null,
           winner_spend_threshold_usd: winnerThreshold ? Number(winnerThreshold) : 1000,
           notes: notes.trim() || null,
+          default_tam: defaultTam.trim() || null,
+          default_persona: defaultPersona.trim() || null,
+          default_micro_persona: defaultMicro.trim() || null,
+          default_concept: defaultConcept.trim() || null,
+          default_angle: defaultAngle.trim() || null,
         }),
       })
       const data = await res.json()
@@ -137,9 +148,69 @@ export function NewProductModal({ token, onClose, onCreated }: Props) {
             />
           </Field>
 
-          <p className="text-[10px] text-gray-500 leading-relaxed border-t border-gray-800 pt-3">
-            After creating, define your audience hierarchy — TAMs → personas → micro-personas — in Product Settings. Each ad will then pick one combo to anchor the targeting-fit check.
-          </p>
+          {/* Audience defaults — collapsible */}
+          <div className="border-t border-gray-800 pt-3">
+            <button
+              type="button"
+              onClick={() => setAudienceOpen(o => !o)}
+              className="flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              {audienceOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              Target audience defaults (optional)
+            </button>
+            <p className="text-[10px] text-gray-600 mt-1 leading-relaxed">
+              Set once here — every ad you upload gets compared against these. Claude uses them as context so audience_match runs even on the first upload.
+            </p>
+            {audienceOpen && (
+              <div className="mt-3 space-y-3">
+                <Field label="TAM (total addressable market)" hint="e.g. Sleep-deprived working moms 35–54">
+                  <input
+                    type="text"
+                    value={defaultTam}
+                    onChange={e => setDefaultTam(e.target.value)}
+                    placeholder="Who broadly buys this product"
+                    className="input"
+                  />
+                </Field>
+                <Field label="Persona" hint="One sentence — who you're targeting">
+                  <input
+                    type="text"
+                    value={defaultPersona}
+                    onChange={e => setDefaultPersona(e.target.value)}
+                    placeholder="e.g. Busy moms who struggle to fall asleep"
+                    className="input"
+                  />
+                </Field>
+                <Field label="Micro-persona" hint="Narrower — specific life stage or situation">
+                  <input
+                    type="text"
+                    value={defaultMicro}
+                    onChange={e => setDefaultMicro(e.target.value)}
+                    placeholder="e.g. Moms with school-age kids, post-caffeine crash"
+                    className="input"
+                  />
+                </Field>
+                <Field label="Concept" hint="The single big idea this product leads with">
+                  <input
+                    type="text"
+                    value={defaultConcept}
+                    onChange={e => setDefaultConcept(e.target.value)}
+                    placeholder="e.g. Fall asleep faster without medication"
+                    className="input"
+                  />
+                </Field>
+                <Field label="Angle" hint="The hook mechanism — mechanism reveal, identity claim, before/after, etc.">
+                  <input
+                    type="text"
+                    value={defaultAngle}
+                    onChange={e => setDefaultAngle(e.target.value)}
+                    placeholder="e.g. Before/after sleep quality transformation"
+                    className="input"
+                  />
+                </Field>
+              </div>
+            )}
+          </div>
 
           {error && <p className="text-xs text-[#ff2a2b]">{error}</p>}
         </div>

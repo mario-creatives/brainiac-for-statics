@@ -291,7 +291,7 @@ type RewriteLike = {
   proposed_text?: string | null
   proposed_action?: string | null
   proposed_change?: string | null
-  proposed_pattern_interrupt?: string | null
+  proposed_disruptor?: string | null
   proposed_offer_text?: string | null
   proposed_benefits?: string[] | null
   proposed_signals?: string[] | null
@@ -305,7 +305,7 @@ function RewriteCard({ rewrite, label = 'Proposed Rewrite' }: { rewrite: Rewrite
   const proposedDisplay =
     rewrite.proposed_text ||
     rewrite.proposed_change ||
-    rewrite.proposed_pattern_interrupt ||
+    rewrite.proposed_disruptor ||
     rewrite.proposed_offer_text ||
     (rewrite.proposed_benefits ? rewrite.proposed_benefits.join(' • ') : null) ||
     (rewrite.proposed_signals ? rewrite.proposed_signals.join(' • ') : null) ||
@@ -344,7 +344,7 @@ function buildFullBrief(data: ComprehensiveAnalysis, headlineText?: string): str
   const r = (label: string, rw: RewriteLike) => {
     if (!rw) return
     const text =
-      rw.proposed_text || rw.proposed_change || rw.proposed_pattern_interrupt ||
+      rw.proposed_text || rw.proposed_change || rw.proposed_disruptor ||
       rw.proposed_offer_text || (rw.proposed_benefits?.join(' • ')) ||
       (rw.proposed_signals?.join(' • ')) || rw.proposed_action || ''
     if (text) push(label, `${text}\n— ${rw.rationale ?? ''}\nExpected lift: ${rw.expected_lift ?? '—'}`)
@@ -355,7 +355,7 @@ function buildFullBrief(data: ComprehensiveAnalysis, headlineText?: string): str
   r('Trust signals',        data.copy?.trust_signals?.rewrite)
   r('Proof signals',        data.copy?.proof_signals?.rewrite)
   r('CTA rewrite',          data.copy?.cta?.rewrite)
-  r('Hook rewrite',         data.hook_analysis?.rewrite)
+  r('Attention rewrite',    data.hook_analysis?.rewrite)
   r('Offer rewrite',        data.offer_architecture?.rewrite)
   r('Congruence fix',       data.congruence?.rewrite)
   r('Cognitive subtraction', data.cognitive_load?.rewrite)
@@ -378,7 +378,7 @@ function pickTopThreeRewrites(data: ComprehensiveAnalysis): {
     { label: 'Trust',        proposed: extractProposed(data.copy?.trust_signals?.rewrite), rationale: data.copy?.trust_signals?.rewrite?.rationale ?? '',   score: data.copy?.trust_signals?.strength ?? 10 },
     { label: 'Proof',        proposed: extractProposed(data.copy?.proof_signals?.rewrite), rationale: data.copy?.proof_signals?.rewrite?.rationale ?? '',  score: data.copy?.proof_signals?.strength ?? 10 },
     { label: 'CTA',          proposed: extractProposed(data.copy?.cta?.rewrite),          rationale: data.copy?.cta?.rewrite?.rationale ?? '',             score: data.copy?.cta?.clarity ?? 10 },
-    { label: 'Hook',         proposed: extractProposed(data.hook_analysis?.rewrite),      rationale: data.hook_analysis?.rewrite?.rationale ?? '',         score: data.hook_analysis?.scroll_stop_score ?? 10 },
+    { label: 'Attention',    proposed: extractProposed(data.hook_analysis?.rewrite),      rationale: data.hook_analysis?.rewrite?.rationale ?? '',         score: (data.hook_analysis?.attention_score ?? (data.hook_analysis as Record<string,unknown> | undefined)?.scroll_stop_score as number | undefined) ?? 10 },
     { label: 'Offer',        proposed: extractProposed(data.offer_architecture?.rewrite), rationale: data.offer_architecture?.rewrite?.rationale ?? '',    score: data.offer_architecture?.offer_clarity_score ?? 10 },
     { label: 'Congruence',   proposed: extractProposed(data.congruence?.rewrite),         rationale: data.congruence?.rewrite?.rationale ?? '',            score: data.congruence?.overall_score ?? 10 },
   ]
@@ -391,7 +391,7 @@ function pickTopThreeRewrites(data: ComprehensiveAnalysis): {
 function extractProposed(rw: RewriteLike): string | null {
   if (!rw) return null
   return (
-    rw.proposed_text || rw.proposed_change || rw.proposed_pattern_interrupt ||
+    rw.proposed_text || rw.proposed_change || rw.proposed_disruptor ||
     rw.proposed_offer_text || (rw.proposed_benefits ? rw.proposed_benefits.join(' • ') : null) ||
     (rw.proposed_signals ? rw.proposed_signals.join(' • ') : null) || rw.proposed_action || null
   )
@@ -519,6 +519,33 @@ function TargetingFitSection({ data, token, productId }: { data: ComprehensiveAn
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
+      {m?.match_quality === 'major_mismatch' && (
+        <div className="border border-[#ff2a2b]/40 bg-[#ff2a2b]/10 rounded-xl px-4 py-3 space-y-2">
+          <p className="text-xs font-semibold text-[#ff2a2b]">Audience mismatch</p>
+          <p className="text-[11px] text-gray-300 leading-snug">
+            This ad reads as targeting <strong className="text-white">{inf?.inferred_persona ?? 'a different audience'}</strong>.{' '}
+            If the creative doesn&apos;t signal the audience, Meta&apos;s algorithm won&apos;t reach them either.
+          </p>
+          {m.mismatches.length > 0 && (
+            <ul className="space-y-0.5">
+              {m.mismatches.map((s, i) => (
+                <li key={i} className="text-[10px] text-gray-400">· {s}</li>
+              ))}
+            </ul>
+          )}
+          {m.recommendation && (
+            <p className="text-[10px] text-gray-500 italic">{m.recommendation}</p>
+          )}
+        </div>
+      )}
+      {m?.match_quality === 'partial_mismatch' && (
+        <div className="border border-amber-700/40 bg-amber-950/20 rounded-xl px-4 py-2.5">
+          <p className="text-xs font-semibold text-amber-400">Partial audience mismatch</p>
+          {m.recommendation && (
+            <p className="text-[10px] text-gray-400 mt-1">{m.recommendation}</p>
+          )}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h3 className="text-sm font-semibold text-white">Targeting fit</h3>
@@ -958,36 +985,43 @@ function ComprehensiveSections({ data, isHistorical, isLoser, token, productId }
         </Section>
       )}
 
-      {/* Hook Analysis */}
-      {data.hook_analysis && (
-        <Section title="Hook Analysis">
-          <div className="flex items-center gap-3">
-            <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Scroll-stop</p>
-              <ScoreBadge score={data.hook_analysis.scroll_stop_score} />
+      {/* Attention Capture */}
+      {data.hook_analysis && (() => {
+        const h = data.hook_analysis as Record<string, unknown>
+        const attentionScore = (h.attention_score ?? h.scroll_stop_score) as number | undefined
+        const disruptor = (h.attention_disruptor ?? h.pattern_interrupt) as string | undefined
+        const firstGlance = (h.first_glance ?? h.first_half_second) as string | undefined
+        const feedback = (h.attention_feedback ?? h.hook_feedback) as string | undefined
+        return (
+          <Section title="Attention Capture">
+            <div className="flex items-center gap-3">
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Attention score</p>
+                <ScoreBadge score={attentionScore ?? 0} />
+              </div>
             </div>
-          </div>
-          {data.hook_analysis.pattern_interrupt && (
-            <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Pattern interrupt</p>
-              <p className="text-xs text-gray-300">{data.hook_analysis.pattern_interrupt}</p>
-            </div>
-          )}
-          {data.hook_analysis.first_half_second && (
-            <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">First 0.5 seconds</p>
-              <p className="text-xs text-gray-300">{data.hook_analysis.first_half_second}</p>
-            </div>
-          )}
-          {data.hook_analysis.hook_feedback && (
-            <p className="text-[11px] text-gray-400 leading-snug border-t border-gray-800 pt-2">
-              {data.hook_analysis.hook_feedback}
-            </p>
-          )}
-          <LibraryAlignmentChips alignment={data.hook_analysis.library_alignment} />
-          <RewriteCard rewrite={data.hook_analysis.rewrite} label="Proposed Hook Rewrite" />
-        </Section>
-      )}
+            {disruptor && (
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Attention disruptor</p>
+                <p className="text-xs text-gray-300">{disruptor}</p>
+              </div>
+            )}
+            {firstGlance && (
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">First glance</p>
+                <p className="text-xs text-gray-300">{firstGlance}</p>
+              </div>
+            )}
+            {feedback && (
+              <p className="text-[11px] text-gray-400 leading-snug border-t border-gray-800 pt-2">
+                {feedback}
+              </p>
+            )}
+            <LibraryAlignmentChips alignment={data.hook_analysis.library_alignment} />
+            <RewriteCard rewrite={data.hook_analysis.rewrite} label="Proposed Attention Rewrite" />
+          </Section>
+        )
+      })()}
 
       {/* Copy Analysis */}
       <Section title="Copy Analysis">

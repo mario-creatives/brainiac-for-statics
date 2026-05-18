@@ -55,7 +55,7 @@ export interface ElementRewrite {
   proposed_benefits?: string[] | null
   proposed_signals?: string[] | null
   proposed_change?: string | null
-  proposed_pattern_interrupt?: string | null
+  proposed_disruptor?: string | null
   proposed_offer_text?: string | null
   rationale: string
   expected_lift: string
@@ -166,10 +166,10 @@ export interface ComprehensiveAnalysis {
     format_assessment: string
   }
   hook_analysis: {
-    scroll_stop_score: number
-    pattern_interrupt: string
-    first_half_second: string
-    hook_feedback: string
+    attention_score: number
+    attention_disruptor: string
+    first_glance: string
+    attention_feedback: string
     library_alignment?: LibraryAlignment | null
     rewrite?: ElementRewrite | null
   }
@@ -375,7 +375,8 @@ function fingerprintAd(prefix: string, idx: number, ex: WinningAnalysisSummary, 
   const grade = ca.framework_score?.overall_framework_grade ?? '?'
   const soph = ca.market_context?.sophistication_level ?? '?'
   const format = ca.ad_format?.type ?? '?'
-  const scrollStop = ca.hook_analysis?.scroll_stop_score ?? 0
+  const hookBlock = ca.hook_analysis as Record<string, unknown> | undefined
+  const scrollStop = (hookBlock?.attention_score ?? hookBlock?.scroll_stop_score ?? 0) as number
   const cogLoad = ca.cognitive_load?.score ?? 0
   const congruence = ca.congruence?.overall_score ?? '?'
   const combo = ca.composition_tag ?? '?'
@@ -385,7 +386,7 @@ function fingerprintAd(prefix: string, idx: number, ex: WinningAnalysisSummary, 
 
   const lines: string[] = []
   lines.push(`${prefix}${idx} ($${ex.spend_usd} spend, soph=${soph}, format=${format}):`)
-  lines.push(`  combo=${combo} | grade=${grade} | scroll_stop=${scrollStop} | cog_load=${cogLoad} | congruence=${congruence} | BE=[${topBE}]`)
+  lines.push(`  combo=${combo} | grade=${grade} | attention=${scrollStop} | cog_load=${cogLoad} | congruence=${congruence} | BE=[${topBE}]`)
   if (compact) return lines
   if (hd) {
     lines.push(`  HL="${headline}" (${hd.word_count}w/${hd.char_count}c) | ${hd.voice}/${hd.person}/${hd.tense}/${hd.sentence_type} | structure=${hd.structure_type} | spec=${hd.specificity_level} | mech=${hd.mechanism_present} audience=${hd.audience_explicit} outcome=${hd.outcome_explicit} time=${hd.time_bound} | reg=${hd.emotional_register}/${hd.tone_register} | metaphor=${hd.uses_metaphor} neg=${hd.uses_negation} contrast=${hd.uses_contrast} punct=[${(hd.punctuation_signals ?? []).join(',')}]`)
@@ -612,7 +613,7 @@ Format as a markdown bulleted list.`
     ending = `Give 5–6 specific, actionable recommendations. For each: name the ROI, quote its score, state the ad-performance implication and the exact change to make. Two sentences max — no filler. Reference winning patterns above where relevant.\n\nFormat as a markdown bulleted list.`
   }
 
-  return `You are interpreting BERG fMRI brain activation predictions for a static ad image.
+  return `You are interpreting BERG fMRI brain activation measurements for a static ad image.
 
 ${roiContext}
 
@@ -813,12 +814,12 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "format_assessment": "<one sentence: does the format match the likely intent and awareness level>"
   },
   "hook_analysis": {
-    "scroll_stop_score": <1-10>,
-    "pattern_interrupt": "<what specific element(s) would stop the scroll>",
-    "first_half_second": "<what the eye hits first and why it works or doesn't for this audience>",
-    "hook_feedback": "<one sentence — if scroll_stop_score >= 7 describe the working pattern interrupt; if <7 propose a specific change>",
+    "attention_score": <1-10 — how immediately and clearly does one element dominate the viewer's eye before they read a word?>,
+    "attention_disruptor": "<what specific visual or copy element disrupts visual monotony and pulls the eye — describe what it is, not what to do next>",
+    "first_glance": "<what the eye lands on first and why it works or fails for this audience at this awareness level>",
+    "attention_feedback": "<one sentence — if attention_score >= 7 describe what makes the disruptor work; if <7 name the single change that would most improve initial visual dominance>",
     "library_alignment": ${LIBRARY_ALIGNMENT_BLOCK},
-    "rewrite": "<null when scroll_stop_score >= 7. Otherwise object: { 'proposed_pattern_interrupt': '<change to first half-second>', 'rationale': '<why>', 'expected_lift': '<projected score + library citation>' }>"
+    "rewrite": "<null when attention_score >= 7. Otherwise object: { 'proposed_disruptor': '<change to the dominant visual element or headline positioning>', 'rationale': '<why>', 'expected_lift': '<projected score + library citation>' }>"
   },
   "offer_architecture": {
     "offer_present": <true/false>,
@@ -1063,10 +1064,10 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "format_assessment": "<one sentence: what this format reveals about audience match and conversion intent>"
   },
   "hook_analysis": {
-    "scroll_stop_score": <1-10>,
-    "pattern_interrupt": "<what specific element(s) stopped the scroll>",
-    "first_half_second": "<what the eye hits first and why it works for this audience>",
-    "hook_feedback": "<one sentence: what this hook's effectiveness reveals about audience attention in this vertical>"
+    "attention_score": <1-10>,
+    "attention_disruptor": "<what specific visual or copy element dominated the eye and made this ad immediately legible>",
+    "first_glance": "<what the eye lands on first and why it works for this audience>",
+    "attention_feedback": "<one sentence: what this ad's visual dominance reveals about audience attention in this vertical>"
   },
   "offer_architecture": {
     "offer_present": <true/false>,
@@ -1307,10 +1308,10 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "format_assessment": "<one sentence: what this format reveals about audience mismatch or conversion intent failure>"
   },
   "hook_analysis": {
-    "scroll_stop_score": <1-10>,
-    "pattern_interrupt": "<what element(s) were intended to stop scroll and why they did or did not work>",
-    "first_half_second": "<what the eye hits first and why it failed or succeeded for this audience>",
-    "hook_feedback": "<one sentence: what the hook's failure reveals about attention patterns in this vertical>"
+    "attention_score": <1-10>,
+    "attention_disruptor": "<what element(s) were intended to dominate the eye and why they did or did not work>",
+    "first_glance": "<what the eye lands on first and why it failed or succeeded for this audience>",
+    "attention_feedback": "<one sentence: what the visual dominance failure reveals about attention patterns in this vertical>"
   },
   "offer_architecture": {
     "offer_present": <true/false>,
@@ -1585,7 +1586,7 @@ INVERTED SCALES — apply the contract correctly:
 CROSS-FIELD CONSISTENCY:
 - If congruence.overall_score is 9, field-level alignment booleans should mostly be true. If most are false, the score is wrong.
 - If framework_score.overall_framework_grade is A, *_justified booleans should mostly be true and minimum_viable_test_score should be >= 7.
-- If hook_analysis.scroll_stop_score is 8+, hook_feedback must describe the working pattern interrupt — not propose a new one.
+- If hook_analysis.attention_score is 8+, attention_feedback must describe what makes the disruptor work — not propose a new one.
 
 VIOLATION CHECK BEFORE OUTPUT: verify every score-feedback pair satisfies the contract. Do not return contradictions.
 
@@ -1593,7 +1594,7 @@ PRINCIPLE PRECEDENCE — non-negotiable:
 When a LEARNED GUARD RAIL (Block 0) contradicts the STATIC FRAMEWORK BASELINE, follow the learned guard rail. The baseline is a default for when historical evidence is silent on this segment. Cite guard rail rule indices (G1, G2, ...) when they drive a recommendation.
 
 DUAL CROSS-REFERENCE — winner AND loser patterns per scored variable:
-For each scored variable (headline, subheadline, each benefit, trust signals, CTA, offer, hook, congruence), perform two checks:
+For each scored variable (headline, subheadline, each benefit, trust signals, CTA, offer, attention capture, congruence), perform two checks:
 - WINNER CHECK: Does this variable's DNA match a pattern in winners (≥$${WINNER_THRESHOLD_USD} spend) within this ad's awareness/sophistication segment? If YES, populate library_alignment.winner_matches with the example numbers.
 - LOSER CHECK: Does this variable's DNA match a pattern in losers (<$${WINNER_THRESHOLD_USD} spend) within this segment? If YES, populate library_alignment.loser_matches.
 - If matches BOTH: verdict='mixed', name both citations, weight the score by the count balance.
@@ -1755,7 +1756,7 @@ function emptyComprehensive(bergBullets: string[]): ComprehensiveAnalysis {
       },
       format_assessment: '',
     },
-    hook_analysis: { scroll_stop_score: 0, pattern_interrupt: '', first_half_second: '', hook_feedback: '' },
+    hook_analysis: { attention_score: 0, attention_disruptor: '', first_glance: '', attention_feedback: '' },
     offer_architecture: {
       offer_present: false, offer_text: null,
       has_price_anchor: false, has_guarantee: false, has_urgency_mechanism: false, has_trial_or_free: false,
@@ -1840,21 +1841,38 @@ export async function POST(req: NextRequest) {
     if (analysis_id) {
       const { data: row } = await supabaseServer
         .from('analyses')
-        .select('quadrant, quadrant_override, stated_concept, stated_angle, tam_id, persona_id, micro_persona_id')
+        .select('quadrant, quadrant_override, stated_concept, stated_angle, tam_id, persona_id, micro_persona_id, product_id')
         .eq('id', analysis_id)
         .maybeSingle()
       effectiveQuadrant = (row?.quadrant_override as string | null) ?? (row?.quadrant as string | null) ?? null
 
-      // Hierarchical Audience Clarity (014 migration): resolve labels from
-      // the ad's selected (tam_id, persona_id, micro_persona_id) combo.
-      // No fallback to product defaults — if the user hasn't selected an
-      // audience for this ad, statedAudience stays null and the match check
-      // is skipped (has_user_input=false).
       const tamId = row?.tam_id as string | null | undefined
       const personaId = row?.persona_id as string | null | undefined
       const microId = row?.micro_persona_id as string | null | undefined
       const statedConcept = (row?.stated_concept as string | null) ?? null
       const statedAngle = (row?.stated_angle as string | null) ?? null
+      const productId = (row?.product_id as string | null) ?? null
+
+      // Fetch product-level audience defaults as fallback.
+      // Per-ad stated values always win; product defaults fill the gap so Claude
+      // can run audience_match even on freshly uploaded ads with no per-ad override.
+      let productTam: string | null = null
+      let productPersona: string | null = null
+      let productMicro: string | null = null
+      let productConcept: string | null = null
+      let productAngle: string | null = null
+      if (productId) {
+        const { data: prod } = await supabaseServer
+          .from('products')
+          .select('tam, default_persona, default_micro_persona, default_concept, default_angle')
+          .eq('id', productId)
+          .maybeSingle()
+        productTam = (prod?.tam as string | null) ?? null
+        productPersona = (prod?.default_persona as string | null) ?? null
+        productMicro = (prod?.default_micro_persona as string | null) ?? null
+        productConcept = (prod?.default_concept as string | null) ?? null
+        productAngle = (prod?.default_angle as string | null) ?? null
+      }
 
       if (tamId || personaId || microId) {
         let tamLabel: string | null = null
@@ -1873,20 +1891,20 @@ export async function POST(req: NextRequest) {
           microLabel = (data?.label as string) ?? null
         }
         statedAudience = {
-          tam: tamLabel,
-          persona: personaLabel,
-          micro_persona: microLabel,
-          concept: statedConcept,
-          angle: statedAngle,
+          tam: tamLabel ?? productTam,
+          persona: personaLabel ?? productPersona,
+          micro_persona: microLabel ?? productMicro,
+          concept: statedConcept ?? productConcept,
+          angle: statedAngle ?? productAngle,
         }
-      } else if (statedConcept || statedAngle) {
-        // Concept/angle alone (no audience FKs) still warrants a check.
+      } else if (statedConcept || statedAngle || productTam || productPersona || productConcept || productAngle) {
+        // Use per-ad stated values first; fall through to product defaults.
         statedAudience = {
-          tam: null,
-          persona: null,
-          micro_persona: null,
-          concept: statedConcept,
-          angle: statedAngle,
+          tam: productTam,
+          persona: productPersona,
+          micro_persona: productMicro,
+          concept: statedConcept ?? productConcept,
+          angle: statedAngle ?? productAngle,
         }
       }
     }
