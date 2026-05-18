@@ -10,7 +10,7 @@ import { AdTrackerTable } from './AdTrackerTable'
 import { SpendCpaScatter } from './SpendCpaScatter'
 import { FormatBreakdownBar } from './FormatBreakdownBar'
 import { WinnerReasonsPie } from './WinnerReasonsPie'
-import { AudienceMindMap } from './AudienceMindMap'
+import { AudienceDropdown } from './AudienceDropdown'
 import { DiagnosisPie } from './DiagnosisPie'
 import type { ProductDashboardPayload } from '@/app/api/products/[id]/dashboard/route'
 import type { ProductRecommendationReport } from '@/app/api/products/[id]/recommendations/route'
@@ -258,8 +258,15 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
         currentReanalyzeId={reanalyzeProgress.currentId}
       />
 
-      {/* Audience mind map — built from Claude's inferences across all ads */}
-      <AudienceMindMap productName={product.name} ads={ads} productId={productId} token={token} />
+      {/* Audience dropdown — TAM → persona → micro → concept → angle → ads */}
+      <AudienceDropdown
+        productName={product.name}
+        ads={ads}
+        productId={productId}
+        token={token}
+        onOpenAd={handleOpenAd}
+        currentReanalyzeId={reanalyzeProgress.currentId}
+      />
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
