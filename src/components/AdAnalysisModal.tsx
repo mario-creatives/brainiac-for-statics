@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { X, Copy, Check, FileText, Plus } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X, Copy, Check, FileText, Plus, FlaskConical, RefreshCw, Sparkles } from 'lucide-react'
 import type { AnalysisResult } from '@/types'
 import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
 import type { AudienceTreePayload } from '@/app/api/products/[id]/audiences/route'
+import type { NextTestSuggestions } from '@/app/api/products/[id]/ads/[analysisId]/next-test/route'
 import { Tooltip } from '@/components/Tooltip'
 
 function CopyButton({ text, label = 'Copy', className = '' }: { text: string; label?: string; className?: string }) {
@@ -185,6 +186,16 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, isHistori
             )}
           </div>
 
+          {/* What to test next — uses the entered metrics + status + cohort to suggest concrete iterations.
+              Only meaningful once a comprehensive analysis exists and the ad belongs to a product. */}
+          {comprehensive && productId && (
+            <NextTestSection
+              token={token}
+              productId={productId}
+              analysisId={card.id}
+            />
+          )}
+
           {/* Brain Activation — BERG (bars + heatmap legend + narrative) */}
           {card.result?.roi_data && (
             <Section title="Brain Activation — BERG">
@@ -283,6 +294,208 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <div className="border-t border-gray-800 pt-4 space-y-3">
       <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-widest">{title}</p>
       {children}
+    </div>
+  )
+}
+
+interface NextTestState {
+  suggestions: NextTestSuggestions | null
+  generated_at: string | null
+  generated_against_quadrant: string | null
+  current_quadrant: string | null
+  stale: boolean
+}
+
+async function readJsonStream(res: Response): Promise<Record<string, unknown>> {
+  const reader = res.body!.getReader()
+  const decoder = new TextDecoder()
+  let text = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    text += decoder.decode(value, { stream: !done })
+  }
+  const last = text.split('\n').filter(l => l.trim()).pop() ?? '{}'
+  return JSON.parse(last)
+}
+
+function NextTestSection({ token, productId, analysisId }: { token: string; productId: string; analysisId: string }) {
+  const [state, setState] = useState<NextTestState | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch(`/api/products/${productId}/ads/${analysisId}/next-test`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled || !data) return
+        setState({
+          suggestions: data.cached as NextTestSuggestions | null,
+          generated_at: data.generated_at ?? null,
+          generated_against_quadrant: data.generated_against_quadrant ?? null,
+          current_quadrant: data.current_quadrant ?? null,
+          stale: !!data.stale,
+        })
+      })
+      .catch(() => { /* show button anyway */ })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [token, productId, analysisId])
+
+  async function handleGenerate() {
+    if (generating) return
+    setGenerating(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/products/${productId}/ads/${analysisId}/next-test`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error ?? `Request failed (${res.status})`)
+        return
+      }
+      const data = await readJsonStream(res)
+      if (data.error) {
+        setError(data.error as string)
+        return
+      }
+      const suggestions = data as unknown as NextTestSuggestions
+      setState({
+        suggestions,
+        generated_at: suggestions.generated_at,
+        generated_against_quadrant: suggestions.generated_against_quadrant ?? null,
+        current_quadrant: suggestions.generated_against_quadrant ?? null,
+        stale: false,
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Network error')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="border border-indigo-900/40 bg-indigo-950/20 rounded-xl px-4 py-3">
+        <p className="text-[11px] text-gray-500 animate-pulse-soft">Checking for test suggestions…</p>
+      </div>
+    )
+  }
+
+  const s = state?.suggestions
+  const showGenerate = !s
+
+  return (
+    <div className="border border-indigo-900/40 bg-indigo-950/20 rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <FlaskConical className="w-3.5 h-3.5 text-indigo-400" />
+          <p className="text-[11px] font-semibold text-indigo-300 uppercase tracking-wider">What to test next</p>
+          {state?.current_quadrant && (
+            <span className="text-[10px] font-mono uppercase tracking-wider text-gray-500 border border-gray-800 rounded px-1.5 py-0.5">
+              status: {state.current_quadrant}
+            </span>
+          )}
+        </div>
+        {showGenerate && (
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="text-[11px] bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-wait text-white px-3 py-1.5 rounded-lg font-medium flex items-center gap-1.5"
+          >
+            <Sparkles className="w-3 h-3" />
+            {generating ? 'Generating…' : 'Generate tests'}
+          </button>
+        )}
+      </div>
+
+      {!s && !generating && (
+        <p className="text-[11px] text-gray-400 leading-relaxed">
+          Use this ad&apos;s existing analysis, its measured performance, and the cohort of other ads under this product to propose 3-5 concrete tests to run next. No re-analysis — synthesizes what you already have.
+        </p>
+      )}
+
+      {error && <p className="text-[11px] text-[#ff2a2b]">{error}</p>}
+
+      {state?.stale && s && (
+        <div className="border border-amber-900/40 bg-amber-950/20 rounded-lg px-3 py-2">
+          <p className="text-[11px] text-amber-300">
+            Status changed since these tests were generated ({state.generated_against_quadrant} → {state.current_quadrant}). Consider regenerating.
+          </p>
+        </div>
+      )}
+
+      {s && (
+        <div className="space-y-3">
+          <p className="text-xs text-gray-200 leading-relaxed">{s.diagnosis}</p>
+
+          <ul className="space-y-2">
+            {s.tests.map((test, i) => {
+              const isTop = i === s.highest_leverage_test
+              return (
+                <li
+                  key={i}
+                  className={`rounded-lg px-3 py-2.5 border ${
+                    isTop
+                      ? 'border-indigo-700/60 bg-indigo-900/30'
+                      : 'border-gray-800 bg-gray-950'
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between gap-2 mb-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[10px] font-mono font-bold text-gray-500 tabular-nums">#{i + 1}</span>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-300">{test.element}</span>
+                      {isTop && (
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-indigo-300 bg-indigo-900/60 px-1.5 py-0.5 rounded">
+                          run first
+                        </span>
+                      )}
+                    </div>
+                    {test.proposed_change && <CopyButton text={test.proposed_change} />}
+                  </div>
+                  <div className="space-y-1">
+                    <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+                      <span className="text-gray-500">now:</span>
+                      <span className="text-gray-300">{test.current_state}</span>
+                      <span className="text-gray-500">try:</span>
+                      <span className="text-white font-medium">{test.proposed_change}</span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 leading-snug pt-1">{test.rationale}</p>
+                    {test.backed_by_ad_ids.length > 0 && (
+                      <p className="text-[10px] text-gray-600">
+                        Cited cohort: {test.backed_by_ad_ids.map(id => id.slice(0, 8)).join(', ')}
+                      </p>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+
+          <div className="flex items-center justify-between gap-2 pt-1">
+            {state?.generated_at && (
+              <p className="text-[10px] text-gray-600">
+                Generated {new Date(state.generated_at).toLocaleString()}
+              </p>
+            )}
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="text-[10px] text-gray-400 hover:text-white disabled:opacity-40 flex items-center gap-1 ml-auto"
+            >
+              <RefreshCw className={`w-3 h-3 ${generating ? 'animate-spin' : ''}`} />
+              {generating ? 'Regenerating…' : 'Regenerate'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
