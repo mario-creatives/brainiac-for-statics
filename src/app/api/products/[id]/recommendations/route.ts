@@ -242,7 +242,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       quadrant_override: r.quadrant_override,
       loss_reason: r.loss_reason,
     }))
-    const cohortAnalytics = computeCohortAnalytics(analyticsRows)
+
+    // Cross-cohort pool: every winner this user owns OUTSIDE the current
+    // product, across all verticals and historical-mode uploads. Feeds the
+    // novelty mode with combinations validated elsewhere in the user's
+    // account but not yet tested for this product. Voice/style is NEVER
+    // pulled from this pool — only the COMBINATION (audience × angle ×
+    // format × awareness × BE signal).
+    const { data: crossRows } = await supabaseServer
+      .from('analyses')
+      .select('id, comprehensive_analysis, spend_usd, cpa_usd, ctr_pct, quadrant, quadrant_override, product_id')
+      .eq('user_id', user.id)
+      .neq('product_id', productId)
+      .not('comprehensive_analysis', 'is', null)
+      .or('quadrant.eq.winner,quadrant_override.eq.winner,is_winner.eq.true,spend_usd.gte.1000')
+      .order('spend_usd', { ascending: false, nullsFirst: false })
+      .limit(80)
+    const crossPool = computeCrossCohortPool((crossRows ?? []) as CrossCohortRow[], analyticsRows)
+
+    const cohortAnalytics = computeCohortAnalytics(analyticsRows, crossPool)
     const constraintsText = formatCohortAnalytics(cohortAnalytics)
 
     const targetCpa = product.target_cpa_usd ?? null
@@ -303,10 +321,14 @@ Every spec decision must trace back. Rules apply CONDITIONALLY on spec_mode:
   - why_this_test MUST name the dimension being intentionally diverged on and the hypothesis (e.g. "Hypothesis: winners win DESPITE grade-11 prose, not because of it; testing grade-7 variant").
 
   For spec_mode = 'novelty':
-  - Voice / writing style should still align with the brand's observed voice from the empirical block (Hemingway grade, sentence length, active voice ratio, weasel density, punctuation conventions). The novelty is in the COMBINATION (audience × angle × format × awareness × BE signal), not in inventing a foreign voice.
-  - Identify a specific gap from the COHORT ANALYTICS — an awareness level winners don't target, a format×angle pair never tried, a persona × micro-persona never tested. contrastive_findings_used MUST cite this gap explicitly.
-  - data_basis.replicates_from MAY be empty for novelty specs (no direct winner pattern to replicate) but contrastive_findings_used MUST cite the gap.
-  - why_this_test MUST be explicit: "Novel combination test — <combination> not tried in cohort. Hypothesis: <why this might work>."
+  - Voice / writing style should still align with the brand's observed voice from WINNER DETAIL (Hemingway grade, sentence length, active voice ratio, weasel density, punctuation conventions). The novelty is in the COMBINATION (audience × angle × format × awareness × BE signal), not in inventing a foreign voice.
+  - Identify a specific gap. Two valid gap sources:
+    (a) Within-product: from the COHORT ANALYTICS — an awareness level winners don't target, a format×angle pair never tried, a persona × micro-persona never tested.
+    (b) Cross-cohort: from the CROSS-COHORT NOVELTY POOL when present — combinations validated across the user's OTHER products / historical uploads that haven't been tested for THIS product. The gaps subsection of that pool names them explicitly (angles_not_in_current, awareness_not_in_current, format_compositions_not_in_current, be_stacks_not_in_current, personas_not_in_current). Drawing on cross-cohort signals is encouraged when the within-product gap is thin.
+  - Do NOT match the voice of the cross-cohort headlines. Those headlines exist only to show what COMBINATIONS work in other products — your spec's voice stays anchored to THIS product's WINNER DETAIL exemplars.
+  - contrastive_findings_used MUST cite the specific gap (within-product or cross-cohort) the novelty spec is filling.
+  - data_basis.replicates_from MAY be empty for novelty specs (no direct in-product winner pattern to replicate).
+  - why_this_test MUST be explicit. When drawing on cross-cohort, name the cross-cohort pattern (e.g. "Cross-cohort: N winners in other products use mechanism-reveal headlines for problem-aware moms; this product has 0 — testing adaptation in this product's voice"). When drawing on within-product gap only: "Novel combination test — <combination> not tried in cohort. Hypothesis: <why this might work>."
 
 You are this brand's senior copywriter. You have read every winning ad's headline, subheadline, body, and CTA. You know this brand's voice — its cadence, vocabulary, sentence length, what it always says, what it never says. WRITE the final copy in that voice:
 
@@ -715,6 +737,38 @@ interface CohortAnalytics {
   audience_match_correlation: {
     aligned_rate_by_quadrant: Record<Quadrant, number>
     mismatch_examples: Array<{ ad_id: string; quadrant: Quadrant; mismatches: string[] }>
+  }
+  // Winners from every OTHER product/upload this user owns. Surfaces as the
+  // novelty-mode inspiration source — combinations proven elsewhere but not
+  // yet tested for this product. null when no cross-cohort winners exist.
+  cross_cohort_pool: CrossCohortPool | null
+}
+
+interface CrossCohortRow {
+  id: string
+  comprehensive_analysis: Record<string, unknown> | null
+  spend_usd: number | null
+  cpa_usd: number | null
+  ctr_pct: number | null
+  quadrant: Quadrant | null
+  quadrant_override: Quadrant | null
+  product_id: string | null
+}
+
+interface CrossCohortPool {
+  sample_size: number
+  top_angles: Array<[string, number]>
+  top_concepts: Array<[string, number]>
+  top_awareness_levels: Array<[string, number]>
+  top_format_compositions: Array<[string, number]>
+  top_be_stacks: Array<[string, number]>
+  headline_exemplars: string[]
+  gaps: {
+    angles_not_in_current: string[]
+    awareness_not_in_current: string[]
+    format_compositions_not_in_current: string[]
+    be_stacks_not_in_current: string[]
+    personas_not_in_current: string[]
   }
 }
 
@@ -1154,7 +1208,7 @@ interface QuadrantAdRow {
   loss_reason: string | null
 }
 
-function computeCohortAnalytics(rows: QuadrantAdRow[]): CohortAnalytics {
+function computeCohortAnalytics(rows: QuadrantAdRow[], crossCohortPool: CrossCohortPool | null = null): CohortAnalytics {
   const buckets: Record<Quadrant, QuadrantAdRow[]> = { winner: [], promising: [], investigate: [], loser: [] }
   for (const r of rows) {
     const q = (r.quadrant_override ?? r.quadrant) as Quadrant | null
@@ -1173,7 +1227,109 @@ function computeCohortAnalytics(rows: QuadrantAdRow[]): CohortAnalytics {
   const audience_match_correlation = computeAudienceMatchCorrelation(rows, buckets)
   const quality_gaps = detectQualityGaps(by_quadrant.winner)
 
-  return { by_quadrant, quality_gaps, contrasts, loss_diagnostics, audience_match_correlation }
+  return { by_quadrant, quality_gaps, contrasts, loss_diagnostics, audience_match_correlation, cross_cohort_pool: crossCohortPool }
+}
+
+// Aggregates winners across every OTHER product/upload this user owns, then
+// computes set differences vs. the current product's winner patterns. Surfaces
+// combinations validated elsewhere but absent here — the seed signal for
+// spec_mode='novelty'. Returns null when no cross-cohort winners exist.
+function computeCrossCohortPool(crossRows: CrossCohortRow[], currentProductRows: QuadrantAdRow[]): CrossCohortPool | null {
+  if (crossRows.length === 0) return null
+
+  const angleCounts = new Map<string, number>()
+  const conceptCounts = new Map<string, number>()
+  const awarenessCounts = new Map<string, number>()
+  const formatCompCounts = new Map<string, number>()
+  const beStackCounts = new Map<string, number>()
+  const personaSet = new Set<string>()
+  const headlineCandidates: Array<{ text: string; spend: number }> = []
+
+  for (const r of crossRows) {
+    const ca = (r.comprehensive_analysis ?? {}) as Record<string, unknown>
+    const audI = ca.audience_inference as Record<string, unknown> | undefined
+    const mc = ca.market_context as Record<string, unknown> | undefined
+    const fmt = (ca.ad_format as Record<string, unknown> | undefined)?.type
+    const comp = ca.composition_tag
+
+    if (typeof audI?.inferred_angle === 'string') angleCounts.set(audI.inferred_angle, (angleCounts.get(audI.inferred_angle) ?? 0) + 1)
+    if (typeof audI?.inferred_concept === 'string') conceptCounts.set(audI.inferred_concept, (conceptCounts.get(audI.inferred_concept) ?? 0) + 1)
+    if (typeof audI?.inferred_persona === 'string') personaSet.add(audI.inferred_persona)
+    if (typeof mc?.awareness_level === 'string') awarenessCounts.set(mc.awareness_level, (awarenessCounts.get(mc.awareness_level) ?? 0) + 1)
+    if (typeof fmt === 'string' && typeof comp === 'string') {
+      const key = `${fmt} / ${comp}`
+      formatCompCounts.set(key, (formatCompCounts.get(key) ?? 0) + 1)
+    }
+
+    const be = ca.behavioral_economics as Record<string, unknown> | undefined
+    if (be) {
+      const active: string[] = []
+      for (const s of ['scarcity', 'urgency', 'social_proof', 'anchoring', 'loss_aversion', 'authority', 'reciprocity']) {
+        if ((be[s] as { present?: boolean } | undefined)?.present) active.push(s)
+      }
+      if (active.length > 0) {
+        const stack = active.sort().join('+')
+        beStackCounts.set(stack, (beStackCounts.get(stack) ?? 0) + 1)
+      }
+    }
+
+    const headlineText = (ca.copy as Record<string, unknown> | undefined)?.headline as { text?: string } | undefined
+    if (typeof headlineText?.text === 'string' && headlineText.text.trim()) {
+      headlineCandidates.push({ text: headlineText.text.trim(), spend: r.spend_usd ?? 0 })
+    }
+  }
+
+  // Build current-product reference sets for gap computation
+  const currentAngles = new Set<string>()
+  const currentAwareness = new Set<string>()
+  const currentFormatComp = new Set<string>()
+  const currentBeStacks = new Set<string>()
+  const currentPersonas = new Set<string>()
+  for (const r of currentProductRows) {
+    const ca = r.comprehensive_analysis as Record<string, unknown>
+    const audI = ca.audience_inference as Record<string, unknown> | undefined
+    const mc = ca.market_context as Record<string, unknown> | undefined
+    const fmt = (ca.ad_format as Record<string, unknown> | undefined)?.type
+    const comp = ca.composition_tag
+    if (typeof audI?.inferred_angle === 'string') currentAngles.add(audI.inferred_angle)
+    if (typeof audI?.inferred_persona === 'string') currentPersonas.add(audI.inferred_persona)
+    if (typeof mc?.awareness_level === 'string') currentAwareness.add(mc.awareness_level)
+    if (typeof fmt === 'string' && typeof comp === 'string') currentFormatComp.add(`${fmt} / ${comp}`)
+    const be = ca.behavioral_economics as Record<string, unknown> | undefined
+    if (be) {
+      const active: string[] = []
+      for (const s of ['scarcity', 'urgency', 'social_proof', 'anchoring', 'loss_aversion', 'authority', 'reciprocity']) {
+        if ((be[s] as { present?: boolean } | undefined)?.present) active.push(s)
+      }
+      if (active.length > 0) currentBeStacks.add(active.sort().join('+'))
+    }
+  }
+
+  const sortDesc = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1])
+  const topAngles    = sortDesc(angleCounts).slice(0, 8)
+  const topConcepts  = sortDesc(conceptCounts).slice(0, 8)
+  const topAwareness = sortDesc(awarenessCounts).slice(0, 6)
+  const topFormatComp = sortDesc(formatCompCounts).slice(0, 8)
+  const topBeStacks  = sortDesc(beStackCounts).slice(0, 8)
+
+  const gaps = {
+    angles_not_in_current:           topAngles.map(([k]) => k).filter(k => !currentAngles.has(k)),
+    awareness_not_in_current:        topAwareness.map(([k]) => k).filter(k => !currentAwareness.has(k)),
+    format_compositions_not_in_current: topFormatComp.map(([k]) => k).filter(k => !currentFormatComp.has(k)),
+    be_stacks_not_in_current:        topBeStacks.map(([k]) => k).filter(k => !currentBeStacks.has(k)),
+    personas_not_in_current:         [...personaSet].filter(p => !currentPersonas.has(p)).slice(0, 8),
+  }
+
+  return {
+    sample_size: crossRows.length,
+    top_angles: topAngles,
+    top_concepts: topConcepts,
+    top_awareness_levels: topAwareness,
+    top_format_compositions: topFormatComp,
+    top_be_stacks: topBeStacks,
+    headline_exemplars: dedupe(headlineCandidates.sort((a, b) => b.spend - a.spend).map(c => c.text)).slice(0, 10),
+    gaps,
+  }
 }
 
 // Flags dimensions where even the WINNING cohort is mediocre. Each flagged gap
@@ -1580,6 +1736,36 @@ function formatCohortAnalytics(a: CohortAnalytics): string {
     lines.push('  Major-mismatch examples:')
     for (const ex of a.audience_match_correlation.mismatch_examples) {
       lines.push(`    · ${ex.ad_id.slice(0, 8)} (${ex.quadrant}): ${ex.mismatches.join('; ')}`)
+    }
+  }
+
+  // Cross-cohort novelty pool — winners from every other product/upload the
+  // user owns. Used by spec_mode='novelty' as the COMBINATION inspiration source
+  // (audience × angle × format × awareness × BE). Voice / style explicitly
+  // NOT pulled from this pool — anchored to WINNER DETAIL below.
+  if (a.cross_cohort_pool) {
+    const ccp = a.cross_cohort_pool
+    lines.push('')
+    lines.push(`## CROSS-COHORT NOVELTY POOL (n=${ccp.sample_size} other analyses you own, across all products + historical uploads)`)
+    lines.push('  Top patterns proven elsewhere:')
+    if (ccp.top_angles.length > 0)             lines.push(`    angles:           ${dist(ccp.top_angles)}`)
+    if (ccp.top_concepts.length > 0)           lines.push(`    concepts:         ${dist(ccp.top_concepts)}`)
+    if (ccp.top_awareness_levels.length > 0)   lines.push(`    awareness:        ${dist(ccp.top_awareness_levels)}`)
+    if (ccp.top_format_compositions.length > 0) lines.push(`    format × comp:    ${dist(ccp.top_format_compositions)}`)
+    if (ccp.top_be_stacks.length > 0)          lines.push(`    BE stacks:        ${dist(ccp.top_be_stacks)}`)
+    const g = ccp.gaps
+    const anyGap = g.angles_not_in_current.length + g.awareness_not_in_current.length + g.format_compositions_not_in_current.length + g.be_stacks_not_in_current.length + g.personas_not_in_current.length > 0
+    if (anyGap) {
+      lines.push('  GAPS — combinations validated cross-cohort but NOT YET tested in this product:')
+      if (g.angles_not_in_current.length > 0)            lines.push(`    angles missing here:           ${g.angles_not_in_current.join(', ')}`)
+      if (g.awareness_not_in_current.length > 0)         lines.push(`    awareness levels missing here: ${g.awareness_not_in_current.join(', ')}`)
+      if (g.format_compositions_not_in_current.length > 0) lines.push(`    format×comp missing here:      ${g.format_compositions_not_in_current.join(', ')}`)
+      if (g.be_stacks_not_in_current.length > 0)         lines.push(`    BE stacks missing here:        ${g.be_stacks_not_in_current.join(', ')}`)
+      if (g.personas_not_in_current.length > 0)          lines.push(`    personas missing here:         ${g.personas_not_in_current.join(', ')}`)
+    }
+    if (ccp.headline_exemplars.length > 0) {
+      lines.push('  Top cross-cohort headlines (FOR COMBINATION INSPIRATION ONLY — DO NOT match this voice; match the current product\'s verbatim winners below):')
+      for (const h of ccp.headline_exemplars) lines.push(`    · ${h}`)
     }
   }
 
