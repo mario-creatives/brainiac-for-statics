@@ -1027,6 +1027,117 @@ function FormatFailureModeBanner({ data }: { data: NonNullable<ComprehensiveAnal
   )
 }
 
+function VisualInventorySection({ data }: { data: NonNullable<ComprehensiveAnalysis['visual_inventory']> }) {
+  return (
+    <Section title="Visual inventory">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+        {data.faces && (
+          <>
+            <span className="text-gray-500">Faces</span>
+            <span className="text-gray-200">{data.faces.count} · {data.faces.demographics} · {data.faces.expressions.join(', ')}</span>
+          </>
+        )}
+        <span className="text-gray-500">Product</span><span className="text-gray-200">{data.product_visibility}</span>
+        <span className="text-gray-500">Setting</span><span className="text-gray-200">{data.setting}</span>
+        {data.props.length > 0 && (<><span className="text-gray-500">Props</span><span className="text-gray-200">{data.props.join(', ')}</span></>)}
+        <span className="text-gray-500">Palette</span>
+        <span className="text-gray-200">{data.color_palette.dominant.join(', ')} ({data.color_palette.warmth} · {data.color_palette.contrast_level} contrast)</span>
+        <span className="text-gray-500">Composition</span><span className="text-gray-200">{data.composition_specifics}</span>
+      </div>
+    </Section>
+  )
+}
+
+function VoiceConsistencySection({ data }: { data: NonNullable<ComprehensiveAnalysis['voice_consistency']> }) {
+  const score = data.overall_score
+  const color = score >= 8 ? 'text-emerald-400 border-emerald-800/60' : score >= 5 ? 'text-amber-400 border-amber-800/60' : 'text-[#ff2a2b] border-red-900/60'
+  return (
+    <Section title="Voice consistency">
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded border bg-gray-900 ${color}`}>{score}/10</span>
+        <p className="text-[11px] text-gray-400">{data.drift_summary}</p>
+      </div>
+      <div className="space-y-1 text-[11px]">
+        <PassFail pass={data.headline_to_subheadline.matched} label={`HL → subheadline: ${data.headline_to_subheadline.note}`} />
+        <PassFail pass={data.headline_to_body.matched}         label={`HL → body: ${data.headline_to_body.note}`} />
+        <PassFail pass={data.headline_to_cta.matched}          label={`HL → CTA: ${data.headline_to_cta.note}`} />
+      </div>
+    </Section>
+  )
+}
+
+function CuriosityGapSection({ data }: { data: NonNullable<ComprehensiveAnalysis['curiosity_gap']> }) {
+  return (
+    <Section title="Curiosity gap">
+      <div className="flex items-center gap-2 mb-1">
+        <ScoreBadge score={data.gap_strength} />
+        <span className={`text-[10px] font-bold uppercase ${data.body_resolves ? 'text-emerald-400' : 'text-[#ff2a2b]'}`}>
+          {data.body_resolves ? '✓ body resolves' : '✗ body fails to resolve'}
+        </span>
+      </div>
+      <p className="text-[11px] text-gray-300 leading-snug">{data.resolution_note}</p>
+      <p className="text-[10px] text-gray-500 italic mt-1">{data.diagnostic}</p>
+    </Section>
+  )
+}
+
+function WritingQualitySection({ data }: { data: NonNullable<ComprehensiveAnalysis['writing_quality']> }) {
+  const rows: Array<{ label: string; scores: WritingQualityScoresLike | null | undefined }> = [
+    { label: 'Headline',    scores: data.headline },
+    { label: 'Subheadline', scores: data.subheadline },
+    { label: 'Body',        scores: data.body },
+    { label: 'CTA',         scores: data.cta },
+    { label: 'Benefits',    scores: data.benefits },
+  ].filter(r => r.scores) as Array<{ label: string; scores: WritingQualityScoresLike }>
+  if (rows.length === 0) return null
+  return (
+    <Section title="Writing quality (Hemingway-style audit)">
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr className="text-gray-500 text-left">
+              <th className="font-medium pr-3 pb-1">Element</th>
+              <th className="font-medium pr-3 pb-1">Grade</th>
+              <th className="font-medium pr-3 pb-1">Sentence</th>
+              <th className="font-medium pr-3 pb-1">Active</th>
+              <th className="font-medium pr-3 pb-1">Adverbs</th>
+              <th className="font-medium pr-3 pb-1">Weasels</th>
+              <th className="font-medium pb-1">Hemingway</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => {
+              const s = r.scores!
+              const grade = s.hemingway_grade
+              const gradeColor = grade === 'good' ? 'text-emerald-400' : grade === 'okay' ? 'text-amber-400' : grade === 'hard' ? 'text-orange-400' : 'text-[#ff2a2b]'
+              return (
+                <tr key={r.label} className="border-t border-gray-800">
+                  <td className="text-gray-300 py-1 pr-3">{r.label}</td>
+                  <td className="text-gray-300 py-1 pr-3 font-mono">{s.flesch_kincaid_grade}</td>
+                  <td className="text-gray-300 py-1 pr-3 font-mono">{s.avg_sentence_length}w</td>
+                  <td className="text-gray-300 py-1 pr-3 font-mono">{Math.round(s.active_voice_ratio * 100)}%</td>
+                  <td className="text-gray-300 py-1 pr-3 font-mono">{s.adverb_density}/100w</td>
+                  <td className="text-gray-300 py-1 pr-3 font-mono">{s.weasel_word_count}</td>
+                  <td className={`py-1 font-bold uppercase text-[10px] ${gradeColor}`}>{grade}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  )
+}
+
+interface WritingQualityScoresLike {
+  flesch_kincaid_grade: number
+  avg_sentence_length: number
+  active_voice_ratio: number
+  adverb_density: number
+  weasel_word_count: number
+  hemingway_grade: 'good' | 'okay' | 'hard' | 'very_hard'
+}
+
 function ConceptClarityPanel({ data }: { data: NonNullable<ComprehensiveAnalysis['concept_clarity']> }) {
   return (
     <div className="space-y-2">
@@ -1141,6 +1252,13 @@ function ComprehensiveSections({ data, isHistorical, isLoser, token, productId }
       {data.format_failure_mode && data.format_failure_mode.mode !== 'none' && (
         <FormatFailureModeBanner data={data.format_failure_mode} />
       )}
+
+      {/* New per-ad enrichment dimensions — each renders only when the
+          underlying field is populated (legacy ads without these stay clean). */}
+      {data.visual_inventory && <VisualInventorySection data={data.visual_inventory} />}
+      {data.voice_consistency && <VoiceConsistencySection data={data.voice_consistency} />}
+      {data.curiosity_gap && <CuriosityGapSection data={data.curiosity_gap} />}
+      {data.writing_quality && <WritingQualitySection data={data.writing_quality} />}
 
       {/* Concept clarity — A8 from brutal-audit-v2. Catches the "two competing
           promises in one ad" failure mode. */}

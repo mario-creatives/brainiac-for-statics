@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { keepAliveStream } from '@/lib/streaming'
 import { parseClaudeJson } from '@/lib/parseClaudeJson'
 import { autoPopulateFromInference } from '@/lib/audience-auto-populate'
+import { scoreWritingQuality, type WritingQualityScores } from '@/lib/writing-quality'
 import {
   getWinningPatterns,
   getAllWinningAnalyses,
@@ -353,6 +354,56 @@ export interface ComprehensiveAnalysis {
     mode: 'comprehension_collapse' | 'resistance_spike' | 'abandonment' | 'trust_erosion' | 'none'
     reasoning: string
     fix: string
+  }
+  // ── Per-ad enrichment dimensions (new) ────────────────────────────────────
+  // Structured visual content inventory. The vision call already sees the
+  // image — these fields force enumeration of concrete elements so the
+  // recommendations route can aggregate them per quadrant ("8/9 winners
+  // feature a face, 7/9 bedroom settings, all warm palettes") and feed
+  // grounded specifics into visual_direction in test specs.
+  visual_inventory?: {
+    faces: { count: number; demographics: string; expressions: string[] } | null
+    product_visibility: 'foreground' | 'midground' | 'background' | 'absent'
+    setting: string
+    props: string[]
+    color_palette: {
+      dominant: string[]
+      warmth: 'warm' | 'cool' | 'neutral'
+      contrast_level: 'low' | 'medium' | 'high'
+    }
+    composition_specifics: string
+  }
+  // Does the headline voice match the subheadline / body / CTA? Brand-voice
+  // drift inside a single ad signals lower trust. Currently each element has
+  // its own DNA but voice consistency across them isn't scored.
+  voice_consistency?: {
+    overall_score: number
+    headline_to_subheadline: { matched: boolean; note: string }
+    headline_to_body: { matched: boolean; note: string }
+    headline_to_cta: { matched: boolean; note: string }
+    drift_summary: string
+  }
+  // Upgrades the existing framework_score.headline_leaves_gap boolean to a
+  // numeric strength + diagnostic. The body_resolves flag matters because
+  // a strong gap that the body fails to close is the info-gap leak failure
+  // mode.
+  curiosity_gap?: {
+    gap_strength: number
+    body_resolves: boolean
+    resolution_note: string
+    diagnostic: string
+  }
+  // Deterministic writing-quality scores per copy element, computed
+  // post-LLM in the server route via scoreWritingQuality. Feeds empirical
+  // constraints in the recommendations prompt — winners' median grade,
+  // active-voice ratio, adverb density — so spec generation can honor the
+  // brand's actual writing patterns instead of inventing foreign styles.
+  writing_quality?: {
+    headline:    WritingQualityScores | null
+    subheadline: WritingQualityScores | null
+    body:        WritingQualityScores | null
+    cta:         WritingQualityScores | null
+    benefits:    WritingQualityScores | null
   }
 }
 
@@ -971,6 +1022,27 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "mode": "<comprehension_collapse | resistance_spike | abandonment | trust_erosion | none — pick 'none' if format_choice_fit didn't fail>",
     "reasoning": "<one sentence — why this mode fired>",
     "fix": "<one sentence — what to change>"
+  },
+  "visual_inventory": {
+    "faces": "<{count: number, demographics: string, expressions: string[]} object or null if no faces visible>",
+    "product_visibility": "<foreground | midground | background | absent>",
+    "setting": "<one word — bedroom | kitchen | outdoor | studio | abstract | living_room | bathroom | gym | office | bathroom | etc.>",
+    "props": ["<concrete objects visible in the frame>"],
+    "color_palette": { "dominant": ["<2-4 named colors, e.g. 'warm beige', 'soft lavender'>"], "warmth": "<warm | cool | neutral>", "contrast_level": "<low | medium | high>" },
+    "composition_specifics": "<one sentence — focal point placement, framing pattern, where the eye lands first>"
+  },
+  "voice_consistency": {
+    "overall_score": <0-10 — does brand voice stay consistent across all populated elements?>,
+    "headline_to_subheadline": { "matched": <bool>, "note": "<one sentence>" },
+    "headline_to_body":         { "matched": <bool>, "note": "<one sentence>" },
+    "headline_to_cta":          { "matched": <bool>, "note": "<one sentence>" },
+    "drift_summary": "<one sentence — where voice breaks, or 'consistent throughout' when score >= 8>"
+  },
+  "curiosity_gap": {
+    "gap_strength": <0-10 — does the headline create information curiosity the reader wants resolved?>,
+    "body_resolves": <true/false>,
+    "resolution_note": "<one sentence — how the body delivers on the gap or fails to>",
+    "diagnostic": "<one sentence — 'gap strong, body resolves' / 'gap strong, body leaks info' / 'no gap, none needed for most-aware' / etc.>"
   }
 }`
 
@@ -1214,6 +1286,27 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "mode": "<comprehension_collapse | resistance_spike | abandonment | trust_erosion | none — winners are usually 'none'>",
     "reasoning": "<one sentence>",
     "fix": "<one sentence — for winners, often 'none — keep this format paired with this angle'>"
+  },
+  "visual_inventory": {
+    "faces": "<{count: number, demographics: string, expressions: string[]} object or null if no faces visible>",
+    "product_visibility": "<foreground | midground | background | absent>",
+    "setting": "<one word — bedroom | kitchen | outdoor | studio | abstract | living_room | gym | office | etc.>",
+    "props": ["<concrete objects visible in the frame>"],
+    "color_palette": { "dominant": ["<2-4 named colors>"], "warmth": "<warm | cool | neutral>", "contrast_level": "<low | medium | high>" },
+    "composition_specifics": "<one sentence — focal point placement, framing pattern>"
+  },
+  "voice_consistency": {
+    "overall_score": <0-10 — does brand voice stay consistent across all populated elements?>,
+    "headline_to_subheadline": { "matched": <bool>, "note": "<one sentence>" },
+    "headline_to_body":         { "matched": <bool>, "note": "<one sentence>" },
+    "headline_to_cta":          { "matched": <bool>, "note": "<one sentence>" },
+    "drift_summary": "<one sentence — where voice breaks, or 'consistent throughout' when score >= 8>"
+  },
+  "curiosity_gap": {
+    "gap_strength": <0-10 — does the headline create information curiosity?>,
+    "body_resolves": <true/false>,
+    "resolution_note": "<one sentence>",
+    "diagnostic": "<one sentence diagnostic>"
   }
 }`
 
@@ -1458,6 +1551,27 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "mode": "<comprehension_collapse | resistance_spike | abandonment | trust_erosion | none — for losers, pick the one that fired most clearly>",
     "reasoning": "<one sentence — why this mode fired>",
     "fix": "<one sentence — what to change>"
+  },
+  "visual_inventory": {
+    "faces": "<{count: number, demographics: string, expressions: string[]} object or null if no faces visible>",
+    "product_visibility": "<foreground | midground | background | absent>",
+    "setting": "<one word — bedroom | kitchen | outdoor | studio | abstract | living_room | gym | office | etc.>",
+    "props": ["<concrete objects visible in the frame>"],
+    "color_palette": { "dominant": ["<2-4 named colors>"], "warmth": "<warm | cool | neutral>", "contrast_level": "<low | medium | high>" },
+    "composition_specifics": "<one sentence — focal point placement, framing pattern>"
+  },
+  "voice_consistency": {
+    "overall_score": <0-10 — does brand voice stay consistent across all populated elements?>,
+    "headline_to_subheadline": { "matched": <bool>, "note": "<one sentence>" },
+    "headline_to_body":         { "matched": <bool>, "note": "<one sentence>" },
+    "headline_to_cta":          { "matched": <bool>, "note": "<one sentence>" },
+    "drift_summary": "<one sentence — where voice breaks across elements (very common in losers)>"
+  },
+  "curiosity_gap": {
+    "gap_strength": <0-10>,
+    "body_resolves": <true/false>,
+    "resolution_note": "<one sentence — note when gap is strong but body fails to resolve = info-gap leak>",
+    "diagnostic": "<one sentence diagnostic>"
   }
 }`
 
@@ -1507,6 +1621,17 @@ AUDIENCE CLARITY PROTOCOL — strict ordering, do not violate:
      * resistance_spike: high-authority format + socially sensitive claim. Fix: drop into peer / confessional formats.
      * abandonment: high-effort format + low perceived payoff. Fix: raise the payoff in the first two seconds, or shrink format effort.
      * trust_erosion: high-polish format + authenticity-seeking audience. Fix: UGC / native / screenshot / "ugly" formats.
+
+VI. Per-ad enrichment fields — populate ALL of these on every analysis:
+   - "visual_inventory" — concrete enumeration of what's in the image:
+     * faces: count, demographics (e.g. "woman 35-44", "two children"), expressions (relaxed/smiling/intense/etc). Null if no faces.
+     * product_visibility: where in the depth plane the product sits, or 'absent' if no product shown.
+     * setting: ONE word for the environment.
+     * props: list of concrete objects in frame.
+     * color_palette: 2-4 named dominant colors, warmth, contrast_level.
+     * composition_specifics: where the eye lands first and how the frame is divided.
+   - "voice_consistency" — does the headline's voice (formality, register, person, tense, cadence) match the subheadline's, body's, and CTA's? Score 0-10. Note every pair where voice DRIFTS. Drift kills brand trust because the reader subconsciously detects the seam between elements written by "different people". Winners typically score 8+; losers often have a punchy headline and a corporate CTA, or vice versa.
+   - "curiosity_gap" — does the headline create an information gap the body resolves? Score 0-10 on gap_strength, then mark body_resolves true/false. Diagnostic is one of: "gap strong, body resolves" (ideal for problem/solution-aware), "gap strong, body leaks info" (info-gap leak — common loser pattern), "no gap, body delivers proof" (valid for most-aware), "no gap and none earned" (failure mode for unaware audiences).
 `
 }
 
@@ -1715,6 +1840,18 @@ export function parseBergBullets(text: string): string[] {
     .filter(Boolean)
 }
 
+// Body text isn't stored as a flat string; assemble it from whatever
+// representation the comprehensive analysis happens to carry (top-level
+// body_text, copy.body.text, or body_dna paragraph data) so the writing
+// quality scorer has something concrete to grade.
+function assembleBodyText(ca: ComprehensiveAnalysis): string | null {
+  const anyCa = ca as unknown as Record<string, unknown>
+  if (typeof anyCa.body_text === 'string' && anyCa.body_text.trim()) return anyCa.body_text
+  const copyBody = (ca.copy as unknown as Record<string, unknown> | undefined)?.body as Record<string, unknown> | undefined
+  if (copyBody && typeof copyBody.text === 'string' && copyBody.text.trim()) return copyBody.text
+  return null
+}
+
 function emptyComprehensive(bergBullets: string[]): ComprehensiveAnalysis {
   return {
     copy: {
@@ -1920,6 +2057,18 @@ export async function POST(req: NextRequest) {
     const comprehensive: ComprehensiveAnalysis = visionResult
       ? { ...visionResult, berg_recommendations: bergBullets }
       : emptyComprehensive(bergBullets)
+
+    // Deterministic writing-quality scoring per copy element. Runs after the
+    // LLM call using the populated text fields. Aggregated downstream by the
+    // recommendations route to feed empirical writing-quality medians into
+    // spec generation (winners average grade X, active-voice Y, adverb-density Z).
+    comprehensive.writing_quality = {
+      headline:    scoreWritingQuality(comprehensive.copy?.headline?.text ?? null),
+      subheadline: scoreWritingQuality(comprehensive.copy?.subheadline?.text ?? null),
+      body:        scoreWritingQuality(assembleBodyText(comprehensive)),
+      cta:         scoreWritingQuality(comprehensive.copy?.cta?.text ?? null),
+      benefits:    scoreWritingQuality((comprehensive.copy?.benefits_features?.identified ?? []).join('. ')),
+    }
 
     if (analysis_id) {
       await storeComprehensiveAnalysis(analysis_id, comprehensive as unknown as Record<string, unknown>, spend_usd)

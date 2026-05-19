@@ -212,6 +212,23 @@ function condensePlan(plan: ProductRecommendationReport): string {
         if (s.trust_signals.length > 0) lines.push(`      trust=[${s.trust_signals.join(', ')}]`)
         lines.push(`      visual: ${s.visual_direction}`)
         if (s.production_notes) lines.push(`      production: ${s.production_notes}`)
+        // Spec evidentiary footing — lets the candidate scorer know what
+        // contrastive findings each spec was built to honor, so a candidate
+        // can be judged against the same signals (not just against the spec
+        // text in isolation).
+        const db = s.data_basis
+        if (db) {
+          const cites: string[] = []
+          if (db.replicates_from?.length > 0)                cites.push(`replicates=${db.replicates_from.map(id => id.slice(0, 8)).join(',')}`)
+          if (db.avoids_pattern_of?.length > 0)              cites.push(`avoids=${db.avoids_pattern_of.map(id => id.slice(0, 8)).join(',')}`)
+          if (db.addresses_investigate_weakness?.length > 0) cites.push(`fixes=${db.addresses_investigate_weakness.map(id => id.slice(0, 8)).join(',')}`)
+          if (db.extends_promising_signal?.length > 0)       cites.push(`extends=${db.extends_promising_signal.map(id => id.slice(0, 8)).join(',')}`)
+          if (cites.length > 0) lines.push(`      data_basis: ${cites.join(' | ')}`)
+          if (db.contrastive_findings_used?.length > 0) {
+            for (const f of db.contrastive_findings_used) lines.push(`        · ${f}`)
+          }
+          if (db.loss_modes_addressed?.length > 0) lines.push(`      avoids loss modes: ${db.loss_modes_addressed.join(', ')}`)
+        }
       }
     } else if (plan.next_test_batch.angle_themes) {
       for (const a of plan.next_test_batch.angle_themes) lines.push(`  - ${a}`)

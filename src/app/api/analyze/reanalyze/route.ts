@@ -14,6 +14,7 @@ import {
 } from '@/lib/pattern-library'
 import { buildPatternContext, buildComprehensiveVisionPrompt, parseBergBullets, runBergAnalysis } from '../comprehensive/route'
 import type { ComprehensiveAnalysis, StatedAudience } from '../comprehensive/route'
+import { scoreWritingQuality } from '@/lib/writing-quality'
 import type { ExtractedElements, HeadlineDNA, SubheadlineDNA, TrustDNA, CtaDNA } from '../extract-elements/route'
 import { parseClaudeJson } from '@/lib/parseClaudeJson'
 
@@ -230,6 +231,19 @@ export async function POST(req: NextRequest) {
 
     const bergBullets = parseBergBullets(bergText)
     const comprehensive: ComprehensiveAnalysis = { ...visionResult, berg_recommendations: bergBullets }
+
+    // Same writing-quality post-processing as the primary comprehensive route
+    // so re-analyzed ads also get scored before storage.
+    const anyCa = comprehensive as unknown as Record<string, unknown>
+    const copyBody = (comprehensive.copy as unknown as Record<string, unknown> | undefined)?.body as { text?: string } | undefined
+    const bodyTextForScoring = (typeof anyCa.body_text === 'string' ? anyCa.body_text : null) ?? copyBody?.text ?? null
+    comprehensive.writing_quality = {
+      headline:    scoreWritingQuality(comprehensive.copy?.headline?.text ?? null),
+      subheadline: scoreWritingQuality(comprehensive.copy?.subheadline?.text ?? null),
+      body:        scoreWritingQuality(bodyTextForScoring),
+      cta:         scoreWritingQuality(comprehensive.copy?.cta?.text ?? null),
+      benefits:    scoreWritingQuality((comprehensive.copy?.benefits_features?.identified ?? []).join('. ')),
+    }
 
     await storeComprehensiveAnalysis(analysisId, comprehensive as unknown as Record<string, unknown>, spendUsd)
 

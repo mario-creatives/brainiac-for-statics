@@ -86,6 +86,20 @@ export interface TestSpec {
 
   // Justification
   why_this_test: string              // 1-2 sentences citing specific winning ad IDs from the cohort
+
+  // Auditable data basis — every spec must derive from specific cohort signals.
+  // The action-plan UI renders this as a "Derived from" block so the user can
+  // click into each cited ad and verify the spec is grounded in real data, not
+  // generic ad-brief patterns. detectEmptyReport rejects specs where every
+  // role array is empty.
+  data_basis: {
+    replicates_from: string[]                  // winner ad IDs whose pattern this spec replicates
+    avoids_pattern_of: string[]                // loser ad IDs whose pattern this spec deliberately avoids
+    addresses_investigate_weakness: string[]   // investigate ad IDs whose bleeder this spec fixes
+    extends_promising_signal: string[]         // promising ad IDs this spec extends to confirm
+    contrastive_findings_used: string[]        // 1-line strings referencing specific contrasts from the analytics block
+    loss_modes_addressed: string[]             // loss_reason enum values this spec is designed to avoid
+  }
 }
 
 async function getUserOr401(req: NextRequest) {
@@ -205,11 +219,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // the model fabricated subheadlines of 350+ characters even when no winner
     // had ever used a subheadline that long, and included CTAs even when the
     // breakdown's own cta_presence.verdict said CTA wasn't the lever.
-    const winnerRows = sampled.filter(r => (r.quadrant_override ?? r.quadrant) === 'winner')
-    const constraintSource = winnerRows.length >= 3 ? winnerRows : sampled
-    const constraintLabel = winnerRows.length >= 3 ? `${winnerRows.length} winners` : `${sampled.length} sampled ads (only ${winnerRows.length} winner${winnerRows.length === 1 ? '' : 's'} — too thin to constrain on winners alone)`
-    const cohortConstraints = computeCohortConstraints(constraintSource)
-    const constraintsText = formatConstraints(cohortConstraints, constraintLabel)
+    // Full-cohort analytics: per-quadrant aggregates (winners / promising /
+    // investigate / losers) plus contrastive findings, loss diagnostics, and
+    // audience-match correlation. Replaces the old winner-only constraints
+    // block — the prompt now sees signal from every quadrant.
+    const analyticsRows: QuadrantAdRow[] = sampled.map(r => ({
+      id: r.id,
+      comprehensive_analysis: r.comprehensive_analysis,
+      spend_usd: r.spend_usd,
+      quadrant: r.quadrant,
+      quadrant_override: r.quadrant_override,
+      loss_reason: r.loss_reason,
+    }))
+    const cohortAnalytics = computeCohortAnalytics(analyticsRows)
+    const constraintsText = formatCohortAnalytics(cohortAnalytics)
 
     const targetCpa = product.target_cpa_usd ?? null
     const prompt = `You are a senior performance creative strategist. You have ${sampled.length} static ads for product "${product.name}"${product.vertical_category ? ` (${product.vertical_category})` : ''}${targetCpa != null ? ` with target CPA of $${targetCpa}` : ''} ${sampleNote}. Your job is to produce a concrete, no-fluff action plan grounded in this exact data.
@@ -217,7 +240,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 ADS:
 ${adSummaries.join('\n\n')}
 
-EMPIRICAL CONSTRAINTS — these are computed from the actual cohort data. Treat them as HARD CONSTRAINTS on spec design. Do not fabricate specs that exceed these ranges.
+COHORT ANALYTICS — deterministically computed from every sampled ad's comprehensive analysis, split per quadrant (winners / promising / investigate / losers). The CONTRASTIVE FINDINGS section names specific deltas between quadrants. The LOSS DIAGNOSTICS section names the failure modes that recur in losers + investigates. Treat ALL numbers and named attributes as HARD CONSTRAINTS on spec design.
 
 ${constraintsText}
 
@@ -267,6 +290,18 @@ production_notes: any specific layering, urgency cues, or layout instructions. E
 Specs MUST differ in angle OR persona OR awareness level OR element load — not just reword the same concept. variations_per_spec is typically 3-5.
 
 why_this_test cites specific winning ad IDs from the cohort AND names the breakdown finding (or empirical constraint) that justifies the spec's decisions (e.g. "A3, A7 prove 6-word outcome-claim headlines win for solution-aware sleep-deprived adults at $32-40 CPA; cta_presence.verdict says CTA isn't the lever for cold confessional formats so this spec omits the CTA; element count of 3 matches the median winning load").
+
+data_basis (REQUIRED — every spec, every field): the spec must be a derivation from the cohort, not a freestanding brief. Populate:
+  - replicates_from: ad IDs of winners whose pattern this spec replicates (the "do this" signal).
+  - avoids_pattern_of: ad IDs of losers whose pattern this spec deliberately avoids (the "don't do this" signal). Note: refer to losers by ID in the cohort; do not paste loser copy.
+  - addresses_investigate_weakness: ad IDs of investigates whose bleeder this spec proposes a fix for. Investigates earned distribution but failed at conversion — your spec should keep what worked (the hook signal) and swap the specific element identified in winner_vs_investigate_deltas.
+  - extends_promising_signal: ad IDs of promising ads this spec extends to confirm (same angle / persona, scaled).
+  - contrastive_findings_used: 1-line strings copied or paraphrased from the CONTRASTIVE FINDINGS or LOSS DIAGNOSTICS sections above that justify the spec's decisions. Minimum one entry per spec.
+  - loss_modes_addressed: loss_reason enum values this spec is designed to NOT fall into (e.g. ["weak_hook", "wrong_audience"]). Empty array if no loss modes specifically targeted.
+
+At least one of {replicates_from, avoids_pattern_of, addresses_investigate_weakness, extends_promising_signal} MUST be non-empty per spec. contrastive_findings_used MUST have at least one entry. Specs that fail this validation are rejected and force a regenerate.
+
+Use the AD line IDs from the ADS list above when populating data_basis (they're 36-character UUIDs after [id=...]). Do not use the short A3 / A7 labels — those are for human reading.
 
 Call submit_action_plan now.`
 
@@ -379,6 +414,21 @@ function detectEmptyReport(p: Partial<ProductRecommendationReport>): string | nu
   if (firstSpec.headline.length < 6 || /^<.+>$/.test(firstSpec.headline.trim())) {
     return 'first spec headline looks like a placeholder, not real copy'
   }
+  // Every spec must be grounded — data_basis with at least one ad ID and at
+  // least one contrastive finding cited. Without this guard the model can
+  // produce specs that don't trace back to any concrete cohort data.
+  for (let i = 0; i < p.next_test_batch.specs.length; i++) {
+    const s = p.next_test_batch.specs[i]
+    const db = s.data_basis
+    if (!db) return `spec #${i + 1} missing data_basis`
+    const totalCitations =
+      (db.replicates_from?.length ?? 0) +
+      (db.avoids_pattern_of?.length ?? 0) +
+      (db.addresses_investigate_weakness?.length ?? 0) +
+      (db.extends_promising_signal?.length ?? 0)
+    if (totalCitations === 0) return `spec #${i + 1} data_basis cites no ad IDs across any of the four roles`
+    if (!db.contrastive_findings_used?.length) return `spec #${i + 1} data_basis cites no contrastive findings`
+  }
   return null
 }
 
@@ -453,6 +503,7 @@ const ACTION_PLAN_SCHEMA = {
               'behavioral_economics', 'trust_signals',
               'visual_direction', 'production_notes', 'sourcing_requirements',
               'why_this_test',
+              'data_basis',
             ],
             properties: {
               name: { type: 'string' },
@@ -481,6 +532,18 @@ const ACTION_PLAN_SCHEMA = {
               production_notes: { type: 'string' },
               sourcing_requirements: { type: 'string' },
               why_this_test: { type: 'string' },
+              data_basis: {
+                type: 'object',
+                required: ['replicates_from', 'avoids_pattern_of', 'addresses_investigate_weakness', 'extends_promising_signal', 'contrastive_findings_used', 'loss_modes_addressed'],
+                properties: {
+                  replicates_from: { type: 'array', items: { type: 'string' } },
+                  avoids_pattern_of: { type: 'array', items: { type: 'string' } },
+                  addresses_investigate_weakness: { type: 'array', items: { type: 'string' } },
+                  extends_promising_signal: { type: 'array', items: { type: 'string' } },
+                  contrastive_findings_used: { type: 'array', items: { type: 'string' } },
+                  loss_modes_addressed: { type: 'array', items: { type: 'string' } },
+                },
+              },
             },
           },
         },
@@ -490,8 +553,13 @@ const ACTION_PLAN_SCHEMA = {
 } as const
 
 interface NumRange { min: number; max: number; p50: number }
+
+// Per-quadrant aggregates — computed independently for winners / promising /
+// investigate / losers and combined into CohortAnalytics. The action-plan
+// prompt surfaces these side-by-side so the model can read contrasts directly.
 interface CohortConstraints {
   source_label: string
+  sample_size: number
   // Size constraints — empirical word/char ranges + presence rates
   headline_words: NumRange | null
   headline_chars: NumRange | null
@@ -508,15 +576,73 @@ interface CohortConstraints {
   element_counts: NumRange | null
   compositions: Record<string, number>
   formats: Record<string, number>
-  // Style constraints — voice / register / structure / punctuation from winners
+  // Style constraints — voice / register / structure / punctuation
   headline_style: StyleAggregates
   cta_style: CtaStyleAggregates
   body_style: BodyStyleAggregates
-  // Verbatim exemplars — actual copy from top winners for the model to match
+  // Verbatim exemplars (only meaningful for winners; non-winner quadrants
+  // populate these but the formatter doesn't render loser/investigate copy)
   headline_exemplars: string[]
   subheadline_exemplars: string[]
   cta_exemplars: string[]
   body_exemplars: string[]
+  // ── Strategy + analysis aggregates (new) ──────────────────────────────
+  behavioral_economics_rates: Record<string, number>     // scarcity, urgency, etc → presence rate
+  framework_grades: Record<'A' | 'B' | 'C' | 'D', number>
+  awareness_levels: Record<string, number>
+  sophistication_levels: Record<string, number>
+  attention_score_median: number | null
+  cognitive_load_median: number | null
+  congruence_median: number | null
+  fit_dimension_medians: Record<string, number | null>    // angle_quality, register_fit, cognitive_load_fit, placement_fit, format_choice_fit, audience_targeting_fit
+  // ── Per-ad enrichment aggregates (new) ────────────────────────────────
+  visual_inventory: {
+    face_presence_rate: number
+    product_visibility_distribution: Record<string, number>
+    top_settings: Array<[string, number]>
+    top_props: Array<[string, number]>
+    warmth_distribution: Record<string, number>
+    contrast_level_distribution: Record<string, number>
+    sample_count: number
+  } | null
+  voice_consistency_median: number | null
+  curiosity_gap: {
+    gap_strength_median: number
+    body_resolves_rate: number
+    sample_count: number
+  } | null
+  writing_quality: {
+    headline_grade_median: number | null
+    body_grade_median: number | null
+    avg_sentence_length_median: number | null
+    active_voice_ratio_median: number | null
+    adverb_density_median: number | null
+    weasel_word_density_median: number | null
+    sample_count: number
+  } | null
+}
+
+// Top-level analytics shape combining per-quadrant aggregates with cross-quadrant
+// contrasts, loss diagnostics, and audience-match correlation. This is what the
+// action-plan prompt consumes.
+interface CohortAnalytics {
+  by_quadrant: Record<Quadrant, CohortConstraints>
+  contrasts: {
+    winner_exclusive_attributes: string[]
+    loser_exclusive_attributes: string[]
+    presence_rate_gaps: string[]
+    winner_vs_investigate_deltas: string[]
+  }
+  loss_diagnostics: {
+    loss_reason_distribution: Array<[string, number]>
+    recurring_priority_fixes: string[]
+    recurring_critical_weaknesses: string[]
+    format_failure_mode_distribution: Array<[string, number]>
+  }
+  audience_match_correlation: {
+    aligned_rate_by_quadrant: Record<Quadrant, number>
+    mismatch_examples: Array<{ ad_id: string; quadrant: Quadrant; mismatches: string[] }>
+  }
 }
 
 interface StyleAggregates {
@@ -569,10 +695,11 @@ function rate(present: number, total: number): number {
   return total > 0 ? present / total : 0
 }
 
-// Pulls measurable copy/composition/style stats AND verbatim copy exemplars
-// from each ad's comprehensive analysis. The numbers feed the empirical
-// constraints block in the prompt; the exemplars give the model real copy
-// to pattern-match against so spec copy reads in the brand's actual voice.
+// Pulls measurable copy/composition/style/strategy/visual/quality stats AND
+// verbatim copy exemplars from each ad's comprehensive analysis. Called once
+// per quadrant by computeCohortAnalytics. The numbers feed the empirical
+// per-quadrant block in the prompt; the verbatim exemplars are rendered only
+// for the winner quadrant (preserving voice-signal cleanliness).
 function computeCohortConstraints(rows: Array<{ comprehensive_analysis: Record<string, unknown>; spend_usd: number | null }>): CohortConstraints {
   const headlineWords: number[] = []
   const headlineChars: number[] = []
@@ -618,6 +745,43 @@ function computeCohortConstraints(rows: Array<{ comprehensive_analysis: Record<s
   const subheadlineCandidates: Array<{ text: string; spend: number }> = []
   const ctaCandidates: Array<{ text: string; spend: number }> = []
   const bodyCandidates: Array<{ text: string; spend: number }> = []
+
+  // Strategy + analysis aggregates
+  const beCounts: Record<string, number> = {}
+  const grades: Record<'A' | 'B' | 'C' | 'D', number> = { A: 0, B: 0, C: 0, D: 0 }
+  const awareness: Record<string, number> = {}
+  const sophistication: Record<string, number> = {}
+  const attentionScores: number[] = []
+  const cogLoadScores: number[] = []
+  const congruenceScores: number[] = []
+  const fitDimensions: Record<string, number[]> = {
+    angle_quality: [], register_fit: [], cognitive_load_fit: [],
+    placement_fit: [], format_choice_fit: [], audience_targeting_fit: [],
+  }
+
+  // Visual inventory aggregates
+  let viSampleCount = 0
+  let facePresent = 0
+  const productVisibility: Record<string, number> = {}
+  const settings = new Map<string, number>()
+  const props = new Map<string, number>()
+  const warmth: Record<string, number> = {}
+  const contrastLevel: Record<string, number> = {}
+
+  // Voice consistency + curiosity gap aggregates
+  const voiceConsistencyScores: number[] = []
+  const gapStrengths: number[] = []
+  let gapBodyResolves = 0
+  let cgSampleCount = 0
+
+  // Writing quality aggregates
+  const wqHeadlineGrades: number[] = []
+  const wqBodyGrades: number[] = []
+  const wqAvgSentenceLengths: number[] = []
+  const wqActiveVoiceRatios: number[] = []
+  const wqAdverbDensities: number[] = []
+  const wqWeaselDensities: number[] = []
+  let wqSampleCount = 0
 
   for (const r of rows) {
     const ca = r.comprehensive_analysis as Record<string, unknown>
@@ -717,9 +881,101 @@ function computeCohortConstraints(rows: Array<{ comprehensive_analysis: Record<s
 
     const fmt = (ca.ad_format as Record<string, unknown> | undefined)?.type
     if (typeof fmt === 'string') formats.set(fmt, (formats.get(fmt) ?? 0) + 1)
+
+    // Behavioral economics — count each signal where present=true
+    const be = ca.behavioral_economics as Record<string, unknown> | undefined
+    if (be) {
+      for (const signal of ['scarcity', 'urgency', 'social_proof', 'anchoring', 'loss_aversion', 'authority', 'reciprocity']) {
+        const block = be[signal] as { present?: boolean } | undefined
+        if (block?.present) beCounts[signal] = (beCounts[signal] ?? 0) + 1
+      }
+    }
+
+    // Framework grade distribution
+    const fs = ca.framework_score as Record<string, unknown> | undefined
+    const grade = fs?.overall_framework_grade
+    if (grade === 'A' || grade === 'B' || grade === 'C' || grade === 'D') grades[grade]++
+
+    // Market context
+    const mc = ca.market_context as Record<string, unknown> | undefined
+    const aw = mc?.awareness_level
+    if (typeof aw === 'string') awareness[aw] = (awareness[aw] ?? 0) + 1
+    const soph = mc?.sophistication_level
+    if (typeof soph === 'number' || typeof soph === 'string') {
+      const key = String(soph)
+      sophistication[key] = (sophistication[key] ?? 0) + 1
+    }
+
+    // Attention / cognitive load / congruence medians
+    const ha = ca.hook_analysis as Record<string, unknown> | undefined
+    const ascore = ha?.attention_score
+    if (typeof ascore === 'number') attentionScores.push(ascore)
+    const cl = ca.cognitive_load as Record<string, unknown> | undefined
+    if (typeof cl?.score === 'number') cogLoadScores.push(cl.score)
+    const cg = ca.congruence as Record<string, unknown> | undefined
+    if (typeof cg?.overall_score === 'number') congruenceScores.push(cg.overall_score)
+
+    // Fit dimension scores
+    for (const dim of Object.keys(fitDimensions)) {
+      const block = ca[dim] as Record<string, unknown> | undefined
+      if (typeof block?.score === 'number') fitDimensions[dim].push(block.score)
+    }
+
+    // Visual inventory
+    const vi = ca.visual_inventory as Record<string, unknown> | undefined
+    if (vi) {
+      viSampleCount++
+      const faces = vi.faces as { count?: number } | null
+      if (faces && typeof faces.count === 'number' && faces.count > 0) facePresent++
+      if (typeof vi.product_visibility === 'string') {
+        productVisibility[vi.product_visibility] = (productVisibility[vi.product_visibility] ?? 0) + 1
+      }
+      if (typeof vi.setting === 'string') settings.set(vi.setting, (settings.get(vi.setting) ?? 0) + 1)
+      if (Array.isArray(vi.props)) for (const p of vi.props) if (typeof p === 'string') props.set(p, (props.get(p) ?? 0) + 1)
+      const palette = vi.color_palette as Record<string, unknown> | undefined
+      if (typeof palette?.warmth === 'string') warmth[palette.warmth] = (warmth[palette.warmth] ?? 0) + 1
+      if (typeof palette?.contrast_level === 'string') contrastLevel[palette.contrast_level] = (contrastLevel[palette.contrast_level] ?? 0) + 1
+    }
+
+    // Voice consistency
+    const vc = ca.voice_consistency as Record<string, unknown> | undefined
+    if (vc && typeof vc.overall_score === 'number') voiceConsistencyScores.push(vc.overall_score)
+
+    // Curiosity gap
+    const cgapBlock = ca.curiosity_gap as Record<string, unknown> | undefined
+    if (cgapBlock && typeof cgapBlock.gap_strength === 'number') {
+      cgSampleCount++
+      gapStrengths.push(cgapBlock.gap_strength)
+      if (cgapBlock.body_resolves) gapBodyResolves++
+    }
+
+    // Writing quality aggregates (deterministic per-element scores)
+    const wq = ca.writing_quality as Record<string, unknown> | undefined
+    if (wq) {
+      const wqHd = wq.headline as Record<string, unknown> | null | undefined
+      if (wqHd) {
+        wqSampleCount++
+        if (typeof wqHd.flesch_kincaid_grade === 'number') wqHeadlineGrades.push(wqHd.flesch_kincaid_grade)
+        if (typeof wqHd.avg_sentence_length === 'number') wqAvgSentenceLengths.push(wqHd.avg_sentence_length)
+        if (typeof wqHd.active_voice_ratio === 'number') wqActiveVoiceRatios.push(wqHd.active_voice_ratio)
+        if (typeof wqHd.adverb_density === 'number') wqAdverbDensities.push(wqHd.adverb_density)
+        if (typeof wqHd.weasel_word_count === 'number' && typeof wqHd.word_count === 'number' && wqHd.word_count > 0) {
+          wqWeaselDensities.push((wqHd.weasel_word_count / wqHd.word_count) * 100)
+        }
+      }
+      const wqBody = wq.body as Record<string, unknown> | null | undefined
+      if (wqBody && typeof wqBody.flesch_kincaid_grade === 'number') wqBodyGrades.push(wqBody.flesch_kincaid_grade)
+    }
   }
 
   const n = rows.length
+
+  function median(arr: number[]): number | null {
+    if (arr.length === 0) return null
+    const sorted = [...arr].sort((a, b) => a - b)
+    const m = sorted[Math.floor(sorted.length / 2)]
+    return Math.round(m * 100) / 100
+  }
 
   return {
     source_label: '',
@@ -771,6 +1027,211 @@ function computeCohortConstraints(rows: Array<{ comprehensive_analysis: Record<s
     subheadline_exemplars: subheadlineCandidates.sort((a, b) => b.spend - a.spend).slice(0, 6).map(c => c.text),
     cta_exemplars:         dedupe(ctaCandidates.sort((a, b) => b.spend - a.spend).map(c => c.text)).slice(0, 8),
     body_exemplars:        bodyCandidates.sort((a, b) => b.spend - a.spend).slice(0, 4).map(c => c.text),
+    sample_size: n,
+    behavioral_economics_rates: Object.fromEntries(
+      Object.entries(beCounts).map(([k, v]) => [k, rate(v, n)]),
+    ),
+    framework_grades: grades,
+    awareness_levels: awareness,
+    sophistication_levels: sophistication,
+    attention_score_median: median(attentionScores),
+    cognitive_load_median: median(cogLoadScores),
+    congruence_median: median(congruenceScores),
+    fit_dimension_medians: Object.fromEntries(
+      Object.entries(fitDimensions).map(([k, v]) => [k, median(v)]),
+    ),
+    visual_inventory: viSampleCount > 0 ? {
+      face_presence_rate: rate(facePresent, viSampleCount),
+      product_visibility_distribution: productVisibility,
+      top_settings: [...settings.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5),
+      top_props: [...props.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8),
+      warmth_distribution: warmth,
+      contrast_level_distribution: contrastLevel,
+      sample_count: viSampleCount,
+    } : null,
+    voice_consistency_median: median(voiceConsistencyScores),
+    curiosity_gap: cgSampleCount > 0 ? {
+      gap_strength_median: median(gapStrengths) ?? 0,
+      body_resolves_rate: rate(gapBodyResolves, cgSampleCount),
+      sample_count: cgSampleCount,
+    } : null,
+    writing_quality: wqSampleCount > 0 ? {
+      headline_grade_median: median(wqHeadlineGrades),
+      body_grade_median: median(wqBodyGrades),
+      avg_sentence_length_median: median(wqAvgSentenceLengths),
+      active_voice_ratio_median: median(wqActiveVoiceRatios),
+      adverb_density_median: median(wqAdverbDensities),
+      weasel_word_density_median: median(wqWeaselDensities),
+      sample_count: wqSampleCount,
+    } : null,
+  }
+}
+
+// Splits sampled ads into quadrant buckets, computes per-quadrant aggregates,
+// derives contrastive findings between winners and losers, aggregates loss
+// reasons + critical-weakness themes from losers, and computes audience-match
+// alignment correlation across quadrants. This is the structured input the
+// action-plan prompt consumes.
+interface QuadrantAdRow {
+  id: string
+  comprehensive_analysis: Record<string, unknown>
+  spend_usd: number | null
+  quadrant: Quadrant | null
+  quadrant_override: Quadrant | null
+  loss_reason: string | null
+}
+
+function computeCohortAnalytics(rows: QuadrantAdRow[]): CohortAnalytics {
+  const buckets: Record<Quadrant, QuadrantAdRow[]> = { winner: [], promising: [], investigate: [], loser: [] }
+  for (const r of rows) {
+    const q = (r.quadrant_override ?? r.quadrant) as Quadrant | null
+    if (q && q in buckets) buckets[q].push(r)
+  }
+
+  const by_quadrant: Record<Quadrant, CohortConstraints> = {
+    winner:      computeCohortConstraints(buckets.winner),
+    promising:   computeCohortConstraints(buckets.promising),
+    investigate: computeCohortConstraints(buckets.investigate),
+    loser:       computeCohortConstraints(buckets.loser),
+  }
+
+  const contrasts = computeContrasts(by_quadrant.winner, by_quadrant.loser, by_quadrant.investigate)
+  const loss_diagnostics = computeLossDiagnostics([...buckets.loser, ...buckets.investigate])
+  const audience_match_correlation = computeAudienceMatchCorrelation(rows, buckets)
+
+  return { by_quadrant, contrasts, loss_diagnostics, audience_match_correlation }
+}
+
+// Contrastive findings — programmatically computed deltas between quadrants.
+// Surfaces attributes that appear ONLY in winners (replicate signal) or ONLY
+// in losers (avoid signal), plus large presence-rate gaps and the specific
+// attributes that distinguish investigates from winners (the bleeders to fix).
+function computeContrasts(winners: CohortConstraints, losers: CohortConstraints, investigates: CohortConstraints): CohortAnalytics['contrasts'] {
+  const winner_exclusive_attributes: string[] = []
+  const loser_exclusive_attributes: string[] = []
+  const presence_rate_gaps: string[] = []
+  const winner_vs_investigate_deltas: string[] = []
+
+  // Helper: compare two style distributions and find values seen exclusively in one.
+  function styleExclusivity(label: string, a: Array<[string, number]>, b: Array<[string, number]>, intoA: string[], intoB: string[]) {
+    const bKeys = new Set(b.map(([k]) => k))
+    const aKeys = new Set(a.map(([k]) => k))
+    for (const [k, n] of a) if (n > 0 && !bKeys.has(k)) intoA.push(`${label}=${k} (${n}× in this quadrant, 0 in the other)`)
+    for (const [k, n] of b) if (n > 0 && !aKeys.has(k)) intoB.push(`${label}=${k} (${n}× in this quadrant, 0 in the other)`)
+  }
+
+  styleExclusivity('headline.structure_type', winners.headline_style.structure_type, losers.headline_style.structure_type, winner_exclusive_attributes, loser_exclusive_attributes)
+  styleExclusivity('headline.tense', winners.headline_style.tense, losers.headline_style.tense, winner_exclusive_attributes, loser_exclusive_attributes)
+  styleExclusivity('headline.person', winners.headline_style.person, losers.headline_style.person, winner_exclusive_attributes, loser_exclusive_attributes)
+  styleExclusivity('headline.sentence_type', winners.headline_style.sentence_type, losers.headline_style.sentence_type, winner_exclusive_attributes, loser_exclusive_attributes)
+  styleExclusivity('emotional_register', winners.headline_style.emotional_register, losers.headline_style.emotional_register, winner_exclusive_attributes, loser_exclusive_attributes)
+  styleExclusivity('punctuation', winners.headline_style.punctuation_signals, losers.headline_style.punctuation_signals, winner_exclusive_attributes, loser_exclusive_attributes)
+  styleExclusivity('composition_tag', Object.entries(winners.compositions), Object.entries(losers.compositions), winner_exclusive_attributes, loser_exclusive_attributes)
+  styleExclusivity('ad_format', Object.entries(winners.formats), Object.entries(losers.formats), winner_exclusive_attributes, loser_exclusive_attributes)
+
+  // Presence-rate gaps ≥ 30pp between winners and losers
+  function rateGap(label: string, w: number, l: number) {
+    const pp = Math.round((w - l) * 100)
+    if (Math.abs(pp) >= 30) {
+      const sign = pp > 0 ? '+' : ''
+      presence_rate_gaps.push(`${label}: winners ${Math.round(w * 100)}% vs losers ${Math.round(l * 100)}% (${sign}${pp}pp)`)
+    }
+  }
+  rateGap('subheadline_present',  winners.subheadline_presence_rate, losers.subheadline_presence_rate)
+  rateGap('body_present',         winners.body_presence_rate,        losers.body_presence_rate)
+  rateGap('cta_present',          winners.cta_presence_rate,         losers.cta_presence_rate)
+  rateGap('benefits_present',     winners.benefits_presence_rate,    losers.benefits_presence_rate)
+  rateGap('trust_present',        winners.trust_presence_rate,       losers.trust_presence_rate)
+  rateGap('mechanism_in_headline', winners.headline_style.mechanism_present_rate, losers.headline_style.mechanism_present_rate)
+  rateGap('audience_explicit_in_headline', winners.headline_style.audience_explicit_rate, losers.headline_style.audience_explicit_rate)
+  rateGap('outcome_explicit_in_headline', winners.headline_style.outcome_explicit_rate, losers.headline_style.outcome_explicit_rate)
+  rateGap('time_bound_in_headline', winners.headline_style.time_bound_rate, losers.headline_style.time_bound_rate)
+  for (const signal of Object.keys(winners.behavioral_economics_rates)) {
+    rateGap(`be_${signal}`, winners.behavioral_economics_rates[signal] ?? 0, losers.behavioral_economics_rates[signal] ?? 0)
+  }
+
+  // Winner-vs-investigate deltas — what investigates DIFFER from winners on (the bleeders).
+  // Investigates earn distribution but lose at conversion, so attributes investigates SHARE
+  // with winners are valid hooks; attributes that DIFFER are the conversion bleeders.
+  function diffSignal(label: string, w: number | null, i: number | null, threshold = 1.5) {
+    if (w == null || i == null) return
+    if (Math.abs(w - i) >= threshold) {
+      winner_vs_investigate_deltas.push(`${label}: winners ${w.toFixed(1)} vs investigates ${i.toFixed(1)} (${(w - i).toFixed(1)})`)
+    }
+  }
+  diffSignal('attention_score_median', winners.attention_score_median, investigates.attention_score_median)
+  diffSignal('congruence_median',      winners.congruence_median,      investigates.congruence_median)
+  diffSignal('cognitive_load_median',  winners.cognitive_load_median,  investigates.cognitive_load_median)
+  for (const k of Object.keys(winners.fit_dimension_medians)) {
+    diffSignal(`fit.${k}`, winners.fit_dimension_medians[k], investigates.fit_dimension_medians[k] ?? null)
+  }
+
+  return {
+    winner_exclusive_attributes: winner_exclusive_attributes.slice(0, 12),
+    loser_exclusive_attributes:  loser_exclusive_attributes.slice(0, 12),
+    presence_rate_gaps:          presence_rate_gaps.slice(0, 12),
+    winner_vs_investigate_deltas: winner_vs_investigate_deltas.slice(0, 10),
+  }
+}
+
+function computeLossDiagnostics(failureRows: QuadrantAdRow[]): CohortAnalytics['loss_diagnostics'] {
+  const lossReasons = new Map<string, number>()
+  const failureModes = new Map<string, number>()
+  const priorityFixes: string[] = []
+  const criticalWeaknesses: string[] = []
+
+  for (const r of failureRows) {
+    if (r.loss_reason) lossReasons.set(r.loss_reason, (lossReasons.get(r.loss_reason) ?? 0) + 1)
+    const ca = r.comprehensive_analysis as Record<string, unknown>
+    const ffm = ca.format_failure_mode as Record<string, unknown> | undefined
+    if (typeof ffm?.mode === 'string' && ffm.mode !== 'none') {
+      failureModes.set(ffm.mode, (failureModes.get(ffm.mode) ?? 0) + 1)
+    }
+    const overall = ca.overall as Record<string, unknown> | undefined
+    if (typeof overall?.priority_fix === 'string' && overall.priority_fix.trim()) {
+      priorityFixes.push(overall.priority_fix.trim())
+    }
+    if (typeof overall?.critical_weakness === 'string' && overall.critical_weakness.trim()) {
+      criticalWeaknesses.push(overall.critical_weakness.trim())
+    }
+  }
+
+  return {
+    loss_reason_distribution: [...lossReasons.entries()].sort((a, b) => b[1] - a[1]),
+    recurring_priority_fixes:     priorityFixes.slice(0, 6),
+    recurring_critical_weaknesses: criticalWeaknesses.slice(0, 6),
+    format_failure_mode_distribution: [...failureModes.entries()].sort((a, b) => b[1] - a[1]),
+  }
+}
+
+function computeAudienceMatchCorrelation(allRows: QuadrantAdRow[], buckets: Record<Quadrant, QuadrantAdRow[]>): CohortAnalytics['audience_match_correlation'] {
+  function alignedRate(qRows: QuadrantAdRow[]): number {
+    let total = 0, aligned = 0
+    for (const r of qRows) {
+      const am = (r.comprehensive_analysis as Record<string, unknown>).audience_match as { has_user_input?: boolean; match_quality?: string } | undefined
+      if (!am || !am.has_user_input) continue
+      total++
+      if (am.match_quality === 'aligned') aligned++
+    }
+    return total > 0 ? aligned / total : 0
+  }
+  const mismatchExamples: CohortAnalytics['audience_match_correlation']['mismatch_examples'] = []
+  for (const r of allRows) {
+    const am = (r.comprehensive_analysis as Record<string, unknown>).audience_match as { match_quality?: string; mismatches?: string[] } | undefined
+    if (am?.match_quality === 'major_mismatch' && Array.isArray(am.mismatches) && am.mismatches.length > 0) {
+      const q = (r.quadrant_override ?? r.quadrant) as Quadrant | null
+      if (q) mismatchExamples.push({ ad_id: r.id, quadrant: q, mismatches: am.mismatches.slice(0, 3) })
+    }
+    if (mismatchExamples.length >= 5) break
+  }
+  return {
+    aligned_rate_by_quadrant: {
+      winner:      alignedRate(buckets.winner),
+      promising:   alignedRate(buckets.promising),
+      investigate: alignedRate(buckets.investigate),
+      loser:       alignedRate(buckets.loser),
+    },
+    mismatch_examples: mismatchExamples,
   }
 }
 
@@ -876,6 +1337,139 @@ function formatConstraints(c: CohortConstraints, sourceLabel: string): string {
     lines.push('## Winning BODY copy (verbatim — match register and cadence)')
     for (const b of c.body_exemplars) lines.push(`  · ${b}`)
   }
+
+  return lines.join('\n')
+}
+
+// Renders the full CohortAnalytics block — per-quadrant aggregates side-by-side,
+// contrastive findings, loss diagnostics, audience-match correlation. This is
+// the prompt scaffold that replaces the winner-only EMPIRICAL CONSTRAINTS block.
+function formatCohortAnalytics(a: CohortAnalytics): string {
+  const lines: string[] = []
+  const pct = (r: number) => `${Math.round(r * 100)}%`
+  const dist = (arr: Array<[string, number]>) => arr.length === 0 ? '—' : arr.slice(0, 5).map(([k, n]) => `${k}=${n}`).join(', ')
+
+  // Concise per-quadrant summary line — full constraints rendered below for winners.
+  function quadrantSnapshot(label: string, c: CohortConstraints): string {
+    if (c.sample_size === 0) return `  ${label} (n=0): no ads in this quadrant`
+    const parts: string[] = [`  ${label} (n=${c.sample_size}):`]
+    if (c.headline_words) parts.push(`HL=${c.headline_words.min}-${c.headline_words.max}w`)
+    parts.push(`sub=${pct(c.subheadline_presence_rate)}`, `body=${pct(c.body_presence_rate)}`, `cta=${pct(c.cta_presence_rate)}`)
+    if (c.element_counts) parts.push(`elements=${c.element_counts.min}-${c.element_counts.max} (med ${c.element_counts.p50})`)
+    if (c.attention_score_median != null) parts.push(`attention=${c.attention_score_median}`)
+    if (c.cognitive_load_median != null) parts.push(`cogload=${c.cognitive_load_median}`)
+    if (c.congruence_median != null) parts.push(`congruence=${c.congruence_median}`)
+    const topGrade = (Object.entries(c.framework_grades) as Array<[string, number]>).sort((a2, b2) => b2[1] - a2[1])[0]
+    if (topGrade && topGrade[1] > 0) parts.push(`grade_mode=${topGrade[0]}`)
+    return parts.join(' | ')
+  }
+
+  lines.push('## PER-QUADRANT SNAPSHOT')
+  lines.push(quadrantSnapshot('WINNERS',      a.by_quadrant.winner))
+  lines.push(quadrantSnapshot('PROMISING',    a.by_quadrant.promising))
+  lines.push(quadrantSnapshot('INVESTIGATE',  a.by_quadrant.investigate))
+  lines.push(quadrantSnapshot('LOSERS',       a.by_quadrant.loser))
+
+  lines.push('')
+  lines.push('## CONTRASTIVE FINDINGS (programmatically computed from per-quadrant deltas)')
+  if (a.contrasts.winner_exclusive_attributes.length > 0) {
+    lines.push('  Winner-exclusive attributes (REPLICATE):')
+    for (const f of a.contrasts.winner_exclusive_attributes) lines.push(`    · ${f}`)
+  }
+  if (a.contrasts.loser_exclusive_attributes.length > 0) {
+    lines.push('  Loser-exclusive attributes (AVOID):')
+    for (const f of a.contrasts.loser_exclusive_attributes) lines.push(`    · ${f}`)
+  }
+  if (a.contrasts.presence_rate_gaps.length > 0) {
+    lines.push('  Presence-rate gaps ≥30pp (strongest signals):')
+    for (const f of a.contrasts.presence_rate_gaps) lines.push(`    · ${f}`)
+  }
+  if (a.contrasts.winner_vs_investigate_deltas.length > 0) {
+    lines.push('  Winner-vs-investigate deltas (the bleeders investigates suffer from):')
+    for (const f of a.contrasts.winner_vs_investigate_deltas) lines.push(`    · ${f}`)
+  }
+
+  lines.push('')
+  lines.push('## LOSS DIAGNOSTICS (from losers + investigates)')
+  if (a.loss_diagnostics.loss_reason_distribution.length > 0) {
+    lines.push(`  loss_reason distribution: ${a.loss_diagnostics.loss_reason_distribution.map(([k, n]) => `${k}=${n}`).join(', ')}`)
+  } else {
+    lines.push('  loss_reason distribution: not classified for these failures')
+  }
+  if (a.loss_diagnostics.format_failure_mode_distribution.length > 0) {
+    lines.push(`  format_failure_mode: ${a.loss_diagnostics.format_failure_mode_distribution.map(([k, n]) => `${k}=${n}`).join(', ')}`)
+  }
+  if (a.loss_diagnostics.recurring_priority_fixes.length > 0) {
+    lines.push('  Recurring priority_fix themes (from losers):')
+    for (const f of a.loss_diagnostics.recurring_priority_fixes) lines.push(`    · ${f}`)
+  }
+  if (a.loss_diagnostics.recurring_critical_weaknesses.length > 0) {
+    lines.push('  Recurring critical_weakness themes:')
+    for (const f of a.loss_diagnostics.recurring_critical_weaknesses) lines.push(`    · ${f}`)
+  }
+
+  lines.push('')
+  lines.push('## AUDIENCE-MATCH CORRELATION')
+  const am = a.audience_match_correlation.aligned_rate_by_quadrant
+  lines.push(`  aligned-rate by quadrant: winner=${pct(am.winner)}, promising=${pct(am.promising)}, investigate=${pct(am.investigate)}, loser=${pct(am.loser)}`)
+  if (am.winner > am.loser + 0.3) {
+    lines.push('  → large alignment gap: audience clarity is a winning lever. Specs MUST nail TAM/persona/micro.')
+  }
+  if (a.audience_match_correlation.mismatch_examples.length > 0) {
+    lines.push('  Major-mismatch examples:')
+    for (const ex of a.audience_match_correlation.mismatch_examples) {
+      lines.push(`    · ${ex.ad_id.slice(0, 8)} (${ex.quadrant}): ${ex.mismatches.join('; ')}`)
+    }
+  }
+
+  // Visual inventory (only renders when ≥1 ad in the cohort has the field populated)
+  const wv = a.by_quadrant.winner.visual_inventory
+  const lv = a.by_quadrant.loser.visual_inventory
+  if (wv || lv) {
+    lines.push('')
+    lines.push('## VISUAL INVENTORY (from ads with visual_inventory populated)')
+    if (wv) lines.push(`  Winners (n=${wv.sample_count}): face_presence=${pct(wv.face_presence_rate)}, top_settings=${dist(wv.top_settings)}, warmth=${Object.entries(wv.warmth_distribution).map(([k, n]) => `${k}=${n}`).join(', ')}`)
+    if (lv) lines.push(`  Losers  (n=${lv.sample_count}): face_presence=${pct(lv.face_presence_rate)}, top_settings=${dist(lv.top_settings)}, warmth=${Object.entries(lv.warmth_distribution).map(([k, n]) => `${k}=${n}`).join(', ')}`)
+    if (wv && wv.top_props.length > 0) lines.push(`  Top props in winners: ${dist(wv.top_props)}`)
+  }
+
+  // Voice consistency
+  const wVc = a.by_quadrant.winner.voice_consistency_median
+  const lVc = a.by_quadrant.loser.voice_consistency_median
+  if (wVc != null || lVc != null) {
+    lines.push('')
+    lines.push('## VOICE CONSISTENCY')
+    if (wVc != null) lines.push(`  Winners voice_consistency median: ${wVc}/10`)
+    if (lVc != null) lines.push(`  Losers  voice_consistency median: ${lVc}/10`)
+    if (wVc != null && lVc != null && wVc - lVc >= 1.5) {
+      lines.push('  → winners maintain voice across elements; losers drift. Specs MUST keep headline / subheadline / body / CTA in one consistent voice.')
+    }
+  }
+
+  // Curiosity gap
+  const wCg = a.by_quadrant.winner.curiosity_gap
+  const lCg = a.by_quadrant.loser.curiosity_gap
+  if (wCg || lCg) {
+    lines.push('')
+    lines.push('## CURIOSITY GAP')
+    if (wCg) lines.push(`  Winners (n=${wCg.sample_count}): gap_strength=${wCg.gap_strength_median}/10, body_resolves=${pct(wCg.body_resolves_rate)}`)
+    if (lCg) lines.push(`  Losers  (n=${lCg.sample_count}): gap_strength=${lCg.gap_strength_median}/10, body_resolves=${pct(lCg.body_resolves_rate)}`)
+  }
+
+  // Writing quality
+  const wWq = a.by_quadrant.winner.writing_quality
+  const lWq = a.by_quadrant.loser.writing_quality
+  if (wWq || lWq) {
+    lines.push('')
+    lines.push('## WRITING QUALITY (deterministic per-element scores; HARD CONSTRAINTS)')
+    if (wWq) lines.push(`  Winners (n=${wWq.sample_count}): headline_grade=${wWq.headline_grade_median}, body_grade=${wWq.body_grade_median ?? '—'}, avg_sentence=${wWq.avg_sentence_length_median}w, active_voice=${wWq.active_voice_ratio_median ?? '—'}, adverb_density=${wWq.adverb_density_median}/100w, weasel_density=${wWq.weasel_word_density_median?.toFixed(1) ?? '—'}/100w`)
+    if (lWq) lines.push(`  Losers  (n=${lWq.sample_count}): headline_grade=${lWq.headline_grade_median}, body_grade=${lWq.body_grade_median ?? '—'}, avg_sentence=${lWq.avg_sentence_length_median}w, active_voice=${lWq.active_voice_ratio_median ?? '—'}, adverb_density=${lWq.adverb_density_median}/100w, weasel_density=${lWq.weasel_word_density_median?.toFixed(1) ?? '—'}/100w`)
+  }
+
+  // Detailed winner constraints + verbatim exemplars (the existing format)
+  lines.push('')
+  lines.push('## WINNER DETAIL (size + style + verbatim copy — match this voice)')
+  lines.push(formatConstraints(a.by_quadrant.winner, `${a.by_quadrant.winner.sample_size} winners`))
 
   return lines.join('\n')
 }

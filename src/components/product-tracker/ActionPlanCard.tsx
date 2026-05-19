@@ -656,9 +656,61 @@ function TestSpecCard({ index, spec }: { index: number; spec: TestSpec }) {
               <p className="text-[11px] text-gray-300 leading-relaxed">{spec.why_this_test}</p>
             </div>
           )}
+
+          {spec.data_basis && <DataBasisBlock db={spec.data_basis} />}
         </div>
       )}
     </li>
+  )
+}
+
+function DataBasisBlock({ db }: { db: NonNullable<TestSpec['data_basis']> }) {
+  const totalCitations =
+    (db.replicates_from?.length ?? 0) +
+    (db.avoids_pattern_of?.length ?? 0) +
+    (db.addresses_investigate_weakness?.length ?? 0) +
+    (db.extends_promising_signal?.length ?? 0)
+  if (totalCitations === 0 && (db.contrastive_findings_used?.length ?? 0) === 0) return null
+  const short = (id: string) => id.slice(0, 8)
+  return (
+    <div className="border-t border-gray-800 pt-3">
+      <p className="text-[9px] uppercase tracking-wider text-indigo-300 font-semibold mb-2">Derived from</p>
+      <div className="space-y-1.5">
+        {db.replicates_from?.length > 0 && (
+          <p className="text-[11px] text-gray-300 leading-snug">
+            <span className="text-emerald-400">Replicates pattern of:</span> {db.replicates_from.map(short).join(', ')}
+          </p>
+        )}
+        {db.avoids_pattern_of?.length > 0 && (
+          <p className="text-[11px] text-gray-300 leading-snug">
+            <span className="text-[#ff2a2b]">Avoids pattern of:</span> {db.avoids_pattern_of.map(short).join(', ')}
+          </p>
+        )}
+        {db.addresses_investigate_weakness?.length > 0 && (
+          <p className="text-[11px] text-gray-300 leading-snug">
+            <span className="text-amber-300">Fixes weakness of:</span> {db.addresses_investigate_weakness.map(short).join(', ')}
+          </p>
+        )}
+        {db.extends_promising_signal?.length > 0 && (
+          <p className="text-[11px] text-gray-300 leading-snug">
+            <span className="text-indigo-300">Extends signal of:</span> {db.extends_promising_signal.map(short).join(', ')}
+          </p>
+        )}
+        {db.contrastive_findings_used?.length > 0 && (
+          <div className="text-[11px] text-gray-300 leading-snug">
+            <p className="text-gray-400 mb-0.5">Contrastive findings used:</p>
+            <ul className="space-y-0.5 ml-2">
+              {db.contrastive_findings_used.map((f, i) => <li key={i} className="text-[11px] text-gray-300">· {f}</li>)}
+            </ul>
+          </div>
+        )}
+        {db.loss_modes_addressed?.length > 0 && (
+          <p className="text-[11px] text-gray-300 leading-snug">
+            <span className="text-gray-400">Avoids loss modes:</span> {db.loss_modes_addressed.join(', ')}
+          </p>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -737,6 +789,26 @@ function buildSpecBriefText(s: TestSpec): string {
   if (s.behavioral_economics.length > 0) lines.push(`Behavioral economics: ${s.behavioral_economics.join(', ')}`)
   if (s.trust_signals.length > 0) lines.push(`Trust signals: ${s.trust_signals.join(', ')}`)
   if (s.why_this_test) lines.push('', `Why: ${s.why_this_test}`)
+  const db = s.data_basis
+  if (db) {
+    const totalCitations =
+      (db.replicates_from?.length ?? 0) +
+      (db.avoids_pattern_of?.length ?? 0) +
+      (db.addresses_investigate_weakness?.length ?? 0) +
+      (db.extends_promising_signal?.length ?? 0)
+    if (totalCitations > 0 || (db.contrastive_findings_used?.length ?? 0) > 0) {
+      lines.push('', '## Derived from')
+      if (db.replicates_from?.length > 0)              lines.push(`Replicates pattern of: ${db.replicates_from.map(id => id.slice(0, 8)).join(', ')}`)
+      if (db.avoids_pattern_of?.length > 0)            lines.push(`Avoids pattern of: ${db.avoids_pattern_of.map(id => id.slice(0, 8)).join(', ')}`)
+      if (db.addresses_investigate_weakness?.length > 0) lines.push(`Fixes weakness of: ${db.addresses_investigate_weakness.map(id => id.slice(0, 8)).join(', ')}`)
+      if (db.extends_promising_signal?.length > 0)     lines.push(`Extends signal of: ${db.extends_promising_signal.map(id => id.slice(0, 8)).join(', ')}`)
+      if (db.contrastive_findings_used?.length > 0) {
+        lines.push('Contrastive findings used:')
+        for (const f of db.contrastive_findings_used) lines.push(`  · ${f}`)
+      }
+      if (db.loss_modes_addressed?.length > 0) lines.push(`Avoids loss modes: ${db.loss_modes_addressed.join(', ')}`)
+    }
+  }
   return lines.join('\n')
 }
 
