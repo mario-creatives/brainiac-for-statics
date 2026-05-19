@@ -240,6 +240,10 @@ next_test_batch.specs — 3-5 FINISHED CREATIVE BRIEFS that are DERIVATIONS from
   - If cta_presence.verdict says CTA isn't the lever, at least one spec MUST have no CTA. Use empty string for cta and set cta_framing to "none". The body or headline should carry the persuasion.
   - Element load (headline + subheadline + body + cta + benefits + trust_signals) MUST vary across specs to span the cohort's measured element-count range. If winners cluster at low element counts (2-3 populated elements), most specs should be lean. If winners use full element loads, more specs can be loaded. NEVER pile every element on every spec — that's the element-overload trap your breakdown is meant to call out.
   - Headline word count MUST fall in the empirical headline range. CTA word count (when present) MUST fall in the empirical CTA range. Subheadline length (when present) MUST fall in the empirical subheadline range. Body length MUST fall in the body range.
+  - Headline STYLE must match the dominant attributes in the empirical block: same voice/person/tense, dominant structure_type, dominant sentence_type, dominant register, dominant specificity_level. If winners NEVER use exclamation points (or any specific punctuation), your specs MUST NOT use them either. If winners NEVER use metaphor/negation/contrast, do not introduce those.
+  - CTA STYLE (when included) must use one of the verbs winners use, the dominant framing, the dominant friction_level. Don't invent new verb patterns the winners haven't validated.
+  - Body STYLE (when included) must match the dominant frame and pronoun_density.
+  - READ the verbatim exemplars in the empirical block. Your written copy MUST read like it belongs in that list — same syntax patterns, same vocabulary tier, same cadence, same emotional register, same level of specificity. If a verbatim winner says "Falling asleep in 12 minutes again", do not write "Get amazing sleep!" — that breaks every style signal at once. Stay in the voice.
   - Composition_tag and ad_format SHOULD lean toward the top winning compositions/formats from the empirical data, unless the spec is explicitly contrarian (which must be justified in why_this_test).
 
 You are this brand's senior copywriter. You have read every winning ad's headline, subheadline, body, and CTA. You know this brand's voice — its cadence, vocabulary, sentence length, what it always says, what it never says. WRITE the final copy in that voice:
@@ -248,7 +252,7 @@ You are this brand's senior copywriter. You have read every winning ad's headlin
   - subheadline: the actual subheadline (empty string ONLY if subheadline_role is "absent"). Stay within the empirical char range.
   - body_copy: the actual body copy (empty string ONLY if body_role is "absent"). Stay within the empirical body word range.
   - cta: the actual CTA text (empty string ONLY if cta_framing is "none").
-  - brand_voice_notes: 1-2 sentences naming THIS brand's observed voice attributes (e.g. "Beam uses second-person direct address, present-tense outcome claims, 6-8 words max, never exclamation points, leans on time-bound specifics like '12 minutes' over vague claims like 'fast'").
+  - brand_voice_notes: 1-2 sentences naming THIS brand's observed voice attributes BY ATTRIBUTE NAME from the empirical block — voice, person, tense, register, structure tendencies, punctuation conventions, vocabulary tier. Concrete. Example: "Voice: active, second-person, present-tense, statement-form. Dominant structure: outcome-claim with mechanism. Register: warm-confident, never urgent or clinical. No exclamation points, em-dashes used for emphasis. Specificity: high — time-bound numerics like '12 minutes' over vague qualifiers."
 
 SOURCING vs WRITING — when a spec's ad_format requires a real person (testimonial card, UGC, before/after photo, founder portrait, real customer quote), you CANNOT fabricate the quote or invent a person. Instead:
   - Fill sourcing_requirements with a casting/sourcing brief: who to find, what they should have experienced, what they should be able to say or show, what setting they should be in. Be specific.
@@ -488,6 +492,7 @@ const ACTION_PLAN_SCHEMA = {
 interface NumRange { min: number; max: number; p50: number }
 interface CohortConstraints {
   source_label: string
+  // Size constraints — empirical word/char ranges + presence rates
   headline_words: NumRange | null
   headline_chars: NumRange | null
   subheadline_presence_rate: number
@@ -503,6 +508,47 @@ interface CohortConstraints {
   element_counts: NumRange | null
   compositions: Record<string, number>
   formats: Record<string, number>
+  // Style constraints — voice / register / structure / punctuation from winners
+  headline_style: StyleAggregates
+  cta_style: CtaStyleAggregates
+  body_style: BodyStyleAggregates
+  // Verbatim exemplars — actual copy from top winners for the model to match
+  headline_exemplars: string[]
+  subheadline_exemplars: string[]
+  cta_exemplars: string[]
+  body_exemplars: string[]
+}
+
+interface StyleAggregates {
+  voice: Array<[string, number]>             // active vs passive
+  person: Array<[string, number]>            // 1st / 2nd / 3rd
+  tense: Array<[string, number]>             // present / past / future
+  sentence_type: Array<[string, number]>     // statement / question / imperative
+  structure_type: Array<[string, number]>    // outcome-claim / mechanism-reveal / etc.
+  specificity_level: Array<[string, number]>
+  emotional_register: Array<[string, number]>
+  tone_register: Array<[string, number]>
+  mechanism_present_rate: number
+  audience_explicit_rate: number
+  outcome_explicit_rate: number
+  time_bound_rate: number
+  uses_metaphor_rate: number
+  uses_negation_rate: number
+  uses_contrast_rate: number
+  punctuation_signals: Array<[string, number]>
+}
+
+interface CtaStyleAggregates {
+  verbs: Array<[string, number]>
+  framing: Array<[string, number]>
+  friction_level: Array<[string, number]>
+  has_value_anchor_rate: number
+  has_urgency_signal_rate: number
+}
+
+interface BodyStyleAggregates {
+  frame: Array<[string, number]>
+  pronoun_density: Array<[string, number]>
 }
 
 function range(arr: number[]): NumRange | null {
@@ -511,11 +557,23 @@ function range(arr: number[]): NumRange | null {
   return { min: sorted[0], max: sorted[sorted.length - 1], p50: sorted[Math.floor(sorted.length / 2)] }
 }
 
-// Pulls measurable copy/composition stats from each ad's comprehensive
-// analysis. These numbers feed the empirical constraints block in the
-// prompt so the model writes specs that respect the cohort's actual
-// behavior — copy lengths, element counts, CTA presence rate, etc.
-function computeCohortConstraints(rows: Array<{ comprehensive_analysis: Record<string, unknown> }>): CohortConstraints {
+function modeCount(arr: Array<string | null | undefined>): Array<[string, number]> {
+  const counts = new Map<string, number>()
+  for (const v of arr) {
+    if (typeof v === 'string' && v.trim()) counts.set(v, (counts.get(v) ?? 0) + 1)
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])
+}
+
+function rate(present: number, total: number): number {
+  return total > 0 ? present / total : 0
+}
+
+// Pulls measurable copy/composition/style stats AND verbatim copy exemplars
+// from each ad's comprehensive analysis. The numbers feed the empirical
+// constraints block in the prompt; the exemplars give the model real copy
+// to pattern-match against so spec copy reads in the brand's actual voice.
+function computeCohortConstraints(rows: Array<{ comprehensive_analysis: Record<string, unknown>; spend_usd: number | null }>): CohortConstraints {
   const headlineWords: number[] = []
   const headlineChars: number[] = []
   const subheadlineChars: number[] = []
@@ -532,37 +590,110 @@ function computeCohortConstraints(rows: Array<{ comprehensive_analysis: Record<s
   let benefitsPresent = 0
   let trustPresent = 0
 
+  // Style accumulators (headline)
+  const hVoice: Array<string | undefined> = []
+  const hPerson: Array<string | undefined> = []
+  const hTense: Array<string | undefined> = []
+  const hSentenceType: Array<string | undefined> = []
+  const hStructureType: Array<string | undefined> = []
+  const hSpecificity: Array<string | undefined> = []
+  const hEmotionalRegister: Array<string | undefined> = []
+  const hToneRegister: Array<string | undefined> = []
+  let hMechanism = 0, hAudExplicit = 0, hOutcomeExplicit = 0, hTimeBound = 0
+  let hMetaphor = 0, hNegation = 0, hContrast = 0
+  const hPunctuation: string[] = []
+
+  // CTA style
+  const cVerb: Array<string | undefined> = []
+  const cFraming: Array<string | undefined> = []
+  const cFriction: Array<string | undefined> = []
+  let cValueAnchor = 0, cUrgency = 0
+
+  // Body style
+  const bFrame: Array<string | undefined> = []
+  const bPronoun: Array<string | undefined> = []
+
+  // Verbatim exemplars (paired with spend for ranking)
+  const headlineCandidates: Array<{ text: string; spend: number }> = []
+  const subheadlineCandidates: Array<{ text: string; spend: number }> = []
+  const ctaCandidates: Array<{ text: string; spend: number }> = []
+  const bodyCandidates: Array<{ text: string; spend: number }> = []
+
   for (const r of rows) {
     const ca = r.comprehensive_analysis as Record<string, unknown>
     const copy = ca.copy as Record<string, unknown> | undefined
+    const spend = r.spend_usd ?? 0
     let elements = 0
 
-    const hd = (copy?.headline as Record<string, unknown> | undefined)?.dna as Record<string, unknown> | undefined
+    const headlineBlock = copy?.headline as Record<string, unknown> | undefined
+    const hd = headlineBlock?.dna as Record<string, unknown> | undefined
     if (hd) {
       if (typeof hd.word_count === 'number') headlineWords.push(hd.word_count)
       if (typeof hd.char_count === 'number') headlineChars.push(hd.char_count)
+      hVoice.push(hd.voice as string | undefined)
+      hPerson.push(hd.person as string | undefined)
+      hTense.push(hd.tense as string | undefined)
+      hSentenceType.push(hd.sentence_type as string | undefined)
+      hStructureType.push(hd.structure_type as string | undefined)
+      hSpecificity.push(hd.specificity_level as string | undefined)
+      hEmotionalRegister.push(hd.emotional_register as string | undefined)
+      hToneRegister.push(hd.tone_register as string | undefined)
+      if (hd.mechanism_present)  hMechanism++
+      if (hd.audience_explicit)  hAudExplicit++
+      if (hd.outcome_explicit)   hOutcomeExplicit++
+      if (hd.time_bound)         hTimeBound++
+      if (hd.uses_metaphor)      hMetaphor++
+      if (hd.uses_negation)      hNegation++
+      if (hd.uses_contrast)      hContrast++
+      const punct = hd.punctuation_signals
+      if (Array.isArray(punct)) for (const p of punct) if (typeof p === 'string') hPunctuation.push(p)
       elements++
     }
+    const headlineText = headlineBlock?.text
+    if (typeof headlineText === 'string' && headlineText.trim()) {
+      headlineCandidates.push({ text: headlineText.trim(), spend })
+    }
 
-    const sd = (copy?.subheadline as Record<string, unknown> | undefined)?.dna as Record<string, unknown> | undefined
+    const subheadlineBlock = copy?.subheadline as Record<string, unknown> | undefined
+    const sd = subheadlineBlock?.dna as Record<string, unknown> | undefined
     if (sd && sd.role !== 'absent') {
       subheadlinePresent++
       if (typeof sd.char_count === 'number') subheadlineChars.push(sd.char_count)
       elements++
+      const subText = subheadlineBlock?.text
+      if (typeof subText === 'string' && subText.trim()) {
+        subheadlineCandidates.push({ text: subText.trim(), spend })
+      }
     }
 
     const body = ca.body_dna as Record<string, unknown> | undefined
     if (body && typeof body.word_count === 'number' && body.word_count > 0) {
       bodyPresent++
       bodyWords.push(body.word_count)
+      bFrame.push(body.frame as string | undefined)
+      bPronoun.push(body.personal_pronoun_density as string | undefined)
       elements++
     }
+    const bodyText = (copy?.body as Record<string, unknown> | undefined)?.text ?? ca.body_text
+    if (typeof bodyText === 'string' && bodyText.trim() && bodyText.length < 600) {
+      bodyCandidates.push({ text: bodyText.trim(), spend })
+    }
 
-    const cd = (copy?.cta as Record<string, unknown> | undefined)?.dna as Record<string, unknown> | undefined
+    const ctaBlock = copy?.cta as Record<string, unknown> | undefined
+    const cd = ctaBlock?.dna as Record<string, unknown> | undefined
     if (cd) {
       ctaPresent++
       if (typeof cd.word_count === 'number') ctaWords.push(cd.word_count)
+      cVerb.push(cd.verb as string | undefined)
+      cFraming.push(cd.framing as string | undefined)
+      cFriction.push(cd.friction_level as string | undefined)
+      if (cd.has_value_anchor)   cValueAnchor++
+      if (cd.has_urgency_signal) cUrgency++
       elements++
+      const ctaText = ctaBlock?.text
+      if (typeof ctaText === 'string' && ctaText.trim()) {
+        ctaCandidates.push({ text: ctaText.trim(), spend })
+      }
     }
 
     const bd = (copy?.benefits_features as Record<string, unknown> | undefined)?.dna as Record<string, unknown> | undefined
@@ -588,64 +719,163 @@ function computeCohortConstraints(rows: Array<{ comprehensive_analysis: Record<s
     if (typeof fmt === 'string') formats.set(fmt, (formats.get(fmt) ?? 0) + 1)
   }
 
-  const n = Math.max(rows.length, 1)
+  const n = rows.length
+
   return {
     source_label: '',
     headline_words: range(headlineWords),
     headline_chars: range(headlineChars),
-    subheadline_presence_rate: subheadlinePresent / n,
+    subheadline_presence_rate: rate(subheadlinePresent, n),
     subheadline_chars: range(subheadlineChars),
-    body_presence_rate: bodyPresent / n,
+    body_presence_rate: rate(bodyPresent, n),
     body_words: range(bodyWords),
-    cta_presence_rate: ctaPresent / n,
+    cta_presence_rate: rate(ctaPresent, n),
     cta_words: range(ctaWords),
-    benefits_presence_rate: benefitsPresent / n,
+    benefits_presence_rate: rate(benefitsPresent, n),
     benefits_count: range(benefitsCounts),
-    trust_presence_rate: trustPresent / n,
+    trust_presence_rate: rate(trustPresent, n),
     trust_count: range(trustCounts),
     element_counts: range(elementCounts),
     compositions: Object.fromEntries(compositions),
     formats: Object.fromEntries(formats),
+    headline_style: {
+      voice: modeCount(hVoice),
+      person: modeCount(hPerson),
+      tense: modeCount(hTense),
+      sentence_type: modeCount(hSentenceType),
+      structure_type: modeCount(hStructureType),
+      specificity_level: modeCount(hSpecificity),
+      emotional_register: modeCount(hEmotionalRegister),
+      tone_register: modeCount(hToneRegister),
+      mechanism_present_rate:   rate(hMechanism, headlineWords.length),
+      audience_explicit_rate:   rate(hAudExplicit, headlineWords.length),
+      outcome_explicit_rate:    rate(hOutcomeExplicit, headlineWords.length),
+      time_bound_rate:          rate(hTimeBound, headlineWords.length),
+      uses_metaphor_rate:       rate(hMetaphor, headlineWords.length),
+      uses_negation_rate:       rate(hNegation, headlineWords.length),
+      uses_contrast_rate:       rate(hContrast, headlineWords.length),
+      punctuation_signals: modeCount(hPunctuation),
+    },
+    cta_style: {
+      verbs:        modeCount(cVerb),
+      framing:      modeCount(cFraming),
+      friction_level: modeCount(cFriction),
+      has_value_anchor_rate:   rate(cValueAnchor, ctaPresent),
+      has_urgency_signal_rate: rate(cUrgency, ctaPresent),
+    },
+    body_style: {
+      frame:           modeCount(bFrame),
+      pronoun_density: modeCount(bPronoun),
+    },
+    headline_exemplars:    headlineCandidates.sort((a, b) => b.spend - a.spend).slice(0, 10).map(c => c.text),
+    subheadline_exemplars: subheadlineCandidates.sort((a, b) => b.spend - a.spend).slice(0, 6).map(c => c.text),
+    cta_exemplars:         dedupe(ctaCandidates.sort((a, b) => b.spend - a.spend).map(c => c.text)).slice(0, 8),
+    body_exemplars:        bodyCandidates.sort((a, b) => b.spend - a.spend).slice(0, 4).map(c => c.text),
   }
 }
 
-function formatConstraints(c: CohortConstraints, sourceLabel: string): string {
-  const lines: string[] = [`Source: ${sourceLabel}`]
-  const pct = (r: number) => `${Math.round(r * 100)}%`
-  const r = (n: NumRange | null) => n ? `${n.min}–${n.max} (median ${n.p50})` : 'no data'
+function dedupe(arr: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const s of arr) {
+    const key = s.toLowerCase()
+    if (!seen.has(key)) { seen.add(key); out.push(s) }
+  }
+  return out
+}
 
-  lines.push(`Headlines: ${r(c.headline_words)} words, ${r(c.headline_chars)} chars`)
+function formatConstraints(c: CohortConstraints, sourceLabel: string): string {
+  const lines: string[] = [`Source: ${sourceLabel}`, '']
+  const pct = (r: number) => `${Math.round(r * 100)}%`
+  const rs = (n: NumRange | null) => n ? `${n.min}–${n.max} (median ${n.p50})` : 'no data'
+  const dist = (arr: Array<[string, number]>) => arr.length === 0 ? 'no data' : arr.slice(0, 5).map(([k, n]) => `${k}=${n}`).join(', ')
+
+  lines.push('## Size & presence (HARD CONSTRAINTS)')
+  lines.push(`Headlines: ${rs(c.headline_words)} words, ${rs(c.headline_chars)} chars`)
   if (c.subheadline_presence_rate > 0) {
-    lines.push(`Subheadlines: present in ${pct(c.subheadline_presence_rate)} of source ads. When present: ${r(c.subheadline_chars)} chars. Specs MUST NOT exceed this char range.`)
+    lines.push(`Subheadlines: present in ${pct(c.subheadline_presence_rate)} of source ads. When present: ${rs(c.subheadline_chars)} chars. Specs MUST NOT exceed this char range.`)
   } else {
     lines.push(`Subheadlines: NEVER used by source ads. Most specs should set subheadline_role to "absent".`)
   }
   if (c.body_presence_rate > 0) {
-    lines.push(`Body copy: present in ${pct(c.body_presence_rate)} of source ads. When present: ${r(c.body_words)} words. Specs MUST stay in this word range.`)
+    lines.push(`Body copy: present in ${pct(c.body_presence_rate)} of source ads. When present: ${rs(c.body_words)} words. Specs MUST stay in this word range.`)
   } else {
     lines.push(`Body copy: NEVER used by source ads. Most specs should set body_role to "absent".`)
   }
   if (c.cta_presence_rate > 0) {
-    lines.push(`CTA: present in ${pct(c.cta_presence_rate)} of source ads. When present: ${r(c.cta_words)} words. If breakdown.cta_presence.verdict says CTA isn't the lever, at least one spec MUST omit the CTA (cta_framing="none", cta="").`)
+    lines.push(`CTA: present in ${pct(c.cta_presence_rate)} of source ads. When present: ${rs(c.cta_words)} words. If breakdown.cta_presence.verdict says CTA isn't the lever, at least one spec MUST omit the CTA (cta_framing="none", cta="").`)
   } else {
     lines.push(`CTA: NEVER used by source ads. Most specs should set cta_framing to "none" and cta to "".`)
   }
   if (c.benefits_presence_rate > 0) {
-    lines.push(`Benefits/features list: present in ${pct(c.benefits_presence_rate)} of source ads, ${r(c.benefits_count)} items when present.`)
+    lines.push(`Benefits/features list: present in ${pct(c.benefits_presence_rate)} of source ads, ${rs(c.benefits_count)} items when present.`)
   }
   if (c.trust_presence_rate > 0) {
-    lines.push(`Trust signals: present in ${pct(c.trust_presence_rate)} of source ads, ${r(c.trust_count)} items when present.`)
+    lines.push(`Trust signals: present in ${pct(c.trust_presence_rate)} of source ads, ${rs(c.trust_count)} items when present.`)
   }
   if (c.element_counts) {
-    lines.push(`Element count per ad: ${r(c.element_counts)}. Specs MUST span this range — do NOT pile every element on every spec.`)
+    lines.push(`Element count per ad: ${rs(c.element_counts)}. Specs MUST span this range — do NOT pile every element on every spec.`)
   }
   const topComp = Object.entries(c.compositions).sort((a, b) => b[1] - a[1]).slice(0, 4)
-  if (topComp.length > 0) {
-    lines.push(`Top compositions: ${topComp.map(([t, n]) => `${t}=${n}`).join(', ')}`)
-  }
+  if (topComp.length > 0) lines.push(`Top compositions: ${topComp.map(([t, n]) => `${t}=${n}`).join(', ')}`)
   const topFmt = Object.entries(c.formats).sort((a, b) => b[1] - a[1]).slice(0, 4)
-  if (topFmt.length > 0) {
-    lines.push(`Top formats: ${topFmt.map(([t, n]) => `${t}=${n}`).join(', ')}`)
+  if (topFmt.length > 0) lines.push(`Top formats: ${topFmt.map(([t, n]) => `${t}=${n}`).join(', ')}`)
+
+  // Style constraints — voice, register, structure, conventions
+  const hs = c.headline_style
+  lines.push('')
+  lines.push('## Headline STYLE (HARD CONSTRAINTS — match the dominant attributes; never use what winners never use)')
+  lines.push(`  voice:             ${dist(hs.voice)}`)
+  lines.push(`  person:            ${dist(hs.person)}`)
+  lines.push(`  tense:             ${dist(hs.tense)}`)
+  lines.push(`  sentence_type:     ${dist(hs.sentence_type)}`)
+  lines.push(`  structure_type:    ${dist(hs.structure_type)}`)
+  lines.push(`  specificity:       ${dist(hs.specificity_level)}`)
+  lines.push(`  emotional_register: ${dist(hs.emotional_register)}`)
+  lines.push(`  tone_register:     ${dist(hs.tone_register)}`)
+  lines.push(`  flag presence in winners — mechanism: ${pct(hs.mechanism_present_rate)}, audience-explicit: ${pct(hs.audience_explicit_rate)}, outcome-explicit: ${pct(hs.outcome_explicit_rate)}, time-bound: ${pct(hs.time_bound_rate)}`)
+  lines.push(`  conventions — metaphor: ${pct(hs.uses_metaphor_rate)}, negation: ${pct(hs.uses_negation_rate)}, contrast: ${pct(hs.uses_contrast_rate)}`)
+  lines.push(`  punctuation winners use: ${hs.punctuation_signals.length === 0 ? 'NONE (clean prose, no marks beyond periods)' : dist(hs.punctuation_signals)}`)
+
+  if (c.cta_presence_rate > 0) {
+    const cs = c.cta_style
+    lines.push('')
+    lines.push('## CTA STYLE (when a spec includes a CTA)')
+    lines.push(`  verbs winners use:  ${dist(cs.verbs)}`)
+    lines.push(`  framing:            ${dist(cs.framing)}`)
+    lines.push(`  friction_level:     ${dist(cs.friction_level)}`)
+    lines.push(`  value_anchor in:    ${pct(cs.has_value_anchor_rate)}, urgency_signal in: ${pct(cs.has_urgency_signal_rate)}`)
   }
+
+  if (c.body_presence_rate > 0) {
+    const bs = c.body_style
+    lines.push('')
+    lines.push('## BODY STYLE (when a spec includes body copy)')
+    lines.push(`  frame:              ${dist(bs.frame)}`)
+    lines.push(`  pronoun_density:    ${dist(bs.pronoun_density)}`)
+  }
+
+  // Verbatim exemplars
+  if (c.headline_exemplars.length > 0) {
+    lines.push('')
+    lines.push('## Winning HEADLINES (verbatim — match this voice, vocabulary, cadence, syntax)')
+    for (const h of c.headline_exemplars) lines.push(`  · ${h}`)
+  }
+  if (c.subheadline_exemplars.length > 0) {
+    lines.push('')
+    lines.push('## Winning SUBHEADLINES (verbatim)')
+    for (const s of c.subheadline_exemplars) lines.push(`  · ${s}`)
+  }
+  if (c.cta_exemplars.length > 0) {
+    lines.push('')
+    lines.push('## Winning CTAs (verbatim)')
+    for (const c2 of c.cta_exemplars) lines.push(`  · ${c2}`)
+  }
+  if (c.body_exemplars.length > 0) {
+    lines.push('')
+    lines.push('## Winning BODY copy (verbatim — match register and cadence)')
+    for (const b of c.body_exemplars) lines.push(`  · ${b}`)
+  }
+
   return lines.join('\n')
 }
