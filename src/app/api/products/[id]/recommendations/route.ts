@@ -370,9 +370,13 @@ Call submit_action_plan now.`
     // (empty strings, single words) when the schema was this large; for an
     // infrequent, quality-critical synthesis like the action plan, Opus is
     // worth the cost.
-    const message = await anthropic.messages.create({
+    // max_tokens=32000: with 3-5 detailed specs (full copy + data_basis) plus
+    // 10 breakdown sections the output routinely needs 15-25k tokens. 16k was
+    // too tight — the model would exhaust its budget mid-generation and submit
+    // an empty or skeleton tool call, triggering the "no summary_actions" error.
+    const callModel = () => anthropic.messages.create({
       model: 'claude-opus-4-7',
-      max_tokens: 16000,
+      max_tokens: 32000,
       tools: [{
         name: 'submit_action_plan',
         description: 'Submit the structured product action plan.',
@@ -382,60 +386,77 @@ Call submit_action_plan now.`
       messages: [{ role: 'user', content: prompt }],
     })
 
-    if (message.stop_reason === 'max_tokens') {
-      await deleteCachedReport(productId)
-      return { error: 'Response truncated at the model token ceiling. Click Regenerate to try again.' }
-    }
+    // Auto-retry once: if the first attempt produces an empty/skeleton
+    // tool call the model retries with the same prompt. This handles the
+    // rare case where the model submits a well-formed but blank tool call
+    // (distinct from max_tokens truncation, which is caught separately).
+    let message = await callModel()
+    let retried = false
 
-    const toolUse = message.content.find(b => b.type === 'tool_use')
-    if (!toolUse || toolUse.type !== 'tool_use') {
-      const textBlock = message.content.find(b => b.type === 'text')
-      const raw = textBlock?.type === 'text' ? textBlock.text : ''
-      try {
-        const partial = parseClaudeJson<Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>>(raw)
-        const emptyReason = detectEmptyReport(partial, cohortAnalytics.quality_gaps)
-        if (emptyReason) {
-          await deleteCachedReport(productId)
-          return { error: `Model returned an incomplete plan (${emptyReason}). Click Regenerate.` }
-        }
-        const report: ProductRecommendationReport = { ...partial, generated_at: new Date().toISOString(), ads_analyzed: sampled.length }
-        await supabaseServer
-          .from('product_recommendations')
-          .upsert({ product_id: productId, generated_at: report.generated_at, ads_analyzed: report.ads_analyzed, report }, { onConflict: 'product_id' })
-        return report
-      } catch {
-        await deleteCachedReport(productId)
-        return { error: 'Model did not return structured data. Click Regenerate.' }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        message = await callModel()
+        retried = true
       }
+
+      if (message.stop_reason === 'max_tokens') {
+        await deleteCachedReport(productId)
+        return { error: 'Response truncated at the model token ceiling. Click Regenerate to try again.' }
+      }
+
+      const toolUse = message.content.find(b => b.type === 'tool_use')
+      if (!toolUse || toolUse.type !== 'tool_use') {
+        // Fallback: model returned text instead of a tool call — try to parse JSON from it.
+        if (attempt === 0) continue
+        const textBlock = message.content.find(b => b.type === 'text')
+        const raw = textBlock?.type === 'text' ? textBlock.text : ''
+        try {
+          const partial = parseClaudeJson<Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>>(raw)
+          const emptyReason = detectEmptyReport(partial, cohortAnalytics.quality_gaps)
+          if (emptyReason) {
+            await deleteCachedReport(productId)
+            return { error: `Model returned an incomplete plan (${emptyReason}). Click Regenerate.` }
+          }
+          const report: ProductRecommendationReport = { ...partial, generated_at: new Date().toISOString(), ads_analyzed: sampled.length }
+          await supabaseServer
+            .from('product_recommendations')
+            .upsert({ product_id: productId, generated_at: report.generated_at, ads_analyzed: report.ads_analyzed, report }, { onConflict: 'product_id' })
+          return report
+        } catch {
+          await deleteCachedReport(productId)
+          return { error: 'Model did not return structured data. Click Regenerate.' }
+        }
+      }
+
+      const partial = toolUse.input as Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>
+      const emptyReason = detectEmptyReport(partial, cohortAnalytics.quality_gaps)
+      if (emptyReason) {
+        if (attempt === 0) continue  // retry once before surfacing the error
+        await deleteCachedReport(productId)
+        return { error: `Model returned an incomplete plan (${emptyReason}). Click Regenerate.` }
+      }
+
+      const report: ProductRecommendationReport = {
+        ...partial,
+        generated_at: new Date().toISOString(),
+        ads_analyzed: sampled.length,
+      }
+
+      await supabaseServer
+        .from('product_recommendations')
+        .upsert({
+          product_id: productId,
+          generated_at: report.generated_at,
+          ads_analyzed: report.ads_analyzed,
+          report,
+        }, { onConflict: 'product_id' })
+
+      return report
     }
 
-    const partial = toolUse.input as Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>
-
-    const emptyReason = detectEmptyReport(partial)
-    if (emptyReason) {
-      // Delete stale cached report so the user sees the empty state on next
-      // load instead of the previous broken version. Without this, repeated
-      // regenerate failures keep showing the original garbage report.
-      await deleteCachedReport(productId)
-      return { error: `Model returned an incomplete plan (${emptyReason}). Click Regenerate.` }
-    }
-
-    const report: ProductRecommendationReport = {
-      ...partial,
-      generated_at: new Date().toISOString(),
-      ads_analyzed: sampled.length,
-    }
-
-    await supabaseServer
-      .from('product_recommendations')
-      .upsert({
-        product_id: productId,
-        generated_at: report.generated_at,
-        ads_analyzed: report.ads_analyzed,
-        report,
-      }, { onConflict: 'product_id' })
-
-    return report
+    // Should not be reachable — the loop above always returns or continues.
+    await deleteCachedReport(productId)
+    return { error: 'Model did not produce a valid plan after retrying. Click Regenerate.' }
   })
 }
 
