@@ -540,6 +540,21 @@ function TestSpecCard({ index, spec }: { index: number; spec: TestSpec }) {
             <CopyBriefButton spec={spec} />
           </div>
 
+          {/* Sourcing brief — when the format requires a real person (testimonial/UGC),
+              the model cannot fabricate the quote. It briefs you on what to find. */}
+          {spec.sourcing_requirements && spec.sourcing_requirements.trim() && (
+            <div className="bg-amber-950/20 border border-amber-900/40 rounded-lg p-4">
+              <p className="text-[9px] uppercase tracking-wider text-amber-300 font-semibold mb-1.5">Source this — don&apos;t fabricate</p>
+              <p className="text-[12px] text-gray-200 leading-relaxed whitespace-pre-wrap">{spec.sourcing_requirements}</p>
+              {spec.body_copy && (
+                <div className="mt-3 pt-3 border-t border-amber-900/30">
+                  <p className="text-[9px] uppercase tracking-wider text-amber-300/80 font-semibold mb-1">Quote pattern to elicit</p>
+                  <p className="text-[12px] text-gray-300 italic leading-relaxed">{spec.body_copy}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* The Ad — final copy, designer-ready */}
           <SpecBlock title="The ad">
             <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-3">
@@ -559,7 +574,9 @@ function TestSpecCard({ index, spec }: { index: number; spec: TestSpec }) {
                 </>
               )}
 
-              {spec.body_role !== 'absent' && spec.body_copy && (
+              {/* Body is hidden here when a sourcing brief is present — the body
+                  is the quote pattern shown in the sourcing block above. */}
+              {spec.body_role !== 'absent' && spec.body_copy && !spec.sourcing_requirements?.trim() && (
                 <>
                   <div className="border-t border-gray-800 pt-3 flex items-start justify-between gap-2">
                     <p className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Body</p>
@@ -569,13 +586,21 @@ function TestSpecCard({ index, spec }: { index: number; spec: TestSpec }) {
                 </>
               )}
 
-              <div className="border-t border-gray-800 pt-3 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <p className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">CTA</p>
-                  <span className="text-xs bg-indigo-600 text-white px-3 py-1 rounded font-medium">{spec.cta}</span>
+              {spec.cta_framing !== 'none' && spec.cta && (
+                <div className="border-t border-gray-800 pt-3 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">CTA</p>
+                    <span className="text-xs bg-indigo-600 text-white px-3 py-1 rounded font-medium">{spec.cta}</span>
+                  </div>
+                  <CopyButton text={spec.cta} />
                 </div>
-                <CopyButton text={spec.cta} />
-              </div>
+              )}
+              {(spec.cta_framing === 'none' || !spec.cta) && (
+                <div className="border-t border-gray-800 pt-3">
+                  <p className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold mb-0.5">CTA</p>
+                  <p className="text-[11px] text-gray-500 italic">None — narrative carries the persuasion</p>
+                </div>
+              )}
             </div>
 
             {spec.brand_voice_notes && (
@@ -669,6 +694,7 @@ function CopyButton({ text }: { text: string }) {
 
 function buildSpecBriefText(s: TestSpec): string {
   const lines: string[] = []
+  const isSourcing = !!s.sourcing_requirements?.trim()
   lines.push(`# ${s.name}`, '')
   lines.push('## Audience')
   lines.push(`TAM: ${s.tam}`)
@@ -680,6 +706,12 @@ function buildSpecBriefText(s: TestSpec): string {
   lines.push(`Concept: ${s.concept}`)
   lines.push(`Angle: ${s.angle}`)
   lines.push(`Format: ${s.ad_format}  ·  Composition: ${s.composition}`, '')
+  if (isSourcing) {
+    lines.push('## Source this — don\'t fabricate')
+    lines.push(s.sourcing_requirements!)
+    if (s.body_copy) lines.push('', `Quote pattern to elicit: ${s.body_copy}`)
+    lines.push('')
+  }
   lines.push('## Copy')
   lines.push(`Headline (${s.headline_structure}):`)
   lines.push(`  ${s.headline}`)
@@ -687,11 +719,16 @@ function buildSpecBriefText(s: TestSpec): string {
     lines.push(`Subheadline (${s.subheadline_role}):`)
     lines.push(`  ${s.subheadline}`)
   }
-  if (s.body_role !== 'absent' && s.body_copy) {
+  if (!isSourcing && s.body_role !== 'absent' && s.body_copy) {
     lines.push(`Body (${s.body_role}):`)
     lines.push(`  ${s.body_copy}`)
   }
-  lines.push(`CTA (${s.cta_framing}): ${s.cta}`, '')
+  if (s.cta_framing === 'none' || !s.cta) {
+    lines.push(`CTA: none (narrative carries the persuasion)`)
+  } else {
+    lines.push(`CTA (${s.cta_framing}): ${s.cta}`)
+  }
+  lines.push('')
   if (s.brand_voice_notes) lines.push(`Voice: ${s.brand_voice_notes}`, '')
   lines.push('## Visual')
   lines.push(s.visual_direction)

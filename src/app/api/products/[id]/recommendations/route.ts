@@ -82,6 +82,7 @@ export interface TestSpec {
   trust_signals: string[]
   visual_direction: string           // detailed brief for the designer — composition, palette, key visual, focal point
   production_notes: string           // any specific layering, urgency cues, or layout instructions (empty if none)
+  sourcing_requirements: string      // when the format requires a real person (testimonial/UGC/before-after), the casting brief; empty string otherwise
 
   // Justification
   why_this_test: string              // 1-2 sentences citing specific winning ad IDs from the cohort
@@ -198,11 +199,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return `AD A${i + 1} [id=${r.id}] (quadrant=${effective ?? 'unset'}, spend=$${r.spend_usd ?? '?'}, cpa=$${r.cpa_usd ?? '?'}, ctr=${r.ctr_pct ?? '?'}%, age=${r.age_range ?? '?'}, active=${r.ad_active ?? '?'}, fatigue=${fatigue}):\n${fingerprint}`
     })
 
+    // Empirical constraints from the cohort's winners (or all sampled if winner
+    // count is low). These are NUMBERS, not Claude's interpretation — the model
+    // is told to honor these exact ranges when writing spec copy. Without this
+    // the model fabricated subheadlines of 350+ characters even when no winner
+    // had ever used a subheadline that long, and included CTAs even when the
+    // breakdown's own cta_presence.verdict said CTA wasn't the lever.
+    const winnerRows = sampled.filter(r => (r.quadrant_override ?? r.quadrant) === 'winner')
+    const constraintSource = winnerRows.length >= 3 ? winnerRows : sampled
+    const constraintLabel = winnerRows.length >= 3 ? `${winnerRows.length} winners` : `${sampled.length} sampled ads (only ${winnerRows.length} winner${winnerRows.length === 1 ? '' : 's'} — too thin to constrain on winners alone)`
+    const cohortConstraints = computeCohortConstraints(constraintSource)
+    const constraintsText = formatConstraints(cohortConstraints, constraintLabel)
+
     const targetCpa = product.target_cpa_usd ?? null
     const prompt = `You are a senior performance creative strategist. You have ${sampled.length} static ads for product "${product.name}"${product.vertical_category ? ` (${product.vertical_category})` : ''}${targetCpa != null ? ` with target CPA of $${targetCpa}` : ''} ${sampleNote}. Your job is to produce a concrete, no-fluff action plan grounded in this exact data.
 
 ADS:
 ${adSummaries.join('\n\n')}
+
+EMPIRICAL CONSTRAINTS — these are computed from the actual cohort data. Treat them as HARD CONSTRAINTS on spec design. Do not fabricate specs that exceed these ranges.
+
+${constraintsText}
 
 QUADRANT DEFINITIONS:
 - winner: spend ≥ $1k AND cpa ≤ target — scale + iterate
@@ -218,21 +235,34 @@ summary_actions — 3-5 top-level actions, each a full sentence citing specific 
 
 breakdown — proper sentences in EVERY "finding" field. For each section, state WHAT wins (or loses) AND WHY in one breath, citing ad IDs. For sections where the cohort doesn't have enough data to draw a conclusion, write a sentence explaining that explicitly (e.g. "Only 3 ads have age_range data — too thin to draw a winning pattern; collect targeting data to enable this finding"). Never leave a finding blank.
 
-next_test_batch.specs — 3-5 FINISHED CREATIVE BRIEFS, not templated forms. You are this brand's senior copywriter. You have read every winning ad's headline, subheadline, body, and CTA in the cohort. You know this brand's voice — its cadence, vocabulary, level of formality, sentence length, what it always says, what it never says. WRITE the final copy in that voice, not example placeholders:
+next_test_batch.specs — 3-5 FINISHED CREATIVE BRIEFS that are DERIVATIONS from the breakdown findings AND the empirical constraints above. Every spec decision must trace back:
 
-  - headline: the actual headline that goes in the ad. Match the cohort's voice exactly — same syntax patterns, same tone register, same level of specificity. If winners use 6-word outcome claims, write a 6-word outcome claim. Don't invent a foreign voice.
-  - subheadline: the actual subheadline (empty string ONLY if subheadline_role is "absent"). Same voice match.
-  - body_copy: the actual body copy (empty string ONLY if body_role is "absent").
-  - cta: the actual CTA text.
-  - brand_voice_notes: 1-2 sentences naming THIS brand's voice attributes as you observed them in the cohort (e.g. "Beam's winners use second-person direct address, present-tense outcome claims, 6-8 words max, never use exclamation points, lean on time-bound specifics like '12 minutes' over vague claims like 'fast'").
-  - visual_direction: a real designer brief — composition, palette, key visual, focal point. Not "show product clearly" — say "tight close-up of woman 35-44 with relaxed expression in soft warm bedroom lighting, product bottle in lower-right third, copy left-aligned over upper third with the relaxed face as primary focal point". Specific enough to design from.
-  - production_notes: any specific layering, urgency cues, layout instructions. Empty string if none.
+  - If cta_presence.verdict says CTA isn't the lever, at least one spec MUST have no CTA. Use empty string for cta and set cta_framing to "none". The body or headline should carry the persuasion.
+  - Element load (headline + subheadline + body + cta + benefits + trust_signals) MUST vary across specs to span the cohort's measured element-count range. If winners cluster at low element counts (2-3 populated elements), most specs should be lean. If winners use full element loads, more specs can be loaded. NEVER pile every element on every spec — that's the element-overload trap your breakdown is meant to call out.
+  - Headline word count MUST fall in the empirical headline range. CTA word count (when present) MUST fall in the empirical CTA range. Subheadline length (when present) MUST fall in the empirical subheadline range. Body length MUST fall in the body range.
+  - Composition_tag and ad_format SHOULD lean toward the top winning compositions/formats from the empirical data, unless the spec is explicitly contrarian (which must be justified in why_this_test).
 
-Plus the metadata fields (TAM, persona, micro_persona, desire, awareness, sophistication, concept, angle, headline_structure, subheadline_role, body_role, cta_framing, behavioral_economics, trust_signals, ad_format, composition) — these describe what the copy IS doing strategically. Both the copy AND the metadata get filled.
+You are this brand's senior copywriter. You have read every winning ad's headline, subheadline, body, and CTA. You know this brand's voice — its cadence, vocabulary, sentence length, what it always says, what it never says. WRITE the final copy in that voice:
 
-Specs MUST differ in angle OR persona OR awareness level — not just reword the same concept with different headlines. variations_per_spec is typically 3-5 (sub-variations the strategist makes from each finished brief).
+  - headline: the actual headline that goes in the ad. Match the cohort's voice exactly.
+  - subheadline: the actual subheadline (empty string ONLY if subheadline_role is "absent"). Stay within the empirical char range.
+  - body_copy: the actual body copy (empty string ONLY if body_role is "absent"). Stay within the empirical body word range.
+  - cta: the actual CTA text (empty string ONLY if cta_framing is "none").
+  - brand_voice_notes: 1-2 sentences naming THIS brand's observed voice attributes (e.g. "Beam uses second-person direct address, present-tense outcome claims, 6-8 words max, never exclamation points, leans on time-bound specifics like '12 minutes' over vague claims like 'fast'").
 
-why_this_test cites specific winning ad IDs from the cohort (e.g. "A3 and A7 prove that 6-word outcome-claim headlines for solution-aware sleep-deprived adults convert at $32-40 CPA; this spec extends that pattern to the perimenopausal micro-persona which has no winner yet").
+SOURCING vs WRITING — when a spec's ad_format requires a real person (testimonial card, UGC, before/after photo, founder portrait, real customer quote), you CANNOT fabricate the quote or invent a person. Instead:
+  - Fill sourcing_requirements with a casting/sourcing brief: who to find, what they should have experienced, what they should be able to say or show, what setting they should be in. Be specific.
+  - body_copy becomes the PATTERN of the quote you want sourced (e.g. "I was X for Y years, then Z. Now W in T days.") — describe the quote shape, do not invent the quote.
+  - headline, cta remain overlay copy you write yourself.
+For non-sourcing specs (designed-from-scratch creative), set sourcing_requirements to empty string.
+
+visual_direction must be a real designer brief — composition, palette, key visual, focal point. Not "show product clearly" — say "tight close-up of woman 35-44 with relaxed expression in soft warm bedroom lighting, product bottle in lower-right third, copy left-aligned over upper third with the relaxed face as primary focal point". Specific enough to design from.
+
+production_notes: any specific layering, urgency cues, or layout instructions. Empty string if none.
+
+Specs MUST differ in angle OR persona OR awareness level OR element load — not just reword the same concept. variations_per_spec is typically 3-5.
+
+why_this_test cites specific winning ad IDs from the cohort AND names the breakdown finding (or empirical constraint) that justifies the spec's decisions (e.g. "A3, A7 prove 6-word outcome-claim headlines win for solution-aware sleep-deprived adults at $32-40 CPA; cta_presence.verdict says CTA isn't the lever for cold confessional formats so this spec omits the CTA; element count of 3 matches the median winning load").
 
 Call submit_action_plan now.`
 
@@ -417,7 +447,7 @@ const ACTION_PLAN_SCHEMA = {
               'body_copy', 'body_role',
               'cta', 'cta_framing',
               'behavioral_economics', 'trust_signals',
-              'visual_direction', 'production_notes',
+              'visual_direction', 'production_notes', 'sourcing_requirements',
               'why_this_test',
             ],
             properties: {
@@ -445,6 +475,7 @@ const ACTION_PLAN_SCHEMA = {
               trust_signals: { type: 'array', items: { type: 'string' } },
               visual_direction: { type: 'string' },
               production_notes: { type: 'string' },
+              sourcing_requirements: { type: 'string' },
               why_this_test: { type: 'string' },
             },
           },
@@ -453,3 +484,168 @@ const ACTION_PLAN_SCHEMA = {
     },
   },
 } as const
+
+interface NumRange { min: number; max: number; p50: number }
+interface CohortConstraints {
+  source_label: string
+  headline_words: NumRange | null
+  headline_chars: NumRange | null
+  subheadline_presence_rate: number
+  subheadline_chars: NumRange | null
+  body_presence_rate: number
+  body_words: NumRange | null
+  cta_presence_rate: number
+  cta_words: NumRange | null
+  benefits_presence_rate: number
+  benefits_count: NumRange | null
+  trust_presence_rate: number
+  trust_count: NumRange | null
+  element_counts: NumRange | null
+  compositions: Record<string, number>
+  formats: Record<string, number>
+}
+
+function range(arr: number[]): NumRange | null {
+  if (arr.length === 0) return null
+  const sorted = [...arr].sort((a, b) => a - b)
+  return { min: sorted[0], max: sorted[sorted.length - 1], p50: sorted[Math.floor(sorted.length / 2)] }
+}
+
+// Pulls measurable copy/composition stats from each ad's comprehensive
+// analysis. These numbers feed the empirical constraints block in the
+// prompt so the model writes specs that respect the cohort's actual
+// behavior — copy lengths, element counts, CTA presence rate, etc.
+function computeCohortConstraints(rows: Array<{ comprehensive_analysis: Record<string, unknown> }>): CohortConstraints {
+  const headlineWords: number[] = []
+  const headlineChars: number[] = []
+  const subheadlineChars: number[] = []
+  const bodyWords: number[] = []
+  const ctaWords: number[] = []
+  const benefitsCounts: number[] = []
+  const trustCounts: number[] = []
+  const elementCounts: number[] = []
+  const compositions = new Map<string, number>()
+  const formats = new Map<string, number>()
+  let subheadlinePresent = 0
+  let bodyPresent = 0
+  let ctaPresent = 0
+  let benefitsPresent = 0
+  let trustPresent = 0
+
+  for (const r of rows) {
+    const ca = r.comprehensive_analysis as Record<string, unknown>
+    const copy = ca.copy as Record<string, unknown> | undefined
+    let elements = 0
+
+    const hd = (copy?.headline as Record<string, unknown> | undefined)?.dna as Record<string, unknown> | undefined
+    if (hd) {
+      if (typeof hd.word_count === 'number') headlineWords.push(hd.word_count)
+      if (typeof hd.char_count === 'number') headlineChars.push(hd.char_count)
+      elements++
+    }
+
+    const sd = (copy?.subheadline as Record<string, unknown> | undefined)?.dna as Record<string, unknown> | undefined
+    if (sd && sd.role !== 'absent') {
+      subheadlinePresent++
+      if (typeof sd.char_count === 'number') subheadlineChars.push(sd.char_count)
+      elements++
+    }
+
+    const body = ca.body_dna as Record<string, unknown> | undefined
+    if (body && typeof body.word_count === 'number' && body.word_count > 0) {
+      bodyPresent++
+      bodyWords.push(body.word_count)
+      elements++
+    }
+
+    const cd = (copy?.cta as Record<string, unknown> | undefined)?.dna as Record<string, unknown> | undefined
+    if (cd) {
+      ctaPresent++
+      if (typeof cd.word_count === 'number') ctaWords.push(cd.word_count)
+      elements++
+    }
+
+    const bd = (copy?.benefits_features as Record<string, unknown> | undefined)?.dna as Record<string, unknown> | undefined
+    if (bd && typeof bd.count === 'number' && bd.count > 0) {
+      benefitsPresent++
+      benefitsCounts.push(bd.count)
+      elements++
+    }
+
+    const td = (copy?.trust_signals as Record<string, unknown> | undefined)?.dna as Record<string, unknown> | undefined
+    if (td && typeof td.count === 'number' && td.count > 0) {
+      trustPresent++
+      trustCounts.push(td.count)
+      elements++
+    }
+
+    elementCounts.push(elements)
+
+    const ct = ca.composition_tag
+    if (typeof ct === 'string') compositions.set(ct, (compositions.get(ct) ?? 0) + 1)
+
+    const fmt = (ca.ad_format as Record<string, unknown> | undefined)?.type
+    if (typeof fmt === 'string') formats.set(fmt, (formats.get(fmt) ?? 0) + 1)
+  }
+
+  const n = Math.max(rows.length, 1)
+  return {
+    source_label: '',
+    headline_words: range(headlineWords),
+    headline_chars: range(headlineChars),
+    subheadline_presence_rate: subheadlinePresent / n,
+    subheadline_chars: range(subheadlineChars),
+    body_presence_rate: bodyPresent / n,
+    body_words: range(bodyWords),
+    cta_presence_rate: ctaPresent / n,
+    cta_words: range(ctaWords),
+    benefits_presence_rate: benefitsPresent / n,
+    benefits_count: range(benefitsCounts),
+    trust_presence_rate: trustPresent / n,
+    trust_count: range(trustCounts),
+    element_counts: range(elementCounts),
+    compositions: Object.fromEntries(compositions),
+    formats: Object.fromEntries(formats),
+  }
+}
+
+function formatConstraints(c: CohortConstraints, sourceLabel: string): string {
+  const lines: string[] = [`Source: ${sourceLabel}`]
+  const pct = (r: number) => `${Math.round(r * 100)}%`
+  const r = (n: NumRange | null) => n ? `${n.min}–${n.max} (median ${n.p50})` : 'no data'
+
+  lines.push(`Headlines: ${r(c.headline_words)} words, ${r(c.headline_chars)} chars`)
+  if (c.subheadline_presence_rate > 0) {
+    lines.push(`Subheadlines: present in ${pct(c.subheadline_presence_rate)} of source ads. When present: ${r(c.subheadline_chars)} chars. Specs MUST NOT exceed this char range.`)
+  } else {
+    lines.push(`Subheadlines: NEVER used by source ads. Most specs should set subheadline_role to "absent".`)
+  }
+  if (c.body_presence_rate > 0) {
+    lines.push(`Body copy: present in ${pct(c.body_presence_rate)} of source ads. When present: ${r(c.body_words)} words. Specs MUST stay in this word range.`)
+  } else {
+    lines.push(`Body copy: NEVER used by source ads. Most specs should set body_role to "absent".`)
+  }
+  if (c.cta_presence_rate > 0) {
+    lines.push(`CTA: present in ${pct(c.cta_presence_rate)} of source ads. When present: ${r(c.cta_words)} words. If breakdown.cta_presence.verdict says CTA isn't the lever, at least one spec MUST omit the CTA (cta_framing="none", cta="").`)
+  } else {
+    lines.push(`CTA: NEVER used by source ads. Most specs should set cta_framing to "none" and cta to "".`)
+  }
+  if (c.benefits_presence_rate > 0) {
+    lines.push(`Benefits/features list: present in ${pct(c.benefits_presence_rate)} of source ads, ${r(c.benefits_count)} items when present.`)
+  }
+  if (c.trust_presence_rate > 0) {
+    lines.push(`Trust signals: present in ${pct(c.trust_presence_rate)} of source ads, ${r(c.trust_count)} items when present.`)
+  }
+  if (c.element_counts) {
+    lines.push(`Element count per ad: ${r(c.element_counts)}. Specs MUST span this range — do NOT pile every element on every spec.`)
+  }
+  const topComp = Object.entries(c.compositions).sort((a, b) => b[1] - a[1]).slice(0, 4)
+  if (topComp.length > 0) {
+    lines.push(`Top compositions: ${topComp.map(([t, n]) => `${t}=${n}`).join(', ')}`)
+  }
+  const topFmt = Object.entries(c.formats).sort((a, b) => b[1] - a[1]).slice(0, 4)
+  if (topFmt.length > 0) {
+    lines.push(`Top formats: ${topFmt.map(([t, n]) => `${t}=${n}`).join(', ')}`)
+  }
+  return lines.join('\n')
+}
