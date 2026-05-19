@@ -43,6 +43,7 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
   const [reportGeneratedAt, setReportGeneratedAt] = useState<string | null>(null)
   const [opened, setOpened] = useState<OpenedAd | null>(null)
   const [openedLoading, setOpenedLoading] = useState(false)
+  const [openedError, setOpenedError] = useState<string | null>(null)
   const [reanalyzeRunning, setReanalyzeRunning] = useState(false)
   const [reanalyzeProgress, setReanalyzeProgress] = useState<{ done: number; total: number; currentId: string | null }>({ done: 0, total: 0, currentId: null })
   const [reanalyzeError, setReanalyzeError] = useState<string | null>(null)
@@ -118,31 +119,55 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
   }
 
   async function handleOpenAd(analysisId: string) {
+    // Open the modal in a loading state immediately so the user gets visible
+    // feedback the click was registered. Previously we set openedLoading but
+    // didn't open the modal until the fetch returned — when the fetch silently
+    // failed (e.g. expired JWT → 401) nothing ever appeared.
+    setOpened({
+      id: analysisId,
+      result: { analysis_id: analysisId, status: 'processing', heatmap_url: null, roi_data: null, mean_top_roi_score: null, error_message: null, attribution: { /* filled by API */ } as never },
+      comprehensive: null,
+      spend: undefined,
+      isWinner: false,
+      isLoser: false,
+    })
     setOpenedLoading(true)
+    setOpenedError(null)
     try {
-      const res = await fetch(`/api/analyze/${analysisId}`, { headers: { Authorization: `Bearer ${token}` } })
-      if (res.ok) {
-        const data = await res.json()
-        const isWinner = data.spend_usd != null && data.spend_usd >= 1000
-        const isLoser = data.spend_usd != null && data.spend_usd < 1000
-        setOpened({
-          id: data.analysis_id,
-          result: {
-            analysis_id: data.analysis_id,
-            status: data.status,
-            heatmap_url: data.heatmap_url,
-            roi_data: data.roi_data,
-            mean_top_roi_score: data.mean_top_roi_score,
-            error_message: data.error_message,
-            attribution: data.attribution,
-          },
-          comprehensive: data.comprehensive_analysis,
-          spend: data.spend_usd ?? undefined,
-          isWinner,
-          isLoser,
-        })
+      // Get a fresh session token — the token prop is captured at page mount
+      // and expires after ~1 hour. Long sessions hit 401 here and the modal
+      // never populated. Same fix pattern as runProductReanalyze.
+      const { data: { session } } = await supabase.auth.getSession()
+      const freshToken = session?.access_token ?? token
+      const res = await fetch(`/api/analyze/${analysisId}`, { headers: { Authorization: `Bearer ${freshToken}` } })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        setOpenedError(errData.error ?? `Failed to load analysis (${res.status})`)
+        setOpenedLoading(false)
+        return
       }
-    } catch { /* ignore */ }
+      const data = await res.json()
+      const isWinner = data.spend_usd != null && data.spend_usd >= 1000
+      const isLoser = data.spend_usd != null && data.spend_usd < 1000
+      setOpened({
+        id: data.analysis_id,
+        result: {
+          analysis_id: data.analysis_id,
+          status: data.status,
+          heatmap_url: data.heatmap_url,
+          roi_data: data.roi_data,
+          mean_top_roi_score: data.mean_top_roi_score,
+          error_message: data.error_message,
+          attribution: data.attribution,
+        },
+        comprehensive: data.comprehensive_analysis,
+        spend: data.spend_usd ?? undefined,
+        isWinner,
+        isLoser,
+      })
+    } catch (e) {
+      setOpenedError(e instanceof Error ? e.message : 'Network error')
+    }
     setOpenedLoading(false)
   }
 
@@ -346,10 +371,12 @@ export function ProductDashboard({ productId, token, onProductChanged }: Props) 
           }}
           comprehensive={opened.comprehensive ?? undefined}
           loading={openedLoading}
+          error={openedError ?? undefined}
           isHistorical={opened.spend != null}
           token={token}
           productId={productId}
-          onClose={() => setOpened(null)}
+          onClose={() => { setOpened(null); setOpenedError(null) }}
+          onRetry={() => handleOpenAd(opened.id)}
         />
       )}
     </div>
