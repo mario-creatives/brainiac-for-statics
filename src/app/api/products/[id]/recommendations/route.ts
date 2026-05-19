@@ -51,6 +51,17 @@ export interface ProductRecommendationReport {
 
 export interface TestSpec {
   name: string                       // short label — "Mechanism reveal for sleep-deprived moms"
+  // Spec intent. Constrains how strictly the spec must match cohort empirics:
+  //   replicate — match the dominant winning attributes; safe variation.
+  //   extend    — mostly match winners; vary one targeted dimension (a known
+  //               winning pattern applied to an under-tested persona / segment).
+  //   fix       — match winners EXCEPT on a flagged quality dimension where
+  //               the cohort is weak; the spec intentionally diverges on that
+  //               axis as a corrective test hypothesis.
+  //   novelty   — explore a combination not yet tested in the cohort (gap
+  //               fill). May leave replicates_from empty; MUST cite the gap
+  //               in contrastive_findings_used.
+  spec_mode: 'replicate' | 'extend' | 'fix' | 'novelty'
   ad_format: string                  // e.g. "lifestyle photo with text overlay", "product hero", "testimonial card"
   composition: string                // "visual+text", "text-dominant", "visual_only", "split-screen"
 
@@ -258,16 +269,44 @@ summary_actions — 3-5 top-level actions, each a full sentence citing specific 
 
 breakdown — proper sentences in EVERY "finding" field. For each section, state WHAT wins (or loses) AND WHY in one breath, citing ad IDs. For sections where the cohort doesn't have enough data to draw a conclusion, write a sentence explaining that explicitly (e.g. "Only 3 ads have age_range data — too thin to draw a winning pattern; collect targeting data to enable this finding"). Never leave a finding blank.
 
-next_test_batch.specs — 3-5 FINISHED CREATIVE BRIEFS that are DERIVATIONS from the breakdown findings AND the empirical constraints above. Every spec decision must trace back:
+next_test_batch.specs — 3-5 FINISHED CREATIVE BRIEFS that are DERIVATIONS from the breakdown findings AND the empirical constraints above.
+
+SPEC MODES (REQUIRED — every spec carries one):
+  - replicate: matches winners on every dimension (the safest test).
+  - extend: matches winners on every dimension EXCEPT one, applying a proven winning pattern to a new audience / persona / micro-segment / awareness level that's under-represented in the cohort.
+  - fix: matches winners EXCEPT on a dimension flagged in the QUALITY GAPS section. The spec INTENTIONALLY diverges on that dimension as a corrective test hypothesis. Required when QUALITY GAPS exist: at least one fix spec per flagged gap (or one fix spec covering the highest-leverage gap if multiple are flagged).
+  - novelty: explores a combination NOT yet tested in the cohort — a persona × angle × format combination winners have never paired, an awareness level the cohort doesn't target, a behavioral_economics signal never deployed. The novelty spec's data_basis.replicates_from MAY be empty, but data_basis.contrastive_findings_used MUST cite the gap explicitly (e.g. "no winner targets the unaware awareness level despite 4 losers attempting it without trust signals — testing trust-signal-led unaware framing"). MAY match cohort voice / writing style if appropriate.
+
+A 3-5 spec batch MUST include:
+  - At least 1 'replicate' spec (anchors the test on what's proven).
+  - At least 1 of {'fix', 'novelty'} (guarantees the batch isn't all-replicate). If QUALITY GAPS exist, the batch MUST include at least 1 'fix' spec per gap (or covering the worst gap when many exist).
+  - The remaining specs may be replicate / extend / fix / novelty as judgment dictates.
+
+Every spec decision must trace back. Rules apply CONDITIONALLY on spec_mode:
 
   - If cta_presence.verdict says CTA isn't the lever, at least one spec MUST have no CTA. Use empty string for cta and set cta_framing to "none". The body or headline should carry the persuasion.
   - Element load (headline + subheadline + body + cta + benefits + trust_signals) MUST vary across specs to span the cohort's measured element-count range. If winners cluster at low element counts (2-3 populated elements), most specs should be lean. If winners use full element loads, more specs can be loaded. NEVER pile every element on every spec — that's the element-overload trap your breakdown is meant to call out.
+
+  For spec_mode = 'replicate' OR 'extend':
   - Headline word count MUST fall in the empirical headline range. CTA word count (when present) MUST fall in the empirical CTA range. Subheadline length (when present) MUST fall in the empirical subheadline range. Body length MUST fall in the body range.
-  - Headline STYLE must match the dominant attributes in the empirical block: same voice/person/tense, dominant structure_type, dominant sentence_type, dominant register, dominant specificity_level. If winners NEVER use exclamation points (or any specific punctuation), your specs MUST NOT use them either. If winners NEVER use metaphor/negation/contrast, do not introduce those.
-  - CTA STYLE (when included) must use one of the verbs winners use, the dominant framing, the dominant friction_level. Don't invent new verb patterns the winners haven't validated.
+  - Headline STYLE must match the dominant attributes in the empirical block: same voice/person/tense, dominant structure_type, dominant sentence_type, dominant register, dominant specificity_level. If winners NEVER use exclamation points (or any specific punctuation), your specs MUST NOT use them either.
+  - CTA STYLE (when included) must use one of the verbs winners use, the dominant framing, the dominant friction_level.
   - Body STYLE (when included) must match the dominant frame and pronoun_density.
-  - READ the verbatim exemplars in the empirical block. Your written copy MUST read like it belongs in that list — same syntax patterns, same vocabulary tier, same cadence, same emotional register, same level of specificity. If a verbatim winner says "Falling asleep in 12 minutes again", do not write "Get amazing sleep!" — that breaks every style signal at once. Stay in the voice.
-  - Composition_tag and ad_format SHOULD lean toward the top winning compositions/formats from the empirical data, unless the spec is explicitly contrarian (which must be justified in why_this_test).
+  - READ the verbatim exemplars in the empirical block. Your written copy MUST read like it belongs in that list. Stay in the voice.
+  - Composition_tag and ad_format SHOULD lean toward the top winning compositions/formats unless extending into a deliberately new format combination (which must be justified in why_this_test).
+  - For 'extend' specifically: keep all the above replicate rules EXCEPT for the one dimension you're extending (e.g. extending to a new persona keeps copy style identical, just retargets).
+
+  For spec_mode = 'fix':
+  - Match all dimensions EXCEPT the flagged QUALITY GAP dimension. On the flagged dimension, INTENTIONALLY diverge in the direction the QUALITY GAPS prescription names.
+  - Example: if QUALITY GAPS flagged "writing_quality.headline_grade: winners' median = 11, test simpler", the fix spec writes a headline at grade 6-8 with the SAME angle, persona, awareness level, and concept as the cohort winners — but simpler prose. Everything else stays in the cohort voice.
+  - Voice still anchored to cohort exemplars unless the fix dimension IS the voice (rare).
+  - why_this_test MUST name the dimension being intentionally diverged on and the hypothesis (e.g. "Hypothesis: winners win DESPITE grade-11 prose, not because of it; testing grade-7 variant").
+
+  For spec_mode = 'novelty':
+  - Voice / writing style should still align with the brand's observed voice from the empirical block (Hemingway grade, sentence length, active voice ratio, weasel density, punctuation conventions). The novelty is in the COMBINATION (audience × angle × format × awareness × BE signal), not in inventing a foreign voice.
+  - Identify a specific gap from the COHORT ANALYTICS — an awareness level winners don't target, a format×angle pair never tried, a persona × micro-persona never tested. contrastive_findings_used MUST cite this gap explicitly.
+  - data_basis.replicates_from MAY be empty for novelty specs (no direct winner pattern to replicate) but contrastive_findings_used MUST cite the gap.
+  - why_this_test MUST be explicit: "Novel combination test — <combination> not tried in cohort. Hypothesis: <why this might work>."
 
 You are this brand's senior copywriter. You have read every winning ad's headline, subheadline, body, and CTA. You know this brand's voice — its cadence, vocabulary, sentence length, what it always says, what it never says. WRITE the final copy in that voice:
 
@@ -333,7 +372,7 @@ Call submit_action_plan now.`
       const raw = textBlock?.type === 'text' ? textBlock.text : ''
       try {
         const partial = parseClaudeJson<Omit<ProductRecommendationReport, 'generated_at' | 'ads_analyzed'>>(raw)
-        const emptyReason = detectEmptyReport(partial)
+        const emptyReason = detectEmptyReport(partial, cohortAnalytics.quality_gaps)
         if (emptyReason) {
           await deleteCachedReport(productId)
           return { error: `Model returned an incomplete plan (${emptyReason}). Click Regenerate.` }
@@ -385,7 +424,7 @@ async function deleteCachedReport(productId: string): Promise<void> {
 
 // Returns a human-readable reason if the report is missing substantive content,
 // or null if it has the minimum required substance to be saved.
-function detectEmptyReport(p: Partial<ProductRecommendationReport>): string | null {
+function detectEmptyReport(p: Partial<ProductRecommendationReport>, qualityGaps: QualityGap[] = []): string | null {
   if (!p.summary_actions?.length) return 'no summary_actions'
   if (p.summary_actions.some(s => !s?.trim() || s.trim().length < 10)) return 'summary_actions contain empty/placeholder strings'
   const b = p.breakdown
@@ -417,8 +456,18 @@ function detectEmptyReport(p: Partial<ProductRecommendationReport>): string | nu
   // Every spec must be grounded — data_basis with at least one ad ID and at
   // least one contrastive finding cited. Without this guard the model can
   // produce specs that don't trace back to any concrete cohort data.
-  for (let i = 0; i < p.next_test_batch.specs.length; i++) {
-    const s = p.next_test_batch.specs[i]
+  // Novelty specs are the exception for the ad-ID requirement (they explore
+  // a gap, by definition having no prior ad to replicate) but they still
+  // need contrastive_findings_used to cite the gap.
+  const modeCount: Record<string, number> = { replicate: 0, extend: 0, fix: 0, novelty: 0 }
+  const specs: TestSpec[] = p.next_test_batch.specs
+  for (let i = 0; i < specs.length; i++) {
+    const s: TestSpec = specs[i]
+    const mode = s.spec_mode
+    if (!mode || !['replicate', 'extend', 'fix', 'novelty'].includes(mode)) {
+      return `spec #${i + 1} has missing or invalid spec_mode`
+    }
+    modeCount[mode]++
     const db = s.data_basis
     if (!db) return `spec #${i + 1} missing data_basis`
     const totalCitations =
@@ -426,8 +475,24 @@ function detectEmptyReport(p: Partial<ProductRecommendationReport>): string | nu
       (db.avoids_pattern_of?.length ?? 0) +
       (db.addresses_investigate_weakness?.length ?? 0) +
       (db.extends_promising_signal?.length ?? 0)
-    if (totalCitations === 0) return `spec #${i + 1} data_basis cites no ad IDs across any of the four roles`
+    if (mode !== 'novelty' && totalCitations === 0) {
+      return `spec #${i + 1} (${mode}) data_basis cites no ad IDs across any of the four roles`
+    }
     if (!db.contrastive_findings_used?.length) return `spec #${i + 1} data_basis cites no contrastive findings`
+  }
+
+  // Batch composition rules — guarantees the batch isn't all-replicate AND
+  // covers the corrective hypotheses flagged by QUALITY GAPS.
+  if (specs.length >= 3) {
+    if (modeCount.replicate === 0) {
+      return 'no replicate-mode spec in the batch — at least 1 spec MUST anchor on what\'s proven'
+    }
+    if (modeCount.fix === 0 && modeCount.novelty === 0) {
+      return 'batch is all-replicate/extend — at least 1 spec MUST be \'fix\' or \'novelty\' to surface corrective hypotheses or test new combinations'
+    }
+  }
+  if (qualityGaps.length > 0 && modeCount.fix === 0) {
+    return `QUALITY GAPS flagged (${qualityGaps.map(g => g.dimension).join(', ')}) but no spec is spec_mode='fix' to test corrections`
   }
   return null
 }
@@ -492,7 +557,7 @@ const ACTION_PLAN_SCHEMA = {
           items: {
             type: 'object',
             required: [
-              'name', 'ad_format', 'composition',
+              'name', 'spec_mode', 'ad_format', 'composition',
               'tam', 'persona', 'micro_persona', 'desire', 'awareness_level', 'sophistication_level',
               'concept', 'angle',
               'brand_voice_notes',
@@ -507,6 +572,7 @@ const ACTION_PLAN_SCHEMA = {
             ],
             properties: {
               name: { type: 'string' },
+              spec_mode: { type: 'string', enum: ['replicate', 'extend', 'fix', 'novelty'] },
               ad_format: { type: 'string' },
               composition: { type: 'string' },
               tam: { type: 'string' },
@@ -625,8 +691,15 @@ interface CohortConstraints {
 // Top-level analytics shape combining per-quadrant aggregates with cross-quadrant
 // contrasts, loss diagnostics, and audience-match correlation. This is what the
 // action-plan prompt consumes.
+interface QualityGap {
+  dimension: string                  // 'writing_quality.hemingway' | 'voice_consistency' | ...
+  observed: string                   // human-readable observed value
+  prescription: string               // what corrective specs should test
+}
+
 interface CohortAnalytics {
   by_quadrant: Record<Quadrant, CohortConstraints>
+  quality_gaps: QualityGap[]
   contrasts: {
     winner_exclusive_attributes: string[]
     loser_exclusive_attributes: string[]
@@ -1098,8 +1171,87 @@ function computeCohortAnalytics(rows: QuadrantAdRow[]): CohortAnalytics {
   const contrasts = computeContrasts(by_quadrant.winner, by_quadrant.loser, by_quadrant.investigate)
   const loss_diagnostics = computeLossDiagnostics([...buckets.loser, ...buckets.investigate])
   const audience_match_correlation = computeAudienceMatchCorrelation(rows, buckets)
+  const quality_gaps = detectQualityGaps(by_quadrant.winner)
 
-  return { by_quadrant, contrasts, loss_diagnostics, audience_match_correlation }
+  return { by_quadrant, quality_gaps, contrasts, loss_diagnostics, audience_match_correlation }
+}
+
+// Flags dimensions where even the WINNING cohort is mediocre. Each flagged gap
+// forces at least one `spec_mode='fix'` spec that intentionally diverges on
+// that dimension as a corrective test hypothesis. Without this, the spec
+// generator replicates whatever winners do — even when winners are flawed
+// (e.g. won DESPITE high reading-grade copy, not because of it).
+function detectQualityGaps(winners: CohortConstraints): QualityGap[] {
+  const gaps: QualityGap[] = []
+  if (winners.sample_size === 0) return gaps
+
+  const wq = winners.writing_quality
+  if (wq?.headline_grade_median != null && wq.headline_grade_median > 9) {
+    gaps.push({
+      dimension: 'writing_quality.headline_grade',
+      observed: `winners' median headline reading grade = ${wq.headline_grade_median} (Hemingway: hard)`,
+      prescription: 'test a simpler-prose variant (target grade 6-8) with the same angle and audience — winners may be winning despite, not because of, dense copy',
+    })
+  }
+  if (wq?.body_grade_median != null && wq.body_grade_median > 10) {
+    gaps.push({
+      dimension: 'writing_quality.body_grade',
+      observed: `winners' median body reading grade = ${wq.body_grade_median}`,
+      prescription: 'test a Hemingway-good body variant (short sentences, active voice, no weasels) — see if simplification lifts CPA',
+    })
+  }
+  if (wq?.active_voice_ratio_median != null && wq.active_voice_ratio_median < 0.85) {
+    gaps.push({
+      dimension: 'writing_quality.active_voice',
+      observed: `winners' median active voice ratio = ${Math.round(wq.active_voice_ratio_median * 100)}%`,
+      prescription: 'test a fully-active-voice variant — passive constructions weaken claims',
+    })
+  }
+  if (wq?.weasel_word_density_median != null && wq.weasel_word_density_median > 3) {
+    gaps.push({
+      dimension: 'writing_quality.weasel_density',
+      observed: `winners use ${wq.weasel_word_density_median.toFixed(1)} weasel words per 100w`,
+      prescription: 'test a no-weasel variant — strip "very/really/just/quite" and replace with specifics',
+    })
+  }
+  if (winners.voice_consistency_median != null && winners.voice_consistency_median < 7) {
+    gaps.push({
+      dimension: 'voice_consistency',
+      observed: `winners' median voice_consistency = ${winners.voice_consistency_median}/10 (drift even in winners)`,
+      prescription: 'test a tighter-voice variant where headline / subheadline / body / CTA all read in one consistent voice',
+    })
+  }
+  const cg = winners.curiosity_gap
+  if (cg && cg.gap_strength_median >= 6 && cg.body_resolves_rate < 0.5) {
+    gaps.push({
+      dimension: 'curiosity_gap.body_resolves',
+      observed: `winners have median gap_strength ${cg.gap_strength_median}/10 but body resolves only ${Math.round(cg.body_resolves_rate * 100)}% of the time (info-gap leak)`,
+      prescription: 'test a closed-loop variant where body explicitly delivers on the headline gap — winners may be leaving conversions on the table',
+    })
+  }
+  if (winners.congruence_median != null && winners.congruence_median < 7) {
+    gaps.push({
+      dimension: 'congruence',
+      observed: `winners' median congruence = ${winners.congruence_median}/10`,
+      prescription: 'test a single-concept variant — strip competing claims so every element points at the same outcome',
+    })
+  }
+  if (winners.attention_score_median != null && winners.attention_score_median < 7) {
+    gaps.push({
+      dimension: 'attention_score',
+      observed: `winners' median attention_score = ${winners.attention_score_median}/10`,
+      prescription: 'test a stronger-disruptor variant — even winners aren\'t commanding strong attention; raise visual contrast or text dominance',
+    })
+  }
+  const aud = winners.fit_dimension_medians.audience_targeting_fit
+  if (typeof aud === 'number' && aud < 7) {
+    gaps.push({
+      dimension: 'fit.audience_targeting',
+      observed: `winners' median audience_targeting_fit = ${aud}/10`,
+      prescription: 'test a sharper-persona variant — narrower micro-persona, more audience-explicit headline language',
+    })
+  }
+  return gaps
 }
 
 // Contrastive findings — programmatically computed deltas between quadrants.
@@ -1387,6 +1539,15 @@ function formatCohortAnalytics(a: CohortAnalytics): string {
   if (a.contrasts.winner_vs_investigate_deltas.length > 0) {
     lines.push('  Winner-vs-investigate deltas (the bleeders investigates suffer from):')
     for (const f of a.contrasts.winner_vs_investigate_deltas) lines.push(`    · ${f}`)
+  }
+
+  if (a.quality_gaps.length > 0) {
+    lines.push('')
+    lines.push('## QUALITY GAPS (winners are mediocre on these dimensions — corrective test specs REQUIRED)')
+    for (const g of a.quality_gaps) {
+      lines.push(`  · ${g.dimension}: ${g.observed}`)
+      lines.push(`    → ${g.prescription}`)
+    }
   }
 
   lines.push('')

@@ -515,6 +515,20 @@ function NextTestBatchSection({ batch }: { batch: ProductRecommendationReport['n
   )
 }
 
+function SpecModePill({ mode }: { mode: NonNullable<TestSpec['spec_mode']> }) {
+  const meta = {
+    replicate: { label: 'Replicate winner', color: 'text-gray-400 bg-gray-900 border-gray-700' },
+    extend:    { label: 'Extend signal',    color: 'text-indigo-300 bg-indigo-950/40 border-indigo-900/60' },
+    fix:       { label: 'Quality fix',      color: 'text-amber-300 bg-amber-950/40 border-amber-900/60' },
+    novelty:   { label: 'Novel test',       color: 'text-violet-300 bg-violet-950/40 border-violet-900/60' },
+  }[mode]
+  return (
+    <span className={`text-[9px] font-mono font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${meta.color}`}>
+      {meta.label}
+    </span>
+  )
+}
+
 function TestSpecCard({ index, spec }: { index: number; spec: TestSpec }) {
   const [open, setOpen] = useState(index === 0)
   return (
@@ -526,6 +540,7 @@ function TestSpecCard({ index, spec }: { index: number; spec: TestSpec }) {
       >
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[10px] font-mono font-bold text-emerald-400 tabular-nums shrink-0">#{index + 1}</span>
+          {spec.spec_mode && <SpecModePill mode={spec.spec_mode} />}
           <span className="text-xs text-white font-medium truncate">{spec.name}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -747,7 +762,9 @@ function CopyButton({ text }: { text: string }) {
 function buildSpecBriefText(s: TestSpec): string {
   const lines: string[] = []
   const isSourcing = !!s.sourcing_requirements?.trim()
-  lines.push(`# ${s.name}`, '')
+  lines.push(`# ${s.name}`)
+  if (s.spec_mode) lines.push(`_Spec mode: **${s.spec_mode}**_`, '')
+  else lines.push('')
   lines.push('## Audience')
   lines.push(`TAM: ${s.tam}`)
   lines.push(`Persona: ${s.persona}`)

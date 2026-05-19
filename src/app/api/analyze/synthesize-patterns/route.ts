@@ -172,6 +172,42 @@ export function buildAdSummary(
   if (audFit) lines.push(`  AUD_TARGET_FIT: right_segment=${audFit.is_right_segment} score=${audFit.score}`)
   if (failMode && failMode.mode !== 'none') lines.push(`  FAIL_MODE: ${failMode.mode} — ${failMode.reasoning}`)
 
+  // Per-ad enrichment fields (visual_inventory / voice_consistency /
+  // curiosity_gap / writing_quality). Render only when populated so legacy
+  // ads stay clean. These give the recommendations prompt per-ad signal —
+  // not just aggregated medians — so the model can identify the specific
+  // ad whose visual or voice pattern to replicate or fix.
+  const anyCa = ca as unknown as Record<string, unknown>
+  const vi = anyCa.visual_inventory as Record<string, unknown> | undefined
+  if (vi) {
+    const faces = vi.faces as { count?: number; demographics?: string } | null
+    const palette = vi.color_palette as { warmth?: string; contrast_level?: string } | undefined
+    const facesStr = faces && typeof faces.count === 'number' && faces.count > 0
+      ? `faces=${faces.count}${faces.demographics ? ` (${faces.demographics})` : ''}`
+      : 'faces=0'
+    lines.push(`  VISUAL: ${facesStr} | product=${vi.product_visibility ?? '?'} | setting=${vi.setting ?? '?'} | palette=${palette?.warmth ?? '?'}/${palette?.contrast_level ?? '?'}-contrast`)
+  }
+  const vc = anyCa.voice_consistency as Record<string, unknown> | undefined
+  if (vc && typeof vc.overall_score === 'number') {
+    const drift = typeof vc.drift_summary === 'string' ? vc.drift_summary : ''
+    lines.push(`  VOICE_CONSISTENCY: ${vc.overall_score}/10${drift && drift !== 'consistent throughout' ? ` — drift: ${drift}` : ''}`)
+  }
+  const cg = anyCa.curiosity_gap as Record<string, unknown> | undefined
+  if (cg && typeof cg.gap_strength === 'number') {
+    lines.push(`  CURIOSITY_GAP: strength=${cg.gap_strength}/10 body_resolves=${cg.body_resolves}`)
+  }
+  const wq = anyCa.writing_quality as Record<string, unknown> | undefined
+  if (wq) {
+    const wqHd = wq.headline as Record<string, unknown> | null | undefined
+    const wqBody = wq.body as Record<string, unknown> | null | undefined
+    if (wqHd) {
+      lines.push(`  WRITING_QUALITY HL: grade=${wqHd.flesch_kincaid_grade} | sent_len=${wqHd.avg_sentence_length}w | active=${Math.round(((wqHd.active_voice_ratio as number) ?? 0) * 100)}% | adverbs=${wqHd.adverb_density}/100w | weasels=${wqHd.weasel_word_count} | hemingway=${wqHd.hemingway_grade}`)
+    }
+    if (wqBody && typeof wqBody.flesch_kincaid_grade === 'number') {
+      lines.push(`  WRITING_QUALITY BODY: grade=${wqBody.flesch_kincaid_grade} | sent_len=${wqBody.avg_sentence_length}w | hemingway=${wqBody.hemingway_grade}`)
+    }
+  }
+
   return lines.join('\n')
 }
 
