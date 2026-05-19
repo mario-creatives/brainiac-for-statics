@@ -176,25 +176,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return { insufficient_data: true, ads_count: rows.length }
     }
 
-    // Cap input to the most informative ads so the model can do quality
-    // synthesis instead of choking on 79+ entries. Take all winners + all
-    // investigates (high-spend signal, both kinds), plus top losers by spend
-    // (the failures that actually got tested). This keeps total input under
-    // ~30 ads, which keeps the LLM call reliable and the response complete.
-    const SAMPLE_CAP = 30
+    // No input cap — every analyzed ad gets fed to the model. The original
+    // 30-ad cap was a workaround for Sonnet choking on large JSON tool calls
+    // when per_ad_recommendations was still in the schema. Since we switched
+    // to Opus 4.7 and dropped per_ad_recommendations, response size is
+    // bounded by the breakdown + 3-5 specs (~5-10k output tokens) regardless
+    // of input count. Input tokens are cheap relative to losing signal.
+    // Order by spend desc within quadrant so the highest-validated ads
+    // appear first in the prompt — small attention bias toward what worked.
     const winners      = rows.filter(r => (r.quadrant_override ?? r.quadrant) === 'winner').sort((a, b) => (b.spend_usd ?? 0) - (a.spend_usd ?? 0))
     const investigates = rows.filter(r => (r.quadrant_override ?? r.quadrant) === 'investigate').sort((a, b) => (b.spend_usd ?? 0) - (a.spend_usd ?? 0))
     const promising   = rows.filter(r => (r.quadrant_override ?? r.quadrant) === 'promising').sort((a, b) => (b.spend_usd ?? 0) - (a.spend_usd ?? 0))
     const losers      = rows.filter(r => (r.quadrant_override ?? r.quadrant) === 'loser').sort((a, b) => (b.spend_usd ?? 0) - (a.spend_usd ?? 0))
-    const sampled = [
-      ...winners,
-      ...investigates,
-      ...promising.slice(0, 5),
-      ...losers.slice(0, Math.max(0, SAMPLE_CAP - winners.length - investigates.length - 5)),
-    ].slice(0, SAMPLE_CAP)
-    const sampleNote = sampled.length < rows.length
-      ? `(sampled the most informative ${sampled.length} of ${rows.length} total ads: all winners + all investigates + top losers by spend)`
-      : ''
+    const unclassified = rows.filter(r => {
+      const q = r.quadrant_override ?? r.quadrant
+      return q !== 'winner' && q !== 'investigate' && q !== 'promising' && q !== 'loser'
+    })
+    const sampled = [...winners, ...investigates, ...promising, ...losers, ...unclassified]
+    const sampleNote = ''
 
     // Pull metrics history per sampled ad for fatigue detection
     const adIds = sampled.map(r => r.id)
